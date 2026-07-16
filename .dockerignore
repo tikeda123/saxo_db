@@ -1,0 +1,15 @@
+.git
+.gitignore
+.DS_Store
+.env
+.secrets
+.venv
+__pycache__
+.pytest_cache
+.coverage
+htmlcov
+backups
+data/import
+*.log
+*.dump
+*.sql.gz

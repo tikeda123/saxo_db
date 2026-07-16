@@ -1,10 +1,10 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "phase": "DB0",
   "plan_id": "category_specific_intraday_strategy_v13",
   "research_line_id": "v13categoryintraday",
-  "amendment_id": "v13_database_prerequisite_20260716_v1",
-  "status": "SPEC_FROZEN_IMPLEMENTATION_NOT_STARTED",
+  "amendment_id": "v13_database_prerequisite_20260716_v2",
+  "status": "SPEC_REFROZEN_DB1_IMPLEMENTED_AND_PASSED",
   "purpose": "build_a_reproducible_incremental_market_data_store_before_strategy_rule_or_performance_validation",
   "gate_amendment": {
     "prior_next_phase": "RT0",
@@ -53,7 +53,8 @@
     "saxo_market": {
       "purpose": "updateable_all_history_operational_store",
       "writers": ["saxo_ingest"],
-      "readers": ["saxo_app_reader", "saxo_analyst_reader"]
+      "readers": ["saxo_app_reader", "saxo_analyst_reader"],
+      "procedure_only_operators": ["saxo_ops_operator"]
     },
     "saxo_research_v13": {
       "purpose": "immutable_development_snapshot_through_2024_06_28_23_59_59_UTC",
@@ -74,13 +75,14 @@
     "saxo_ingest": "LOGIN_market_DML_and_ingestion_procedures_only",
     "saxo_app_reader": "LOGIN_read_only_curated_and_ops_status_only",
     "saxo_analyst_reader": "LOGIN_read_only_market_analytics_views",
+    "saxo_ops_operator": "LOGIN_execute_allow_listed_quality_and_backup_procedures_only_no_direct_DML",
     "v13_research_reader": "LOGIN_read_only_research_snapshot_only",
     "v13_forward_writer": "LOGIN_execute_append_procedure_only_no_select",
     "postgres_superuser": "bootstrap_and_emergency_only_not_used_by_application"
   },
   "schemas": {
     "catalog": "instrument_and_source_master",
-    "ops": "ingestion_runs_source_files_watermarks_schema_migrations",
+    "ops": "ingestion_runs_source_files_watermarks_schema_migrations_backup_runs_and_operational_status",
     "raw": "append_only_provider_revisions_and_imported_legacy_rows",
     "staging": "transaction_scoped_validation_before_merge",
     "curated": "latest_quality_eligible_1h_bars_and_reference_daily_data",
@@ -89,10 +91,31 @@
     "analytics": "read_only_views_for_application_and_research"
   },
   "tables": {
+    "catalog.source_dataset": {
+      "primary_key": ["source_dataset_id"],
+      "required_columns": ["source_dataset_id", "dataset_name", "provider", "environment", "dataset_kind", "price_basis", "canonical_horizon_minutes", "expected_update_interval_seconds", "freshness_grace_seconds", "authoritative_layer", "research_eligibility", "active", "source_manifest_relative_path", "source_manifest_sha256", "created_at_utc", "metadata_json"],
+      "dataset_kinds": ["raw_market", "external_reference", "total_return", "analysis_baseline"],
+      "path_policy": "repository_relative_only",
+      "missing_freshness_threshold_behavior": "NOT_EVALUATED"
+    },
+    "catalog.session_calendar": {
+      "primary_key": ["session_calendar_id"],
+      "required_columns": ["session_calendar_id", "provider", "exchange_id", "asset_type", "timezone_name", "schedule_version", "effective_from", "effective_to", "metadata_json"]
+    },
+    "catalog.session_interval": {
+      "primary_key": ["session_calendar_id", "session_date", "interval_sequence"],
+      "required_columns": ["session_calendar_id", "session_date", "interval_sequence", "open_time_utc", "close_time_utc", "session_status", "source_sha256"],
+      "foreign_keys": [{"columns": ["session_calendar_id"], "references": "catalog.session_calendar(session_calendar_id)"}],
+      "session_status_values": ["OPEN", "SHORT_SESSION", "HOLIDAY"],
+      "holiday_time_rule": "open_and_close_are_NULL",
+      "open_session_time_rule": "open_and_close_required_and_close_after_open",
+      "holidays_short_sessions_and_DST_must_be_explicit": true
+    },
     "catalog.instrument": {
       "primary_key": ["instrument_id"],
       "unique_key": ["provider", "environment", "uic", "asset_type"],
-      "required_columns": ["instrument_id", "provider", "environment", "market_key", "symbol", "uic", "asset_type", "category", "currency", "exchange_id", "active_from_utc", "active_to_utc"]
+      "required_columns": ["instrument_id", "provider", "environment", "market_key", "symbol", "uic", "asset_type", "category", "currency", "exchange_id", "session_calendar_id", "active_from_utc", "active_to_utc"],
+      "foreign_keys": [{"columns": ["session_calendar_id"], "references": "catalog.session_calendar(session_calendar_id)", "nullable": true}]
     },
     "ops.ingestion_run": {
       "primary_key": ["ingestion_run_id"],
@@ -101,7 +124,8 @@
     "ops.source_file": {
       "primary_key": ["source_file_id"],
       "unique_key": ["relative_path", "sha256"],
-      "required_columns": ["source_file_id", "ingestion_run_id", "relative_path", "sha256", "size_bytes", "row_count", "source_dataset_id", "registered_at_utc"]
+      "required_columns": ["source_file_id", "ingestion_run_id", "relative_path", "sha256", "size_bytes", "row_count", "source_dataset_id", "registered_at_utc"],
+      "foreign_keys": [{"columns": ["source_dataset_id"], "references": "catalog.source_dataset(source_dataset_id)"}]
     },
     "ops.watermark": {
       "primary_key": ["instrument_id", "horizon_minutes", "price_basis"],
@@ -110,7 +134,8 @@
     "raw.market_bar_revision": {
       "primary_key": ["ingestion_run_id", "instrument_id", "horizon_minutes", "time_utc", "price_basis"],
       "append_only": true,
-      "required_columns": ["ingestion_run_id", "instrument_id", "horizon_minutes", "time_utc", "open", "high", "low", "close", "open_bid", "high_bid", "low_bid", "close_bid", "open_ask", "high_ask", "low_ask", "close_ask", "volume", "market_trading_state", "price_basis", "is_complete", "data_version", "delayed_by_minutes", "retrieved_at_utc", "payload_sha256"]
+      "required_columns": ["ingestion_run_id", "source_file_id", "instrument_id", "horizon_minutes", "time_utc", "open", "high", "low", "close", "open_bid", "high_bid", "low_bid", "close_bid", "open_ask", "high_ask", "low_ask", "close_ask", "volume", "market_trading_state", "price_basis", "is_complete", "data_version", "delayed_by_minutes", "retrieved_at_utc", "payload_sha256"],
+      "foreign_keys": [{"columns": ["source_file_id"], "references": "ops.source_file(source_file_id)"}]
     },
     "curated.market_bar": {
       "primary_key": ["instrument_id", "horizon_minutes", "time_utc", "price_basis"],
@@ -120,7 +145,8 @@
     "curated.etf_total_return_daily": {
       "primary_key": ["source_dataset_id", "ticker", "date"],
       "separate_from_Saxo_raw_OHLC": true,
-      "required_columns": ["source_dataset_id", "ticker", "date", "currency", "open_unadjusted", "high_unadjusted", "low_unadjusted", "close_unadjusted", "adjusted_close", "total_return_index", "volume", "dividend_cash", "split_factor", "source", "quality_status"]
+      "required_columns": ["source_dataset_id", "ticker", "date", "currency", "open_unadjusted", "high_unadjusted", "low_unadjusted", "close_unadjusted", "adjusted_close", "total_return_index", "volume", "dividend_cash", "split_factor", "source", "quality_status"],
+      "foreign_keys": [{"columns": ["source_dataset_id"], "references": "catalog.source_dataset(source_dataset_id)"}]
     },
     "derived.market_bar_4h": {
       "primary_key": ["derivation_version", "instrument_id", "time_utc", "price_basis"],
@@ -134,11 +160,19 @@
     },
     "quality.event": {
       "primary_key": ["quality_event_id"],
-      "required_columns": ["quality_event_id", "ingestion_run_id", "instrument_id", "horizon_minutes", "time_utc", "rule_id", "severity", "observed_value", "action", "created_at_utc"]
+      "required_columns": ["quality_event_id", "ingestion_run_id", "instrument_id", "horizon_minutes", "time_utc", "rule_id", "severity", "observed_value", "action", "status", "created_at_utc", "resolved_at_utc", "resolved_by", "resolution_note"],
+      "status_values": ["OPEN", "ACKNOWLEDGED", "RESOLVED"],
+      "original_observation_is_immutable": true
     },
     "ops.research_snapshot": {
       "primary_key": ["snapshot_id"],
       "required_columns": ["snapshot_id", "plan_id", "research_line_id", "cutoff_utc", "source_database", "source_manifest_sha256", "row_counts_json", "snapshot_sha256", "frozen_at_utc", "status"]
+    },
+    "ops.backup_run": {
+      "primary_key": ["backup_run_id"],
+      "required_columns": ["backup_run_id", "database_name", "started_at_utc", "finished_at_utc", "status", "relative_path", "sha256", "size_bytes", "pg_restore_list_pass", "restore_smoke_tested_at_utc", "restore_smoke_test_status", "error_code"],
+      "path_policy": "repository_relative_only",
+      "success_requires": ["dump_complete", "sha256_recorded", "pg_restore_list_pass"]
     }
   },
   "data_types": {
@@ -200,6 +234,12 @@
     "FX_bid_not_above_ask",
     "completed_bar_not_in_future",
     "monotonic_series_watermark",
+    "source_file_and_total_return_rows_reference_registered_source_dataset",
+    "inventory_counts_and_time_bounds_match_authoritative_tables",
+    "coverage_uses_session_calendar_or_NOT_EVALUATED",
+    "session_calendar_represents_holidays_short_sessions_and_DST_explicitly",
+    "open_quality_events_are_visible_to_operations",
+    "backup_success_requires_sha256_and_pg_restore_list",
     "derived_4h_uses_only_completed_1h",
     "research_snapshot_max_time_not_after_2024_06_28_23_59_59_UTC"
   ],
@@ -221,7 +261,67 @@
     "git_ignored": true,
     "required_events": ["after_initial_import", "before_and_after_schema_migration", "after_successful_incremental_update_daily_max_once"],
     "retention": {"daily": 7, "weekly": 4},
-    "verification": ["pg_restore_list", "sha256_manifest", "monthly_restore_smoke_test_to_temporary_database"]
+    "verification": ["pg_restore_list", "sha256_manifest", "monthly_restore_smoke_test_to_temporary_database"],
+    "operational_registry": "ops.backup_run",
+    "unverified_dump_is_success": false
+  },
+  "operational_inspection": {
+    "command": "python3 -m market_db.inspect",
+    "read_only": true,
+    "arbitrary_SQL_allowed": false,
+    "allowed_roles": ["saxo_app_reader", "saxo_analyst_reader", "v13_research_reader"],
+    "role_subcommand_database_matrix": {
+      "saxo_app_reader": {"database": "saxo_market", "subcommands": ["inventory", "freshness", "runs", "quality", "backups"]},
+      "saxo_analyst_reader": {"database": "saxo_market", "subcommands": ["inventory", "coverage", "lineage", "storage"]},
+      "v13_research_reader": {"database": "saxo_research_v13", "subcommands": ["inventory", "coverage", "lineage", "storage"]},
+      "v13_forward_writer": {"database": "saxo_forward_v13", "subcommands": []}
+    },
+    "database_allow_list_before_forward_evaluation": ["saxo_market", "saxo_research_v13"],
+    "forward_database_inspection_before_evaluation": false,
+    "subcommands": ["inventory", "coverage", "freshness", "runs", "quality", "lineage", "storage", "backups"],
+    "output_formats": ["table", "json"],
+    "time_output": "UTC",
+    "path_output": "repository_relative_only",
+    "exit_codes": {
+      "success": 0,
+      "connection_configuration_or_query_failure": 1,
+      "fail_on_alert_threshold_breach": 2
+    },
+    "views": {
+      "analytics.v_data_inventory": ["source_dataset_id", "instrument_id", "symbol", "category", "layer", "price_basis", "horizon_minutes", "row_count", "min_time_utc", "max_time_utc", "latest_complete_time_utc", "quality_status", "latest_ingestion_run_id", "freshness_seconds", "freshness_status"],
+      "analytics.v_data_coverage": ["source_dataset_id", "instrument", "horizon_minutes", "expected_rows", "actual_rows", "complete_rows", "incomplete_rows", "duplicate_rows", "missing_rows", "coverage_status"],
+      "analytics.v_data_lineage": ["source_dataset_id", "source_file_id", "relative_path", "ingestion_run_id", "raw_rows", "curated_rows", "derived_rows"],
+      "ops.v_ingestion_status": ["ingestion_run_id", "status", "started_at_utc", "finished_at_utc", "inserted_rows", "updated_rows", "revision_rows", "rejected_rows", "error_code", "latest_complete_time_utc", "freshness_seconds"],
+      "quality.v_open_event": ["quality_event_id", "status", "severity", "rule_id", "instrument_id", "time_utc", "action", "created_at_utc"],
+      "ops.v_storage_usage": ["database_name", "schema_name", "relation_name", "size_bytes", "partition_review_threshold_status"],
+      "ops.v_backup_status": ["database_name", "last_success_at_utc", "sha256", "pg_restore_list_pass", "restore_smoke_tested_at_utc", "restore_smoke_test_status", "age_seconds"]
+    },
+    "view_database_matrix": {
+      "saxo_market": ["analytics.v_data_inventory", "analytics.v_data_coverage", "analytics.v_data_lineage", "ops.v_ingestion_status", "quality.v_open_event", "ops.v_storage_usage", "ops.v_backup_status"],
+      "saxo_research_v13": ["analytics.v_data_inventory", "analytics.v_data_coverage", "analytics.v_data_lineage", "ops.v_storage_usage"],
+      "saxo_forward_v13_before_evaluation": []
+    },
+    "coverage_calendar_rule": "use_instrument_session_calendar_or_return_NOT_EVALUATED",
+    "DB1_empty_database_behavior": "zero_rows_or_NOT_EVALUATED_without_error",
+    "runbook": "docs/database_operations_runbook.md",
+    "runbook_required_topics": ["start_stop_restart_health", "inventory_coverage_freshness", "failed_runs_and_quality_events", "migration_and_checksum_failure", "backup_restore_and_retention", "secret_rotation", "port_docker_disk_rate_limit_token_and_quality_incidents", "destructive_action_approval"]
+  },
+  "controlled_operations": {
+    "command": "python3 -m market_db.operate",
+    "role": "saxo_ops_operator",
+    "arbitrary_SQL_allowed": false,
+    "direct_table_DML_allowed": false,
+    "market_data_mutation_allowed": false,
+    "allowed_procedures": ["quality.acknowledge_event", "quality.resolve_event", "ops.start_backup_run", "ops.finish_backup_run"],
+    "procedure_owner": "saxo_db_owner",
+    "security_definer": true,
+    "procedure_search_path": "pg_catalog_only_with_all_object_names_schema_qualified",
+    "PUBLIC_execute_revoked": true,
+    "quality_status_transitions": ["OPEN_to_ACKNOWLEDGED", "OPEN_to_RESOLVED", "ACKNOWLEDGED_to_RESOLVED"],
+    "resolution_note_input": "interactive_or_stdin_not_process_arguments",
+    "operator_label_policy": "non_secret_audit_label_not_Saxo_account_identifier",
+    "original_quality_observation_mutable": false,
+    "DB1_test_policy": "transactional_fixture_and_rollback_no_persistent_quality_or_backup_rows"
   },
   "application_interface": {
     "Flask_connection_role": "saxo_app_reader",
@@ -230,7 +330,10 @@
     "manual_refresh": "enqueue_single_ingest_process_not_write_from_request_thread",
     "analysis_queries": "parameterized_SQL_only",
     "default_time_filter": "explicit_start_and_end_required_for_large_bar_queries",
-    "database_admin_UI": false
+    "database_admin_UI": false,
+    "operations_CLI": "market_db.inspect",
+    "operations_views_are_read_only": true,
+    "operations_API_must_match_CLI_aggregates": true
   },
   "migration_policy": {
     "directory": "db/migrations",
@@ -248,6 +351,12 @@
     "scripts/create_local_db_secrets.py",
     "db/migrations/0001_bootstrap.sql",
     "db/migrations/0002_market_schema.sql",
+    "db/migrations/0003_research_schema.sql",
+    "db/migrations/0004_forward_schema.sql",
+    "db/migrations/0005_grants_and_forward_append.sql",
+    "db/migrations/0006_operational_views.sql",
+    "db/migrations/0007_operational_procedures.sql",
+    "db/migrations/0008_quality_privilege_hardening.sql",
     "market_db/connection.py",
     "market_db/migrate.py",
     "market_db/import_legacy.py",
@@ -255,14 +364,19 @@
     "market_db/derive_bars.py",
     "market_db/backup.py",
     "market_db/validate.py",
-    "data/v13/db0/phase_db0_20260716_v1/manifest.json"
+    "market_db/inspect.py",
+    "market_db/operate.py",
+    "docs/database_operations_runbook.md",
+    "tests/test_inspect_cli.py",
+    "tests/test_operate_cli.py",
+    "manifests/db0_spec_amendment_v2_manifest.json"
   ],
   "phases": [
     {"phase": "DB0", "name": "implementation_spec_freeze", "status": "COMPLETE_SPEC_ONLY", "unlocks": "DB1_ONLY"},
-    {"phase": "DB1", "name": "docker_postgres_roles_schema_and_migration_framework", "status": "NEXT"},
-    {"phase": "DB2", "name": "legacy_import_reconciliation_and_frozen_research_snapshot", "status": "LOCKED"},
-    {"phase": "DB3", "name": "incremental_Saxo_update_revision_and_derived_bar_pipeline", "status": "LOCKED"},
-    {"phase": "DB4", "name": "read_API_backup_restore_and_operational_gate", "status": "LOCKED"},
+    {"phase": "DB1", "name": "docker_postgres_roles_schema_migration_empty_inspection_and_controlled_operations", "status": "PASS"},
+    {"phase": "DB2", "name": "legacy_import_reconciliation_inventory_lineage_and_frozen_research_snapshot", "status": "NEXT"},
+    {"phase": "DB3", "name": "incremental_Saxo_update_revision_derived_bars_and_freshness_monitoring", "status": "LOCKED"},
+    {"phase": "DB4", "name": "read_API_backup_restore_retention_runbook_and_operational_gate", "status": "LOCKED"},
     {"phase": "RT0", "name": "strategy_rule_cost_and_trial_freeze", "status": "LOCKED_UNTIL_DB1_DB4_PASS"}
   ],
   "DB0_prohibited_actions": {

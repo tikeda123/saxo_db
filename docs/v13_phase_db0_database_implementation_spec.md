@@ -2,8 +2,8 @@
 
 作成日: 2026-07-16  
 対象研究線: `v13categoryintraday`  
-仕様ID: `v13_database_prerequisite_20260716_v1`  
-状態: **SPEC FROZEN / IMPLEMENTATION NOT STARTED**
+仕様ID: `v13_database_prerequisite_20260716_v2`
+状態: **SPEC RE-FROZEN / DB1 IMPLEMENTED AND PASSED**
 
 ## 1. 目的と現在のゲート
 
@@ -23,6 +23,22 @@ DB0 仕様凍結（本書・完了）
 ```
 
 DB1–DB4がすべてPASSするまで、戦略のパラメータ探索、PnL、WFO、portfolio allocationを開始しない。
+
+### 1.1 v2再凍結の目的
+
+v1には、格納データを追跡するtableと将来のread API方針はあったが、運用者が「何のデータが、どの期間、何件、どの品質で格納されているか」を一貫した方法で確認するためのdataset台帳、read-only view、CLI、品質eventの解決状態、backup実績台帳、runbookが不足していた。
+
+v2では次を追加し、DB1–DB4の責務を再凍結する。
+
+- `catalog.source_dataset`によるdataset正本
+- `ops.backup_run`によるbackup・restore実績
+- `quality.event`の未解決・確認済み・解決済み状態
+- inventory、coverage、freshness、lineage、run、quality、storage、backupのread-only view
+- `python3 -m market_db.inspect`による運用CLI
+- `saxo_ops_operator`と`python3 -m market_db.operate`によるprocedure-only状態更新
+- `docs/database_operations_runbook.md`による起動、確認、障害対応、backup/restore手順
+
+この再凍結はデータ管理・可観測性を補うものであり、既存CSV、研究cutoff、価格basis、canonical 1H、戦略候補、研究ゲートを変更しない。
 
 ## 2. 採用アーキテクチャ
 
@@ -112,11 +128,12 @@ DBが同じDocker volumeにあること自体はbackupや災害分離を意味�
 | `saxo_ingest` | Yes | `saxo_market`のingestion DML専用 |
 | `saxo_app_reader` | Yes | Flask用read-only |
 | `saxo_analyst_reader` | Yes | 最新市場DBの分析view用read-only |
+| `saxo_ops_operator` | Yes | 許可済みquality/backup procedureの実行専用 |
 | `v13_research_reader` | Yes | 凍結研究DBだけのread-only |
 | `v13_forward_writer` | Yes | forward append procedure実行だけ |
 | `postgres` | Yes | bootstrap・緊急作業だけ |
 
-アプリケーションからsuperuserやownerを使用しない。schemaの`PUBLIC`権限をrevokeし、必要なschema/table/functionだけを明示grantする。Flaskのconnectionにはread-only transactionと30秒の`statement_timeout`を設定する。
+アプリケーションからsuperuserやownerを使用しない。schemaの`PUBLIC`権限をrevokeし、必要なschema/table/functionだけを明示grantする。Flaskのconnectionにはread-only transactionと30秒の`statement_timeout`を設定する。`saxo_ops_operator`にはtableの直接INSERT/UPDATE/DELETEを与えず、監査対象のSECURITY DEFINER procedureだけをEXECUTEさせる。
 
 ## 5. Secretと認証情報
 
@@ -153,6 +170,61 @@ DB passwordはローカル永続secretとして管理できるが、Saxo 24時�
 
 ## 7. 主要table仕様
 
+### 7.0 `catalog.source_dataset`
+
+import、API取得、外部total-return、分析baselineをdataset単位で識別する正本とする。`ops.source_file.source_dataset_id`と`curated.etf_total_return_daily.source_dataset_id`はこのtableを参照する。
+
+主な列:
+
+- `source_dataset_id TEXT PRIMARY KEY`
+- `dataset_name TEXT`
+- `provider TEXT`
+- `environment TEXT`
+- `dataset_kind TEXT`
+- `price_basis TEXT`
+- `canonical_horizon_minutes SMALLINT NULL`
+- `expected_update_interval_seconds BIGINT NULL`
+- `freshness_grace_seconds BIGINT NULL`
+- `authoritative_layer TEXT`
+- `research_eligibility TEXT`
+- `active BOOLEAN`
+- `source_manifest_relative_path TEXT NULL`
+- `source_manifest_sha256 CHAR(64) NULL`
+- `created_at_utc TIMESTAMPTZ`
+- `metadata_json JSONB`
+
+`dataset_kind`は少なくとも`raw_market`、`external_reference`、`total_return`、`analysis_baseline`を区別する。manifest pathはrepository相対pathだけを許可し、host固有の絶対pathを保存しない。
+
+`expected_update_interval_seconds`と`freshness_grace_seconds`が未登録のdatasetは、freshnessを`NOT_EVALUATED`とする。閾値を暗黙の既定値でPASSにしない。
+
+### 7.0.1 `catalog.session_calendar` / `catalog.session_interval`
+
+coverageと完成足判定の正本として、calendar定義と日別session intervalを分離して保持する。
+
+`catalog.session_calendar`の主な列:
+
+- `session_calendar_id TEXT PRIMARY KEY`
+- `provider TEXT`
+- `exchange_id TEXT NULL`
+- `asset_type TEXT`
+- `timezone_name TEXT`
+- `schedule_version TEXT`
+- `effective_from DATE`
+- `effective_to DATE NULL`
+- `metadata_json JSONB`
+
+`catalog.session_interval`の主な列:
+
+- `session_calendar_id TEXT`
+- `session_date DATE`
+- `interval_sequence SMALLINT`
+- `open_time_utc TIMESTAMPTZ NULL`
+- `close_time_utc TIMESTAMPTZ NULL`
+- `session_status TEXT`
+- `source_sha256 CHAR(64) NULL`
+
+主キーは`(session_calendar_id, session_date, interval_sequence)`とする。`HOLIDAY`はopen/closeをNULL、`OPEN`と`SHORT_SESSION`はopen/closeを必須かつclose > openとする。holiday、短縮取引、DSTを明示し、単純な平日24時間として補完しない。
+
 ### 7.1 `catalog.instrument`
 
 銘柄をsymbol文字列だけで識別しない。provider、environment、UIC、AssetTypeをmaster化する。
@@ -169,6 +241,7 @@ DB passwordはローカル永続secretとして管理できるが、Saxo 24時�
 - `category TEXT`
 - `currency CHAR(3)`
 - `exchange_id TEXT`
+- `session_calendar_id TEXT NULL`
 - `active_from_utc TIMESTAMPTZ`
 - `active_to_utc TIMESTAMPTZ NULL`
 
@@ -184,7 +257,7 @@ unique keyは`(provider, environment, uic, asset_type)`とする。
 (ingestion_run_id, instrument_id, horizon_minutes, time_utc, price_basis)
 ```
 
-OHLC、Bid/Ask OHLC、Volume、MarketTradingState、DataVersion、DelayedByMinutes、is_complete、retrieved_at、payload SHA-256を保持する。raw tableではBid > Ask等をCHECK constraintで拒否せず、`quality.event`へ記録する。
+`source_file_id`、OHLC、Bid/Ask OHLC、Volume、MarketTradingState、DataVersion、DelayedByMinutes、is_complete、retrieved_at、payload SHA-256を保持する。CSV importとAPI raw artifactは先に`ops.source_file`へ登録し、raw rowから原本fileへ追跡できるようにする。raw tableではBid > Ask等をCHECK constraintで拒否せず、`quality.event`へ記録する。
 
 ### 7.3 `curated.market_bar`
 
@@ -230,8 +303,26 @@ ETFの日次total return系列をSaxo raw OHLCと混ぜない。source dataset�
 - `ops.source_file`: 相対path・SHA-256・size・row count
 - `ops.watermark`: 銘柄・horizonごとの最新取得時刻・最新完成時刻
 - `ops.schema_migration`: migration番号・checksum・適用時刻
-- `quality.event`: rule ID・severity・対象bar・action
+- `quality.event`: rule ID・severity・対象bar・action・status・解決記録
 - `ops.research_snapshot`: cutoff・件数・manifest・dump hash
+- `ops.backup_run`: 対象DB・dump相対path・SHA-256・size・検証・restore smoke test結果
+
+`quality.event.status`は`OPEN`、`ACKNOWLEDGED`、`RESOLVED`を許可し、`resolved_at_utc`、`resolved_by`、`resolution_note`を保持する。重大品質違反の元のobserved valueやactionは解決時にも上書きしない。
+
+`ops.backup_run`は少なくとも次を保持する。
+
+- `backup_run_id BIGINT GENERATED ... PRIMARY KEY`
+- `database_name TEXT`
+- `started_at_utc TIMESTAMPTZ`
+- `finished_at_utc TIMESTAMPTZ NULL`
+- `status TEXT`
+- `relative_path TEXT`
+- `sha256 CHAR(64) NULL`
+- `size_bytes BIGINT NULL`
+- `pg_restore_list_pass BOOLEAN NULL`
+- `restore_smoke_tested_at_utc TIMESTAMPTZ NULL`
+- `restore_smoke_test_status TEXT NULL`
+- `error_code TEXT NULL`
 
 ## 8. 初期移行対象
 
@@ -284,7 +375,74 @@ DB3ではSaxo Chart APIからcanonical 1Hだけを更新する。raw 4Hの増分
 
 HTTP 429は既存collectorと同じ有限回の指数backoffを使う。注文API、precheck、portfolio endpointは呼び出さない。
 
-## 10. Flask・分析インターフェース
+## 10. データ管理・参照インターフェース
+
+### 10.1 運用view
+
+次のread-only viewを作成する。viewは明示列だけを公開し、password、token、Authorization header、account identifier、host固有絶対pathを含めない。
+
+| view | 用途 |
+|---|---|
+| `analytics.v_data_inventory` | dataset・銘柄・layer・price basis・horizon別の件数、期間、最新完成時刻、品質 |
+| `analytics.v_data_coverage` | 期待期間に対する実件数、完成・未完成、重複、欠損の集計 |
+| `analytics.v_data_lineage` | source dataset/file、ingestion run、raw、curated/derivedの追跡 |
+| `ops.v_ingestion_status` | run状態、件数、error code、watermark、遅延 |
+| `quality.v_open_event` | OPEN/ACKNOWLEDGEDの品質event |
+| `ops.v_storage_usage` | database/schema/table別のrelation sizeとpartition再検討閾値 |
+| `ops.v_backup_status` | database別の最終成功backup、検証、restore smoke test、経過時間 |
+
+`analytics.v_data_inventory`は最低限、`source_dataset_id`、`instrument_id`、symbol、category、layer、price_basis、horizon、row_count、min/max time、latest complete time、quality status、latest ingestion run、freshnessを返す。
+
+coverageの「欠損」は単純な連続時刻差だけで判定せず、instrumentの取引session/calendarと完成足規則に基づく。calendarが未実装のDB2時点では`NOT_EVALUATED`を返し、0件やPASSへ偽装しない。
+
+`saxo_market`には7 viewすべてを作る。`saxo_research_v13`にはinventory、coverage、lineage、storageだけを作り、`v13_research_reader`で参照する。`saxo_forward_v13`は評価ゲート前にreaderを与えないため運用CLIの参照対象外とし、cross-database linkや集約用の例外権限を作らない。
+
+### 10.2 運用CLI
+
+管理GUIを作らず、次のread-only CLIを標準運用入口とする。
+
+```bash
+python3 -m market_db.inspect inventory
+python3 -m market_db.inspect coverage
+python3 -m market_db.inspect freshness
+python3 -m market_db.inspect runs --status failed
+python3 -m market_db.inspect quality --status open
+python3 -m market_db.inspect lineage --source-file <relative-path>
+python3 -m market_db.inspect storage
+python3 -m market_db.inspect backups
+```
+
+- default出力は人間向けtable、`--format json`で機械可読出力を提供する。
+- 時刻はUTC、pathはrepository相対pathで表示する。
+- queryは固定済みparameterized SQLだけを使い、任意SQL入力を許可しない。
+- marketのinventory/freshness/runs/quality/backupsは`saxo_app_reader`、marketのinventory/coverage/lineage/storageは`saxo_analyst_reader`、researchのinventory/coverage/lineage/storageは`v13_research_reader`を使用する。
+- `--database`は`saxo_market`と`saxo_research_v13`のallow-listに限定し、subcommandとroleの許可matrixに一致しなければ接続前に拒否する。forwardは評価ゲートまで指定不可とする。
+- superuser、owner、migrator、writerへfallbackしない。
+- password入りURL、secret値、Saxo token、account情報を出力しない。
+- 接続・設定・SQL実行失敗はexit 1、`--fail-on-alert`指定時のfreshness/quality閾値違反はexit 2、それ以外の正常照会はexit 0とする。
+- DB1では空DBに対して安全に0件または`NOT_EVALUATED`を返し、DB2以降で実データの期待値をgate化する。
+
+### 10.3 制御された運用更新
+
+状態変更を伴う操作をread-only inspectへ混ぜない。`market_db.operate`は`saxo_ops_operator`を使い、allow-list済みprocedureだけを実行する。
+
+```bash
+python3 -m market_db.operate quality acknowledge --event-id <id> --operator-label <label>
+python3 -m market_db.operate quality resolve --event-id <id> --operator-label <label>
+```
+
+resolution noteは対話入力またはstdinから受け取り、shell history、process argument、logへ残さない。operator labelは監査用の非機密labelであり、Saxo AccountKeyや口座識別子を使用しない。
+
+許可するprocedureは次に限定する。
+
+- `quality.acknowledge_event`
+- `quality.resolve_event`
+- `ops.start_backup_run`
+- `ops.finish_backup_run`
+
+procedureは状態遷移、対象存在、必須note、時刻を検査し、元のobserved valueとactionを変更しない。SECURITY DEFINER procedureは`saxo_db_owner`所有、`search_path=pg_catalog`固定、全object名をschema修飾し、PUBLICのEXECUTEをrevokeして`saxo_ops_operator`だけへgrantする。`saxo_ops_operator`の直接DML、任意function実行、raw/curated変更、forward接続は拒否する。DB1ではtransaction rollbackを使った権限・状態遷移testだけを行い、永続的なquality/backup実績は作らない。
+
+### 10.4 Flask・分析インターフェース
 
 Flask request threadから直接DB更新しない。「最新データ取得」操作は単一ingest processへjobを登録し、画面はrun IDと状態だけをpollする。
 
@@ -296,8 +454,22 @@ Flask request threadから直接DB更新しない。「最新データ取得」�
 - 品質event一覧
 - dataset/snapshot manifest
 - 1H・derived 4H・derived 1Dの件数比較
+- inventory、coverage、freshness、lineage、storage、backup status
 
 Flaskは`psycopg_pool`を最大5 connectionで使用し、parameterized SQLだけを許可する。大規模bar queryはstart/end指定を必須とする。DB管理UIは作らない。
+
+### 10.5 運用runbook
+
+`docs/database_operations_runbook.md`を正本とし、少なくとも次を記載する。
+
+- 安全な起動、停止、通常restart、health確認
+- inventory、coverage、freshness、failed run、open quality eventの確認
+- import/増分更新の開始前確認と完了後照合
+- migrationの適用前確認、checksum不一致時の停止手順
+- backup作成、SHA-256、`pg_restore --list`、restore smoke test
+- secret rotationと漏えい疑い時の対応
+- port競合、Docker停止、disk逼迫、rate limit、token失効、品質gate失敗への対応
+- 禁止操作と、破壊操作にユーザー承認が必要なこと
 
 ## 11. Backup・restore
 
@@ -309,6 +481,8 @@ Docker named volumeはbackupではない。次の時点で`pg_dump -Fc`を作成
 
 保存先は`backups/postgres/`、保持はdaily 7世代・weekly 4世代とする。各dumpにSHA-256 manifestを付け、`pg_restore --list`を実行する。月1回、一時databaseへrestoreして件数・主キー・snapshot cutoffをsmoke testする。
 
+backup開始時に`ops.backup_run`をRUNNINGで作成し、dump、SHA-256、`pg_restore --list`の成功後にPASSへ更新する。失敗時はsanitized error codeを残し、未検証dumpを成功扱いしない。`ops.v_backup_status`と`market_db.inspect backups`はこの台帳を参照する。
+
 raw CSV/JSONも監査原本として残るが、DB privilege、migration状態、watermark、revision履歴を復元するにはpg_dumpが必要である。
 
 ## 12. Migration方針
@@ -319,10 +493,13 @@ raw CSV/JSONも監査原本として残るが、DB privilege、migration状態�
 
 ```text
 0001_bootstrap.sql
-0002_roles_and_grants.sql
-0003_market_schema.sql
-0004_research_snapshot_schema.sql
-0005_forward_append_procedure.sql
+0002_market_schema.sql
+0003_research_schema.sql
+0004_forward_schema.sql
+0005_grants_and_forward_append.sql
+0006_operational_views.sql
+0007_operational_procedures.sql
+0008_quality_privilege_hardening.sql
 ```
 
 `ops.schema_migration`へfilename、SHA-256、適用時刻を記録する。適用済みSQLのchecksumが変わった場合はFAILする。実データに対する破壊的down migrationは実行せず、backupからrestoreする。
@@ -341,7 +518,10 @@ raw CSV/JSONも監査原本として残るが、DB privilege、migration状態�
 - `compose.yaml`、secret生成、healthcheck
 - PostgreSQL 18.4 image digest記録
 - 3 databaseとrole/grant作成
-- migration runnerと空schema作成
+- migration runner、空schema、source dataset/session calendar/backup/quality table、運用view作成
+- 空DBで`market_db.inspect`の全subcommandが安全に動作
+- ops operatorとquality/backup procedureの直接DML禁止・状態遷移test
+- infrastructure運用runbook作成
 - localhost以外から接続不能
 - restart後もnamed volumeのschemaが保持される
 
@@ -350,6 +530,8 @@ raw CSV/JSONも監査原本として残るが、DB privilege、migration状態�
 - 525,381 intraday行のraw照合
 - 1H curatedと4H raw archiveの役割分離
 - daily reference移行
+- `catalog.source_dataset`を登録し、source fileとの参照整合性を確認
+- inventory、coverage、lineageを実データ件数・期間・checksumと照合
 - `saxo_research_v13`をcutoff以前だけで物理作成・read-only化
 - dump・manifest・SHA-256作成
 
@@ -359,14 +541,18 @@ raw CSV/JSONも監査原本として残るが、DB privilege、migration状態�
 - historical revision保存
 - quality failure時rollback
 - 1Hから4H・1D再生成
+- session calendar、holiday、短縮取引、DSTを登録し、coverageと完成足判定を有効化
+- freshness、watermark、failed run、open quality eventを運用CLIで確認
 - 中断再開・429 retry・単一writer lock
 - token永続化ゼロ、注文APIゼロ
 
 ### DB4 — 参照・運用ゲート
 
 - Flask read-only query
+- 運用CLIとread APIのinventory/coverage/freshness/lineage一致
 - 更新job状態表示
 - backup/restore smoke test
+- backup status、storage usage、retention、runbook drill
 - 研究コードが`v13_research_reader`以外で実行できないことを検査
 - 全DBテスト・既存全体回帰PASS
 
@@ -374,13 +560,14 @@ DB4 PASS後だけRT0を再度unlockする。
 
 ## 14. DB0成果物と禁止事項
 
-成果物:
+v2再凍結成果物:
 
 - `docs/v13_phase_db0_database_implementation_spec.md`
-- `config/v13_phase_db0_database_spec.json`
-- `validate_v13_phase_db0.py`
-- `tests/test_v13_phase_db0.py`
-- `data/v13/db0/phase_db0_20260716_v1/manifest.json`
+- `specs/v13_phase_db0_database_spec.json`
+- `specs/saxo_db_import_spec.json`
+- `docs/saxo_db_project_plan.md`
+- `docs/db1_implementation_plan.md`
+- `manifests/db0_spec_amendment_v2_manifest.json`
 
 DB0では次を実行しない。
 

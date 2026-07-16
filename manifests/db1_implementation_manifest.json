@@ -1,0 +1,260 @@
+{
+  "schema_version": 1,
+  "phase": "DB1",
+  "plan_id": "category_specific_intraday_strategy_v13",
+  "research_line_id": "v13categoryintraday",
+  "spec_id": "v13_database_prerequisite_20260716_v2",
+  "executed_at_utc": "2026-07-16T14:34:55Z",
+  "status": "PASS",
+  "git": {
+    "branch": "main",
+    "head": "0fd87072e931a9f171ef65309d974a9adbe48624",
+    "remote": "origin",
+    "dirty_at_start": true,
+    "dirty_at_end": true,
+    "preexisting_spec_and_plan_changes_preserved": true,
+    "commit_or_push_performed": false
+  },
+  "source_inventory": {
+    "relative_path": "manifests/import_file_inventory.csv",
+    "sha256": "72abbdcedd75b290b46d4ca8396125ebe99863e16e8c570c0f06fdf8440282db",
+    "csv_files": 69,
+    "csv_rows": 781808,
+    "csv_size_bytes": 160403659,
+    "missing_files": 0,
+    "size_mismatches": 0,
+    "sha256_mismatches": 0,
+    "files_mutated": 0,
+    "status": "PASS"
+  },
+  "runtime": {
+    "docker_version": "29.3.0",
+    "docker_compose_version": "5.1.0",
+    "image_tag": "postgres:18.4-bookworm",
+    "image_repo_digest": "postgres@sha256:1961f96e6029a02c3812d7cb329a3b03a3ac2bb067058dec17b0f5596aca9296",
+    "image_id": "sha256:1961f96e6029a02c3812d7cb329a3b03a3ac2bb067058dec17b0f5596aca9296",
+    "image_os": "linux",
+    "image_architecture": "arm64",
+    "compose_project": "saxo-market-data",
+    "service": "postgres",
+    "host_bind": "127.0.0.1:54329",
+    "container_port": 5432,
+    "health": "healthy",
+    "restart_persistence": "PASS",
+    "volume": "saxo_pg18_data",
+    "volume_mount": "/var/lib/postgresql",
+    "postgresql_server_version": "18.4 (Debian 18.4-1.pgdg12+1)",
+    "timezone": "UTC"
+  },
+  "secrets": {
+    "secret_files": 8,
+    "directory_mode": "0700",
+    "file_mode": "0600",
+    "git_ignored": true,
+    "values_printed": 0,
+    "actual_secret_value_matches_in_scanned_repository_text": 0,
+    "repository_text_files_scanned": 54,
+    "status": "PASS"
+  },
+  "roles": {
+    "total_including_postgres": 9,
+    "saxo_db_owner": {
+      "login": false,
+      "superuser": false,
+      "createdb": false,
+      "createrole": false,
+      "replication": false,
+      "bypassrls": false
+    },
+    "non_superuser_login_roles": [
+      "saxo_migrator",
+      "saxo_ingest",
+      "saxo_app_reader",
+      "saxo_analyst_reader",
+      "saxo_ops_operator",
+      "v13_research_reader",
+      "v13_forward_writer"
+    ],
+    "reader_database_defaults": {
+      "default_transaction_read_only": "on",
+      "statement_timeout": "30s",
+      "temp_file_limit": "256MB"
+    },
+    "connection_boundary_tests": "PASS",
+    "direct_dml_and_ddl_denial_tests": "PASS",
+    "ingest_quality_lifecycle_update_denied": true
+  },
+  "databases": {
+    "saxo_market": {
+      "schemas": 8,
+      "base_tables": 16,
+      "views": 7,
+      "procedures": 4,
+      "migration_history_rows": 6,
+      "market_data_rows": 0,
+      "status": "PASS"
+    },
+    "saxo_research_v13": {
+      "schemas": 8,
+      "base_tables": 16,
+      "views": 4,
+      "procedures": 0,
+      "migration_history_rows": 5,
+      "market_data_rows": 0,
+      "status": "PASS"
+    },
+    "saxo_forward_v13": {
+      "schemas": 4,
+      "base_tables": 6,
+      "views": 0,
+      "procedures": 1,
+      "migration_history_rows": 3,
+      "market_data_rows": 0,
+      "status": "PASS"
+    }
+  },
+  "operational_objects": {
+    "market_views": [
+      "analytics.v_data_inventory",
+      "analytics.v_data_coverage",
+      "analytics.v_data_lineage",
+      "ops.v_ingestion_status",
+      "quality.v_open_event",
+      "ops.v_storage_usage",
+      "ops.v_backup_status"
+    ],
+    "research_views": [
+      "analytics.v_data_inventory",
+      "analytics.v_data_coverage",
+      "analytics.v_data_lineage",
+      "ops.v_storage_usage"
+    ],
+    "operator_procedures": [
+      "quality.acknowledge_event",
+      "quality.resolve_event",
+      "ops.start_backup_run",
+      "ops.finish_backup_run"
+    ],
+    "forward_procedure": "raw.append_forward_market_bar",
+    "security_definer_owner": "saxo_db_owner",
+    "fixed_search_path": "pg_catalog",
+    "public_execute_revoked": true,
+    "fdw_dblink_cross_database_objects": 0,
+    "status": "PASS"
+  },
+  "migrations": [
+    {
+      "number": "0001",
+      "filename": "0001_bootstrap.sql",
+      "sha256": "4061c335c47942b6bbca872b79d9d0574f7fef08b101c571e7c80fd4bd9c87f6",
+      "targets": ["saxo_market", "saxo_research_v13", "saxo_forward_v13"]
+    },
+    {
+      "number": "0002",
+      "filename": "0002_market_schema.sql",
+      "sha256": "bdb7a0692ea4d60991d4731adf179305f9f8a10b2a618b712c3c8768067b28e6",
+      "targets": ["saxo_market", "saxo_research_v13"]
+    },
+    {
+      "number": "0003",
+      "filename": "0003_research_schema.sql",
+      "sha256": "c6397ba5d445bc20c2b44033e1a442b10b838c79ca3354499d44c820d57d17c3",
+      "targets": ["saxo_research_v13"]
+    },
+    {
+      "number": "0004",
+      "filename": "0004_forward_schema.sql",
+      "sha256": "78ba4e5914fd5c7e8c358e9e338be4ee24ab6a1c205ae01d233931ee3eceb016",
+      "targets": ["saxo_forward_v13"]
+    },
+    {
+      "number": "0005",
+      "filename": "0005_grants_and_forward_append.sql",
+      "sha256": "3e30e9c24e3bbb227f07297b4d4a890114c9b7f85db8e2f627e6672ac30a0f5f",
+      "targets": ["saxo_market", "saxo_research_v13", "saxo_forward_v13"]
+    },
+    {
+      "number": "0006",
+      "filename": "0006_operational_views.sql",
+      "sha256": "de5da692874cdeaada5256d587dc179e03a3c545e895670e51d78fdd31c607f6",
+      "targets": ["saxo_market", "saxo_research_v13"]
+    },
+    {
+      "number": "0007",
+      "filename": "0007_operational_procedures.sql",
+      "sha256": "16ef3f5f648db3a71d62bf84762f0a3f68fe7b7c1ca0aa9cff49cd9ec1a88a14",
+      "targets": ["saxo_market"]
+    },
+    {
+      "number": "0008",
+      "filename": "0008_quality_privilege_hardening.sql",
+      "sha256": "6a0dd0ef768b6cea882008f149ae9e79af901bc9e2e6aaac2a91378bc74960d2",
+      "targets": ["saxo_market"]
+    }
+  ],
+  "migration_gates": {
+    "initial_apply": "PASS",
+    "same_checksum_rerun_skipped": "PASS",
+    "checksum_mismatch_rejected_before_ddl": "PASS",
+    "failed_migration_ddl_and_history_rollback": "PASS",
+    "applied_checksum_rows_validated": 14
+  },
+  "inspection_cli": {
+    "commands": ["inventory", "coverage", "freshness", "runs", "quality", "lineage", "storage", "backups"],
+    "formats": ["table", "json"],
+    "empty_market_semantics": "zero_rows_or_not_evaluated_without_error",
+    "research_commands": ["inventory", "coverage", "lineage", "storage"],
+    "forward_database_rejected": true,
+    "arbitrary_sql_rejected": true,
+    "writer_or_admin_fallback": false,
+    "status": "PASS"
+  },
+  "tests": {
+    "command": "SAXO_DB_INTEGRATION=1 .venv/bin/python -m pytest -q",
+    "passed": 28,
+    "failed": 0,
+    "skipped": 0,
+    "unit_static_integration_status": "PASS",
+    "validator_command": ".venv/bin/python -m market_db.validate --phase db1",
+    "validator_status": "PASS"
+  },
+  "zero_side_effects": {
+    "market_data_import_rows": 0,
+    "persistent_test_fixture_rows": 0,
+    "Saxo_API_calls": 0,
+    "order_or_precheck_calls": 0,
+    "strategy_signal_PnL_WFO_Holdout_or_portfolio_runs": 0,
+    "volume_deletions": 0
+  },
+  "not_implemented_in_DB1": [
+    "legacy_CSV_import",
+    "Saxo_incremental_update",
+    "derived_4h_and_1d_generation",
+    "research_snapshot_population",
+    "read_API",
+    "real_backup_restore_and_retention",
+    "strategy_research"
+  ],
+  "phase_status": {
+    "DB0_v2": "RE_FROZEN",
+    "DB1": "PASS",
+    "DB2": "NEXT_NOT_STARTED",
+    "DB3": "LOCKED",
+    "DB4": "LOCKED",
+    "RT0": "LOCKED_UNTIL_DB4_PASS"
+  },
+  "artifacts": {
+    "compose.yaml": {"size_bytes": 698, "sha256": "848215bc0efef6d2b985d22abee32c98814eec3ee639cc0bc46c9a1efc37be0a"},
+    "scripts/create_local_db_secrets.py": {"size_bytes": 2900, "sha256": "18e67c4283a3090dd4542a61fd68a06f65cb83936165b65179c82e594c1771a2"},
+    "market_db/connection.py": {"size_bytes": 4093, "sha256": "ecdcf1f0633fe2f973ad7053027634080898e19130b2bee140c081f7a1874ae8"},
+    "market_db/migrate.py": {"size_bytes": 12270, "sha256": "547db1969f67e34db19adfb145f8ea32d12541e8c773488d9c3b48abe3753f10"},
+    "market_db/inspect.py": {"size_bytes": 6952, "sha256": "359d05ed008e79c1776578b2913e813e142fa7843c67e03250cf12c9503d9ae8"},
+    "market_db/operate.py": {"size_bytes": 4005, "sha256": "71a60d4c9bff6c3fc9ba36abe94f36e0686defa1fe6df51de31e36c214de543e"},
+    "market_db/validate.py": {"size_bytes": 6519, "sha256": "38c63732c5f26dee8d5fe3a82bd36339f0ceeb9efe65bdfe2024949c7c240555"},
+    "tests/test_db1_integration.py": {"size_bytes": 12603, "sha256": "bc4c78acda79b8b2de1259ff15c782f4b4a57ea43aa054bd921487d9ca755dc6"},
+    "docs/database_operations_runbook.md": {"size_bytes": 6140, "sha256": "23962e2b54bdc430e702cfbcf1ace157f5f82f059762e07aa238238ff6e8bf60"},
+    "docs/db1_implementation_plan.md": {"size_bytes": 25222, "sha256": "4851356936f272c38e6830436c542fad58e4ae7e22b615f7459ab9cf8129d764"},
+    "docs/db1_implementation_result.md": {"size_bytes": 8278, "sha256": "b919131cc4fe93af03363b38bc52798a97d921603145043ed538faa668f64c66"},
+    "db/migrations/0008_quality_privilege_hardening.sql": {"size_bytes": 375, "sha256": "6a0dd0ef768b6cea882008f149ae9e79af901bc9e2e6aaac2a91378bc74960d2"}
+  }
+}

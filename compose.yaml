@@ -1,0 +1,32 @@
+name: saxo-market-data
+
+services:
+  postgres:
+    image: postgres:18.4-bookworm
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:54329:5432"
+    environment:
+      POSTGRES_DB: saxo_market
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      TZ: UTC
+      PGTZ: UTC
+    secrets:
+      - postgres_password
+    volumes:
+      - saxo_pg18_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d saxo_market"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+secrets:
+  postgres_password:
+    file: .secrets/postgres_password
+
+volumes:
+  saxo_pg18_data:
+    name: saxo_pg18_data

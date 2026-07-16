@@ -1,12 +1,12 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "project": "saxo_db",
-  "spec_id": "saxo_db_import_bundle_20260716_v1",
-  "status": "BUNDLE_READY_DATABASE_NOT_BUILT",
+  "spec_id": "saxo_db_import_bundle_20260716_v2",
+  "status": "BUNDLE_READY_DB1_PASS_DB2_NOT_STARTED",
   "origin_project": "../saxo_api",
   "inventory": "manifests/import_file_inventory.csv",
   "source_files_are_immutable": true,
-  "database_implementation_started": false,
+  "database_implementation_started": true,
   "groups": {
     "saxo_intraday": {
       "path": "data/import/intraday/normalized",
@@ -67,6 +67,7 @@
   },
   "import_order": [
     "verify_inventory_and_source_manifests",
+    "register_source_datasets_to_catalog",
     "load_instrument_masters_to_catalog",
     "register_ingestion_runs_and_source_files",
     "copy_Saxo_raw_intraday_and_daily",
@@ -77,6 +78,25 @@
     "recompute_and_compare_RA0_baseline",
     "backup_restore_and_hash_manifest"
   ],
+  "operational_registration": {
+    "source_dataset_registry": "catalog.source_dataset",
+    "session_calendar_registry": ["catalog.session_calendar", "catalog.session_interval"],
+    "source_file_registry": "ops.source_file",
+    "source_dataset_foreign_keys_required": true,
+    "required_post_import_inspection": [
+      "inventory",
+      "coverage",
+      "lineage",
+      "runs",
+      "quality",
+      "storage",
+      "backups"
+    ],
+    "inventory_reconciliation": "row_count_min_time_max_time_price_basis_horizon_and_sha256_against_import_manifest",
+    "path_policy": "repository_relative_paths_only",
+    "missing_session_calendar_behavior": "NOT_EVALUATED_not_PASS_or_zero_missing",
+    "session_calendar_population_phase": "DB3_before_coverage_and_completed_bar_gate"
+  },
   "research_boundary": {
     "development_end_utc": "2024-06-28T23:59:59Z",
     "post_boundary_existing_data": "LOCKED_LEGACY_SHADOW",
@@ -87,6 +107,6 @@
     "account_key_or_client_key_present": false,
     "credentials_may_be_added_to_import_bundle": false
   },
-  "next_phase": "DB1_NOT_STARTED",
+  "next_phase": "DB2_NEXT_NOT_STARTED",
   "RT0_status": "LOCKED_UNTIL_DB4_PASS"
 }

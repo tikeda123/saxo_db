@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "phase": "DB0",
+  "plan_id": "category_specific_intraday_strategy_v13",
+  "research_line_id": "v13categoryintraday",
+  "amendment_id": "v13_database_prerequisite_20260716_v2",
+  "status": "DB0_V2_SPEC_REFROZEN_DB1_PASS_RECORDED",
+  "spec_refrozen_at_local_date": "2026-07-16",
+  "reason": "add_explicit_data_inventory_coverage_freshness_lineage_quality_storage_backup_and_operations_runbook_requirements",
+  "supersedes_active_spec": "v13_database_prerequisite_20260716_v1",
+  "historical_v1_evidence_preserved": true,
+  "scope_changes": [
+    "catalog_source_dataset_registry",
+    "catalog_session_calendar_and_intervals",
+    "ops_backup_run_registry",
+    "quality_event_lifecycle",
+    "read_only_operational_views",
+    "market_db_inspect_CLI",
+    "procedure_only_ops_operator_and_market_db_operate_CLI",
+    "database_operations_runbook",
+    "DB2_import_inventory_lineage_and_research_snapshot",
+    "DB3_incremental_update_derived_bars_and_freshness_monitoring",
+    "DB4_read_API_backup_restore_retention_and_runbook_gate"
+  ],
+  "unchanged_boundaries": {
+    "source_CSV_mutation_allowed": false,
+    "canonical_API_horizon_minutes": 60,
+    "raw_4h_is_authoritative": false,
+    "development_cutoff_utc": "2024-06-28T23:59:59Z",
+    "retroactive_holdout_allowed": false,
+    "DB1_market_data_import_allowed": false,
+    "Saxo_credential_persistence_allowed": false,
+    "strategy_PnL_WFO_or_portfolio_allowed_before_DB4_PASS": false
+  },
+  "source_inventory_verified": {
+    "csv_files": 69,
+    "csv_rows_including_metadata_and_derived_duplicates": 781808,
+    "csv_size_bytes": 160403659,
+    "missing_files": 0,
+    "size_mismatches": 0,
+    "sha256_mismatches": 0
+  },
+  "phase_status": {
+    "DB0_v2": "RE_FROZEN",
+    "DB1": "PASS",
+    "DB2": "NEXT_NOT_STARTED",
+    "DB3": "LOCKED",
+    "DB4": "LOCKED",
+    "RT0": "LOCKED_UNTIL_DB4_PASS"
+  },
+  "side_effect_counts_during_DB0_refreeze": {
+    "docker_image_pulls": 0,
+    "containers_created": 0,
+    "volumes_created": 0,
+    "database_connections": 0,
+    "dependencies_installed": 0,
+    "data_files_mutated": 0,
+    "Saxo_API_calls": 0,
+    "strategy_PnL_or_WFO_runs": 0
+  },
+  "current_implementation_evidence": {
+    "phase": "DB1",
+    "status": "PASS",
+    "result": "docs/db1_implementation_result.md",
+    "manifest": "manifests/db1_implementation_manifest.json"
+  },
+  "outputs": {
+    "README.md": {
+      "sha256": "cb3c43d9c7f15b9e393b4bcea784462d4878d6bcc3f85263a64e77a4ce16615e",
+      "size_bytes": 20096
+    },
+    "docs/v13_phase_db0_database_implementation_spec.md": {
+      "sha256": "b2a984a09bfc8bfb238bb7796d08d3cccf72ef7fdbb8c6dc88f4f3ed6744c937",
+      "size_bytes": 28727
+    },
+    "specs/v13_phase_db0_database_spec.json": {
+      "sha256": "ebc75faea345fb5de6d2b9f33e7d51b57d175dde8e9dc91111cbf1ee0aad31e9",
+      "size_bytes": 22355
+    },
+    "specs/saxo_db_import_spec.json": {
+      "sha256": "10a0ec82d5b984b2bfc873ff2f65592c9c518bc2aa52bffe865f9dd47ab1af6b",
+      "size_bytes": 3930
+    },
+    "docs/saxo_db_project_plan.md": {
+      "sha256": "fc130c85eaa9c3787b600db6dee5f85ff354b78447f55ad04eea14f5521f0a9d",
+      "size_bytes": 6997
+    },
+    "docs/db1_implementation_plan.md": {
+      "sha256": "4851356936f272c38e6830436c542fad58e4ae7e22b615f7459ab9cf8129d764",
+      "size_bytes": 25222
+    }
+  }
+}

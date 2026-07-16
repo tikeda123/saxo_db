@@ -6,21 +6,23 @@
 
 このプロジェクトの目的は、Saxo OpenAPIから取得した市場データを、再現可能・追記可能・監査可能なPostgreSQLデータベースで管理し、後続の市場分析と短期売買戦略研究に利用できる状態にすることです。
 
-現在は**DB実装前**です。仕様書と既存CSVの移管だけが完了しています。
+現在は**Phase DB1 PASS**です。空のPostgreSQL基盤、権限分離、運用CLI、migration、runtime検証まで完了しています。市場データはまだ投入していません。
 
 | 項目 | 現在の状態 |
 |---|---|
 | プロジェクト分離 | 完了 |
 | DB0（仕様凍結） | 完了 |
+| DB0 v2（データ管理・運用仕様の再凍結） | 完了 |
 | CSV移管 | 完了、69ファイル、全件SHA-256一致 |
-| Docker Compose | 未作成 |
-| PostgreSQLコンテナ | 未構築 |
-| DB・role・schema・table | 未作成 |
+| Docker Compose | 完了、`postgres:18.4-bookworm`、localhost限定 |
+| PostgreSQLコンテナ | 稼働中、healthcheck・restart persistence PASS |
+| DB・role・schema・table | 完了、3 DB、用途別role、checksum付きmigration |
+| 運用確認 | `market_db.inspect`、`market_db.operate`、runbook実装済み |
 | CSVインポート | 未実施 |
 | Saxo API増分更新 | 未実装 |
 | 研究・バックテスト | 未実施 |
 
-次に許可されている工程は、**Phase DB1：Docker/PostgreSQL基盤構築のみ**です。DB2以降へ先回りしないでください。
+次に許可されている工程は、**Phase DB2：既存CSVインポート、inventory/lineage照合、research snapshotのみ**です。DB3以降へ先回りしないでください。
 
 ## 2. 絶対に守る境界
 
@@ -42,11 +44,13 @@
 2. `specs/saxo_db_import_spec.json` — この新プロジェクトでの正本ディレクトリ、ファイル数、移管ルール
 3. `docs/v13_phase_db0_database_implementation_spec.md` — 人間向けの凍結済みDB実装仕様
 4. `specs/v13_phase_db0_database_spec.json` — 機械可読なDB・role・schema・table・増分更新仕様
-5. `manifests/project_bootstrap_manifest.json` — プロジェクト作成時の状態と移管結果
-6. `manifests/import_file_inventory.csv` — 69 CSVの相対パス、行数、サイズ、SHA-256
-7. `docs/saxo_api_data_acquisition_handoff.md` — 24時間token、instrument確認、初回フル取得、DB3増分取得、DataVersion、品質・security gate
-8. `docs/saxo_db_project_plan.md` — DB0〜DB4と研究再開条件
-9. `docs/v13_category_specific_intraday_strategy_research_plan.md` — DB完成後の研究目的。DB構築中は実行しない
+5. `docs/db1_implementation_plan.md` — DB1の実装順序、運用view/CLI/runbook、テスト、判定規則
+6. `manifests/db0_spec_amendment_v2_manifest.json` — 運用仕様を追加したv2再凍結の成果物hash
+7. `manifests/project_bootstrap_manifest.json` — プロジェクト作成時のv1状態と移管結果
+8. `manifests/import_file_inventory.csv` — 69 CSVの相対パス、行数、サイズ、SHA-256
+9. `docs/saxo_api_data_acquisition_handoff.md` — 24時間token、instrument確認、初回フル取得、DB3増分取得、DataVersion、品質・security gate
+10. `docs/saxo_db_project_plan.md` — DB0〜DB4と研究再開条件
+11. `docs/v13_category_specific_intraday_strategy_research_plan.md` — DB完成後の研究目的。DB構築中は実行しない
 
 相違がある場合の優先順位は、`README.md`の安全境界 → `specs/saxo_db_import_spec.json`の新プロジェクト相対パス → `specs/v13_phase_db0_database_spec.json`の技術仕様 → 人間向け文書です。仕様を変更する必要が出た場合は、黙って解釈変更せず、差分と理由を提示して再凍結してください。
 
@@ -101,6 +105,7 @@ partitioningの再検討条件は、curated barが1,000万行以上、DBが8GB�
 - `saxo_ingest`: ingestion DMLと許可済みprocedure
 - `saxo_app_reader`: curated/opsのアプリ読取
 - `saxo_analyst_reader`: analytics用途の読取
+- `saxo_ops_operator`: 許可済みquality/backup procedureの実行専用
 - `v13_research_reader`: research snapshot専用
 - `v13_forward_writer`: forward append専用
 - `postgres`: bootstrap/emergency専用。通常利用しない
@@ -113,6 +118,9 @@ schemaは `catalog`、`ops`、`raw`、`staging`、`curated`、`derived`、`quali
 
 主要テーブルは次のとおりです。厳密な列・型・制約は機械仕様を正本としてください。
 
+- `catalog.source_dataset`
+- `catalog.session_calendar`
+- `catalog.session_interval`
 - `catalog.instrument`
 - `ops.ingestion_run`
 - `ops.source_file`
@@ -124,13 +132,18 @@ schemaは `catalog`、`ops`、`raw`、`staging`、`curated`、`derived`、`quali
 - `derived.market_bar_1d_risk`
 - `quality.event`
 - `ops.research_snapshot`
+- `ops.backup_run`
 - `ops.schema_migration`
+
+運用者はtableを直接探索するのではなく、read-only viewと`python3 -m market_db.inspect`を標準入口として、dataset inventory、coverage、freshness、lineage、ingestion run、品質event、storage、backup状態を確認します。品質eventとbackup実績の状態更新は、`saxo_ops_operator`を使う`market_db.operate`の許可済みprocedureだけに限定します。DB1では空DBに対して安全に動作させ、DB2以降で実データの件数・期間・品質を検証します。
+
+固定viewは`analytics.v_data_inventory`、`analytics.v_data_coverage`、`analytics.v_data_lineage`、`ops.v_ingestion_status`、`quality.v_open_event`、`ops.v_storage_usage`、`ops.v_backup_status`です。research DBにはinventory/coverage/lineage/storageだけを公開し、forward DBは評価ゲート前の参照対象にしません。
 
 時刻は`TIMESTAMPTZ`のUTC、日付は`DATE`、価格は`NUMERIC(24,12)`、volumeは`NUMERIC(30,8)`、SHA-256は`CHAR(64)`、構造化メタデータは`JSONB`を使います。
 
-## 6. 次に実施するPhase DB1
+## 6. 実施済みPhase DB1
 
-DB1の目的は、データをまだ投入せず、Docker/PostgreSQL基盤、最小migration、role境界を再現可能な形で構築することです。
+DB1は、データを投入せず、Docker/PostgreSQL基盤、migration、role境界を再現可能な形で構築し、2026-07-16にruntime gateを含めてPASSしました。詳細は`docs/db1_implementation_result.md`と`manifests/db1_implementation_manifest.json`を参照してください。
 
 ### DB1で作る成果物
 
@@ -144,13 +157,24 @@ requirements.txt
 scripts/create_local_db_secrets.py
 db/migrations/0001_bootstrap.sql
 db/migrations/0002_market_schema.sql
+db/migrations/0003_research_schema.sql
+db/migrations/0004_forward_schema.sql
+db/migrations/0005_grants_and_forward_append.sql
+db/migrations/0006_operational_views.sql
+db/migrations/0007_operational_procedures.sql
+db/migrations/0008_quality_privilege_hardening.sql
 market_db/__init__.py
 market_db/connection.py
 market_db/migrate.py
 market_db/validate.py
+market_db/inspect.py
+market_db/operate.py
 tests/
+tests/test_inspect_cli.py
+tests/test_operate_cli.py
 manifests/db1_implementation_manifest.json
 docs/db1_implementation_result.md
+docs/database_operations_runbook.md
 ```
 
 必要ならmigration SQLを責務単位で追加して構いません。ただし番号、適用順、SHA-256、適用時刻を`ops.schema_migration`へ記録し、同一番号の内容変更を拒否する仕組みにしてください。destructive down migrationは作りません。
@@ -164,10 +188,12 @@ docs/db1_implementation_result.md
 5. 凍結仕様どおりに`compose.yaml`を作り、`docker compose config`で検証する。
 6. imageをpullし、実際のdigestをDB1 manifestへ記録する。
 7. named volumeを使ってPostgreSQLを起動し、healthcheckがhealthyになることを確認する。
-8. bootstrap/migrationを実行して3 DB、role、schema、最低限のtable・constraintを作る。
-9. writer/reader/owner/migratorの権限分離を自動テストする。
-10. コンテナ再起動後もschemaとmigration履歴が残ることを確認する。
-11. 実行コマンド、digest、migration checksum、テスト結果、未実施事項を結果文書とmanifestに記録する。
+8. bootstrap/migrationを実行して3 DB、role、schema、最低限のtable・constraint・運用viewを作る。
+9. `market_db.inspect`の全subcommandが空DBで0件または`NOT_EVALUATED`を安全に返すことを確認する。
+10. writer/reader/owner/migrator/operatorの権限分離、運用view/inspect CLIのread-only性、operate CLIのprocedure-only更新を自動テストする。
+11. コンテナ再起動後もschema、view、migration履歴が残ることを確認する。
+12. 起動・確認・障害対応・secret rotation・backup/restoreのrunbookを作成する。
+13. 実行コマンド、digest、migration checksum、テスト結果、未実施事項を結果文書とmanifestに記録する。
 
 ### DB1では行わないこと
 
@@ -193,6 +219,10 @@ docs/db1_implementation_result.md
 - `v13_research_reader`は`saxo_market`へ接続できない。
 - `v13_forward_writer`は許可済みappend経路以外で変更できない。
 - migrationは初回適用、再実行、checksum不一致拒否をテスト済みである。
+- `catalog.source_dataset`、`ops.backup_run`、品質event lifecycle列、定義済み運用viewが存在する。
+- `market_db.inspect`のinventory、coverage、freshness、runs、quality、lineage、storage、backupsが空DBで安全に動作する。
+- 運用view/CLIはread-onlyで、任意SQLやcredentialを受け付けない。
+- `saxo_ops_operator`は許可済みquality/backup procedureだけを実行でき、tableの直接DMLと市場データ変更ができない。
 - repositoryとログにpassword/token/account IDが残っていない。
 - 移管済み69 CSVのSHA-256が変化していない。
 - DB1で市場データが投入されていない。
@@ -202,7 +232,7 @@ docs/db1_implementation_result.md
 
 ## 8. DB1後の工程
 
-DB1がPASSするまで、以下はLOCKEDです。
+DB1 PASSによりDB2だけを解放しました。DB3以降は引き続きLOCKEDです。
 
 ### Phase DB2：既存CSVインポート
 
@@ -210,8 +240,11 @@ DB1がPASSするまで、以下はLOCKEDです。
 - source fileを`ops.source_file`へ登録し、SHA-256で二重取込を防止する。
 - stagingで型、時刻、OHLC、重複、時間軸を検証する。
 - Saxo raw、ETF total-return、分析baselineを別系統でロードする。
+- datasetを`catalog.source_dataset`へ登録し、`ops.source_file`から参照する。
 - raw revisionはappend-only、curatedは決定論的upsertとする。
 - 行数、min/max時刻、重複、欠損、checksumを照合する。
+- inventory、coverage、lineageの出力をimport manifestと照合する。
+- cutoff以前を`saxo_research_v13`へ物理snapshot化し、dumpとmanifestのSHA-256を記録する。
 
 ### Phase DB3：増分更新
 
@@ -224,15 +257,20 @@ DB1がPASSするまで、以下はLOCKEDです。
 - advisory lockで同時更新を防止する。
 - stage → validate → raw append → curated upsert → watermark update → commitの単一transactionにする。
 - quality gate失敗時はcurated/watermarkをrollbackし、失敗run metadataを残す。
+- 受理済み60分足から4Hと日次risk系列を決定論的に再生成する。
+- session calendar、holiday、短縮取引、DSTに基づいてcoverageと完成足を判定する。
+- freshness、watermark、failed run、open quality eventを運用CLIで確認する。
 - HTTP 429は上限付き指数backoff。注文・precheck endpointは呼ばない。
 
-### Phase DB4：派生足・品質・研究スナップショット
+### Phase DB4：参照・運用ゲート
 
-- 受理済み60分足から4Hを決定論的生成する。
-- 日次データは取引シグナルではなくリスク推定用に生成する。
-- 4H/1Dの再計算一致、timezone、session境界、完全足条件を検証する。
-- cutoff以前を`saxo_research_v13`へ物理snapshot化し、dumpとmanifestのSHA-256を記録する。
+- inventory、coverage、freshness、lineage、run、quality、storage、backup statusのread APIを作る。
+- quality eventのacknowledge/resolveとbackup実績更新を、監査可能なprocedure経由に限定する。
+- 運用CLIとread APIの件数・期間・状態が一致することを確認する。
+- `ops.backup_run`へbackup・検証・restore smoke test結果を記録する。
 - backup/restore smoke testを行う。
+- daily 7世代・weekly 4世代のretentionとdisk使用量を確認する。
+- runbookに沿った起動、restart、障害、secret rotation、restoreのdrillを行う。
 
 DB1〜DB4がすべてPASSして初めて、短期戦略研究のPhase RT0へ進めます。
 
@@ -248,7 +286,7 @@ DB1〜DB4がすべてPASSして初めて、短期戦略研究のPhase RT0へ進�
 
 ## 10. 作業中の確認コマンド
 
-DB1実装前でも実行してよい確認:
+仕様・移管bundleの確認:
 
 ```bash
 python3 -m json.tool specs/saxo_db_import_spec.json >/dev/null
@@ -264,6 +302,8 @@ docker compose -p saxo-market-data ps
 docker compose -p saxo-market-data exec postgres pg_isready -d saxo_market
 python3 -m pytest
 python3 -m market_db.validate --phase db1
+python3 -m market_db.inspect inventory
+python3 -m market_db.inspect storage
 ```
 
 実際の接続情報は`.secrets/`からプロセス環境へ注入し、コマンドライン引数、shell history、ログへpasswordを露出させないでください。
@@ -278,9 +318,10 @@ DB1作業の完了報告には、最低限次を含めてください。
 4. 起動したservice、DB、role、schema
 5. 適用migration番号とSHA-256
 6. healthcheck、restart persistence、権限テスト、秘密情報検査の結果
-7. 移管69 CSVが未変更であること
-8. 市場データをまだ投入していないこと
-9. 残課題と、次に解放されたPhase
+7. 運用view、inspect CLI、runbookの検証結果
+8. 移管69 CSVが未変更であること
+9. 市場データをまだ投入していないこと
+10. 残課題と、次に解放されたPhase
 
 「コードを書いた」「テストファイルを作った」だけでPASSと報告しないでください。Docker daemonが利用できない等で実行確認できない場合は、実装ゲートと実行ゲートを分け、実行ゲートを`BLOCKED`としてください。
 
@@ -288,9 +329,9 @@ DB1作業の完了報告には、最低限次を含めてください。
 
 別のAIへは、次の依頼文で再開できます。
 
-> `/Users/tikeda/workspace/trade/saxo_db/README.md`を最初から最後まで読み、記載された順序で仕様書とmanifestを確認してください。現在はDB未構築です。Phase DB1だけを実施し、Docker Compose/PostgreSQL基盤、3物理DB、role/schema、migration、権限テスト、DB1 manifestと結果文書を作成してください。CSVインポート、Saxo API接続、特徴量、戦略、WFO、Holdoutには進まないでください。実行検証を行い、PASS/FAIL/BLOCKEDを分けて報告してください。
+> `/Users/tikeda/workspace/trade/saxo_db/README.md`を最初から最後まで読み、DB1結果manifestと運用runbookを確認してください。現在はDB1 PASS、市場データ0件です。次はPhase DB2だけを実施し、69 CSVをimmutableな入力としてimport、inventory/coverage/lineage照合、cutoff以前のresearch snapshot凍結を行ってください。Saxo API増分更新、特徴量、戦略、WFO、Holdoutには進まないでください。
 
 ---
 
 最終更新: 2026-07-16 JST  
-現在のゲート: `DB0=COMPLETE / DB1=NEXT / DB2-DB4=LOCKED / RT0=LOCKED`
+現在のゲート: `DB0 v2=RE-FROZEN / DB1=PASS / DB2=NEXT / DB3-DB4=LOCKED / RT0=LOCKED`
