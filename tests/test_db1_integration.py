@@ -77,12 +77,21 @@ def test_database_connect_boundaries():
 
 
 def test_readers_can_read_only_allowlisted_views():
-    assert fetch_rows(MARKET_DB, "inventory") == []
-    assert fetch_rows(MARKET_DB, "coverage") == []
-    assert fetch_rows(MARKET_DB, "freshness") == []
-    assert fetch_rows(MARKET_DB, "runs") == []
-    assert fetch_rows(MARKET_DB, "quality") == []
-    assert fetch_rows(MARKET_DB, "lineage") == []
+    market_views = {
+        command: fetch_rows(MARKET_DB, command)
+        for command in ("inventory", "coverage", "freshness", "runs", "quality", "lineage")
+    }
+    assert all(isinstance(rows, list) for rows in market_views.values())
+    with connect("saxo_migrator", MARKET_DB) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) FROM ops.source_file")
+            source_files = int(cursor.fetchone()[0])
+    if source_files == 0:
+        assert all(rows == [] for rows in market_views.values())
+    else:
+        assert source_files == 69
+        assert all(market_views[command] for command in market_views)
+        assert len(market_views["lineage"]) == source_files
     assert isinstance(fetch_rows(MARKET_DB, "storage"), list)
     assert len(fetch_rows(MARKET_DB, "backups")) == 3
     for command in ("inventory", "coverage", "lineage", "storage"):
@@ -225,26 +234,28 @@ def test_failed_migration_rolls_back_ddl_and_history(tmp_path, monkeypatch):
     source = Path(__file__).resolve().parents[1] / "db" / "migrations"
     for path in source.glob("*.sql"):
         (tmp_path / path.name).write_bytes(path.read_bytes())
-    (tmp_path / "0009_rollback_probe.sql").write_text(
+    (tmp_path / "0013_rollback_probe.sql").write_text(
         "SET LOCAL ROLE saxo_db_owner; "
         "CREATE TABLE ops.db1_rollback_probe(id integer); "
         "SELECT 1 / 0;",
         encoding="utf-8",
     )
-    monkeypatch.setitem(migrate_module.MIGRATION_TARGETS, "0009", (MARKET_DB,))
+    monkeypatch.setitem(migrate_module.MIGRATION_TARGETS, "0013", (MARKET_DB,))
     with pytest.raises(psycopg.errors.DivisionByZero):
         apply_database_migrations(MARKET_DB, directory=tmp_path)
     with connect("saxo_migrator", MARKET_DB) as conn:
         with conn.cursor() as cursor:
             cursor.execute("SELECT to_regclass('ops.db1_rollback_probe')")
             assert cursor.fetchone()[0] is None
-            cursor.execute("SELECT count(*) FROM ops.schema_migration WHERE migration_number='0009'")
+            cursor.execute("SELECT count(*) FROM ops.schema_migration WHERE migration_number='0013'")
             assert cursor.fetchone()[0] == 0
 
 
-def test_market_tables_remain_empty():
+def test_market_state_matches_the_active_database_phase():
     with connect("saxo_migrator", MARKET_DB) as conn:
         with conn.cursor() as cursor:
+            cursor.execute("SELECT count(*) FROM ops.source_file")
+            source_files = int(cursor.fetchone()[0])
             cursor.execute(
                 "SELECT (SELECT count(*) FROM catalog.instrument) + "
                 "(SELECT count(*) FROM raw.market_bar_revision) + "
@@ -254,4 +265,9 @@ def test_market_tables_remain_empty():
                 "(SELECT count(*) FROM quality.event) + "
                 "(SELECT count(*) FROM ops.backup_run)"
             )
-            assert cursor.fetchone()[0] == 0
+            payload_rows = int(cursor.fetchone()[0])
+            if source_files == 0:
+                assert payload_rows == 0
+            else:
+                assert source_files == 69
+                assert payload_rows > 0

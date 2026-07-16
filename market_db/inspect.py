@@ -37,8 +37,8 @@ QUERY_SPECS: dict[tuple[str, str], QuerySpec] = {
     ),
     (MARKET_DB, "freshness"): QuerySpec(
         "saxo_app_reader",
-        "analytics.v_data_inventory",
-        "layer, symbol, horizon_minutes",
+        "analytics.v_data_freshness",
+        "symbol, horizon_minutes",
         "freshness_status",
         frozenset({"STALE", "FAIL"}),
     ),

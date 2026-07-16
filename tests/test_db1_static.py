@@ -63,14 +63,19 @@ def test_sql_security_boundaries_are_explicit():
     assert "password" not in lower
 
 
-def test_machine_specs_are_valid_json_and_db1_is_zero_import():
+def test_machine_specs_are_valid_json_and_db3_keeps_db4_locked():
     spec = json.loads(read("specs/v13_phase_db0_database_spec.json"))
     import_spec = json.loads(read("specs/saxo_db_import_spec.json"))
     assert spec["phase"] == "DB0"
     assert import_spec["database_implementation_started"] is True
     assert import_spec["source_files_are_immutable"] is True
-    assert import_spec["next_phase"] == "DB2_NEXT_NOT_STARTED"
+    assert import_spec["next_phase"] == "DB3_LIVE_GATE_ONLY"
+    phase_status = {item["phase"]: item["status"] for item in spec["phases"]}
+    assert phase_status["DB2"] == "PASS"
+    assert phase_status["DB3"] == "OFFLINE_PASS_LIVE_BLOCKED"
+    assert phase_status["DB4"] == "LOCKED"
     assert "DB1" in read("docs/db1_implementation_plan.md")
+    assert "DB2" in read("docs/db2_implementation_plan.md")
     assert "docker compose down -v" in read("docs/db1_implementation_plan.md")
 
 

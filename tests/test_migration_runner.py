@@ -9,12 +9,12 @@ from market_db.migrate import MigrationError, list_migrations, migration_number,
 
 def test_repository_migrations_are_declared_and_ordered():
     paths = list_migrations()
-    assert [migration_number(path) for path in paths] == [f"{number:04d}" for number in range(1, 9)]
+    assert [migration_number(path) for path in paths] == [f"{number:04d}" for number in range(1, 13)]
     assert all(migration_sha256(path) == hashlib.sha256(path.read_bytes()).hexdigest() for path in paths)
 
 
 def test_unknown_migration_is_rejected(tmp_path):
-    (tmp_path / "0009_unknown.sql").write_text("SELECT 1;", encoding="utf-8")
+    (tmp_path / "0013_unknown.sql").write_text("SELECT 1;", encoding="utf-8")
     with pytest.raises(MigrationError, match="not declared"):
         list_migrations(tmp_path)
 

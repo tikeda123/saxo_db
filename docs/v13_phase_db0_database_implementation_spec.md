@@ -1,9 +1,9 @@
 # Phase DB0 データベース実装仕様書
 
-作成日: 2026-07-16  
-対象研究線: `v13categoryintraday`  
+作成日: 2026-07-16
+対象研究線: `v13categoryintraday`
 仕様ID: `v13_database_prerequisite_20260716_v2`
-状態: **SPEC RE-FROZEN / DB1 IMPLEMENTED AND PASSED**
+状態: **SPEC RE-FROZEN / DB1-DB2 PASS / DB3 OFFLINE PASS AND LIVE SIM TOKEN待ち / DB4 LOCKED**
 
 ## 1. 目的と現在のゲート
 
@@ -259,6 +259,10 @@ unique keyは`(provider, environment, uic, asset_type)`とする。
 
 `source_file_id`、OHLC、Bid/Ask OHLC、Volume、MarketTradingState、DataVersion、DelayedByMinutes、is_complete、retrieved_at、payload SHA-256を保持する。CSV importとAPI raw artifactは先に`ops.source_file`へ登録し、raw rowから原本fileへ追跡できるようにする。raw tableではBid > Ask等をCHECK constraintで拒否せず、`quality.event`へ記録する。
 
+### 7.2.1 `raw.reference_observation`
+
+価格barへ変換しないcollection summary、instrument master、ETF外部原本、macro、RA0 baselineをsource row単位で損失なく保持する。主キーは`(source_file_id, row_number)`とし、`reference_kind`、`reference_key`、`layer`、`observation_time_utc`、元CSV rowの`payload_json`、canonical JSONのSHA-256を保存する。`layer`は監査原本の`raw`と、再現比較用の`research_metadata`を区別する。
+
 ### 7.3 `curated.market_bar`
 
 分析可能な最新barを1つだけ保持する。
@@ -275,7 +279,7 @@ unique keyは`(provider, environment, uic, asset_type)`とする。
 
 ### 7.4 `curated.etf_total_return_daily`
 
-ETFの日次total return系列をSaxo raw OHLCと混ぜない。source dataset、adjusted close、total return index、dividend、split factorを明示する。
+ETFの日次total return系列をSaxo raw OHLCと混ぜない。source dataset、source file、adjusted close、total return index、dividend、split factorを明示する。
 
 主キー:
 
@@ -283,7 +287,7 @@ ETFの日次total return系列をSaxo raw OHLCと混ぜない。source dataset�
 (source_dataset_id, ticker, date)
 ```
 
-1Hから生成するraw 1D risk barと、分配調整済みtotal returnは別table・別price basisとする。
+1Hから生成するraw 1D risk barと、分配調整済みtotal returnは別table・別price basisとする。`source_file_id`は`ops.source_file`を参照し、各curated rowから入力CSVへ追跡できなければならない。
 
 ### 7.5 `derived.market_bar_4h`
 
@@ -375,6 +379,10 @@ DB3ではSaxo Chart APIからcanonical 1Hだけを更新する。raw 4Hの増分
 
 HTTP 429は既存collectorと同じ有限回の指数backoffを使う。注文API、precheck、portfolio endpointは呼び出さない。
 
+DB3実装では上記をcanonical 13全体の単一transactionとして固定した。取得済みraw JSONはtransaction外で先にatomic保存し、DB失敗時にも監査原本として残すが、token、AccountKey、ClientKey、TradableOn、Authorizationは保存しない。通常runはEtf 20本・FxSpot 72本の実バーoverlapを使い、Saxoの境界包含を前提に重複排除する。
+
+`DataVersion`がwatermarkと異なる場合は対象instrumentを`STALE_DATA_VERSION`へ移し、通常run全体をrollbackする。復旧は対象1銘柄の`manual_db3_full_refetch`だけに限定する。`Mode=UpTo`で既存最古時刻以前まで取得できたことを確認し、`STALE_DATA_VERSION`・RUNNING・専用triggerを検査するsecurity-definer procedureだけがcurated置換を許可する。old raw revisionと削除observationsのquality auditは保持する。
+
 ## 10. データ管理・参照インターフェース
 
 ### 10.1 運用view
@@ -385,6 +393,7 @@ HTTP 429は既存collectorと同じ有限回の指数backoffを使う。注文AP
 |---|---|
 | `analytics.v_data_inventory` | dataset・銘柄・layer・price basis・horizon別の件数、期間、最新完成時刻、品質 |
 | `analytics.v_data_coverage` | 期待期間に対する実件数、完成・未完成、重複、欠損の集計 |
+| `analytics.v_data_freshness` | watermark、次のsession slot、data status、鮮度判定 |
 | `analytics.v_data_lineage` | source dataset/file、ingestion run、raw、curated/derivedの追跡 |
 | `ops.v_ingestion_status` | run状態、件数、error code、watermark、遅延 |
 | `quality.v_open_event` | OPEN/ACKNOWLEDGEDの品質event |
@@ -393,7 +402,7 @@ HTTP 429は既存collectorと同じ有限回の指数backoffを使う。注文AP
 
 `analytics.v_data_inventory`は最低限、`source_dataset_id`、`instrument_id`、symbol、category、layer、price_basis、horizon、row_count、min/max time、latest complete time、quality status、latest ingestion run、freshnessを返す。
 
-coverageの「欠損」は単純な連続時刻差だけで判定せず、instrumentの取引session/calendarと完成足規則に基づく。calendarが未実装のDB2時点では`NOT_EVALUATED`を返し、0件やPASSへ偽装しない。
+coverageの「欠損」は単純な連続時刻差だけで判定せず、instrumentの取引session/calendarと完成足規則に基づく。calendarが未実装のDB2時点では`NOT_EVALUATED`を返し、0件やPASSへ偽装しない。DB3では期待slotに一致した行、missing、out-of-sessionを分ける。既存履歴にcalendar外バーがあっても削除せず`WARN`として表面化し、派生足からだけ除外する。FX calendarはSaxo live schedule照合まで`PROVISIONAL`とし、coverage/freshnessを`NOT_EVALUATED`に保つ。
 
 `saxo_market`には7 viewすべてを作る。`saxo_research_v13`にはinventory、coverage、lineage、storageだけを作り、`v13_research_reader`で参照する。`saxo_forward_v13`は評価ゲート前にreaderを与えないため運用CLIの参照対象外とし、cross-database linkや集約用の例外権限を作らない。
 
@@ -405,9 +414,9 @@ coverageの「欠損」は単純な連続時刻差だけで判定せず、instru
 python3 -m market_db.inspect inventory
 python3 -m market_db.inspect coverage
 python3 -m market_db.inspect freshness
-python3 -m market_db.inspect runs --status failed
-python3 -m market_db.inspect quality --status open
-python3 -m market_db.inspect lineage --source-file <relative-path>
+python3 -m market_db.inspect runs
+python3 -m market_db.inspect quality --fail-on-alert
+python3 -m market_db.inspect lineage
 python3 -m market_db.inspect storage
 python3 -m market_db.inspect backups
 ```
@@ -500,6 +509,10 @@ raw CSV/JSONも監査原本として残るが、DB privilege、migration状態�
 0006_operational_views.sql
 0007_operational_procedures.sql
 0008_quality_privilege_hardening.sql
+0009_db2_import_support.sql
+0010_db3_incremental_support.sql
+0011_db3_coverage_refinement.sql
+0012_db3_full_refetch_guard.sql
 ```
 
 `ops.schema_migration`へfilename、SHA-256、適用時刻を記録する。適用済みSQLのchecksumが変わった場合はFAILする。実データに対する破壊的down migrationは実行せず、backupからrestoreする。
@@ -525,7 +538,7 @@ raw CSV/JSONも監査原本として残るが、DB privilege、migration状態�
 - localhost以外から接続不能
 - restart後もnamed volumeのschemaが保持される
 
-### DB2 — 既存データ移行・研究snapshot
+### DB2 — 既存データ移行・研究snapshot（PASS）
 
 - 525,381 intraday行のraw照合
 - 1H curatedと4H raw archiveの役割分離
@@ -535,7 +548,9 @@ raw CSV/JSONも監査原本として残るが、DB privilege、migration状態�
 - `saxo_research_v13`をcutoff以前だけで物理作成・read-only化
 - dump・manifest・SHA-256作成
 
-### DB3 — 最新データ増分更新
+実装では全69 CSV rowを損失なく追跡するため、`raw.reference_observation`とtotal-returnの`source_file_id`を`0009`で追加した。market DBの実測値はraw market bar 636,629行、reference 90,894行、curated 1H 394,992行、ETF total-return 54,285行で、source file単位lineage不一致は0件である。research DBはcutoff以前だけを物理copyしてdefault read-only化し、content/dump manifest、dump SHA-256、`pg_restore --list`を検証済みである。restore smoke testはDB4までLOCKEDとする。
+
+### DB3 — 最新データ増分更新（OFFLINE PASS / LIVE SIM TOKEN待ち）
 
 - overlap取得・idempotent upsert
 - historical revision保存
@@ -545,6 +560,8 @@ raw CSV/JSONも監査原本として残るが、DB privilege、migration状態�
 - freshness、watermark、failed run、open quality eventを運用CLIで確認
 - 中断再開・429 retry・単一writer lock
 - token永続化ゼロ、注文APIゼロ
+
+実装・実DB検証では、canonical 13 watermark、ETF 11 verified calendar、FX 2 provisional calendarを登録し、既存の完成・PASS 1Hから4H 107,623行、1D 44,292行を生成した。coverageはETF 11 WARN・FX 2 NOT_EVALUATED・FAIL 0、freshnessはlive未更新のためETF 11 STALE・FX 2 NOT_EVALUATEDである。staging 0、research DBへの0010〜0012適用0、全test PASS、offline validator PASSを確認した。session-only tokenがprocessにないため、smoke・13 detail/schedule/chart・直後2回目runのlive gateだけを`BLOCKED_LIVE_SIM_TOKEN`とし、DB4は解放しない。
 
 ### DB4 — 参照・運用ゲート
 
@@ -578,4 +595,4 @@ DB0では次を実行しない。
 - credential保存
 - strategy signal、PnL、WFO、Holdout、portfolio calculation
 
-以上をPhase DB0の凍結仕様とし、次に許可する作業はPhase DB1だけとする。
+以上をPhase DB0の凍結仕様とする。実装進捗はDB1・DB2 PASS、DB3 OFFLINE PASS / LIVE SIM TOKEN待ちであり、現在次に許可する作業はPhase DB3 live gateだけである。DB4とRT0は引き続きLOCKEDとする。

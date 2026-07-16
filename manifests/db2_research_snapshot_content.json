@@ -1,0 +1,38 @@
+{
+  "FDW_or_dblink_used": false,
+  "boundaries": {
+    "curated_max_time_utc": "2024-06-28T20:00:00+00:00",
+    "curated_post_cutoff_rows_excluded": 65247,
+    "raw_max_time_utc": "2024-06-28T20:00:00+00:00",
+    "raw_post_cutoff_rows_excluded": 92232,
+    "reference_max_time_utc": "2024-06-28T00:00:00+00:00",
+    "total_return_max_date": "2024-06-28",
+    "total_return_post_cutoff_rows_excluded": 0
+  },
+  "created_at_utc": "2026-07-16T15:27:31.970024Z",
+  "cutoff_utc": "2024-06-28T23:59:59Z",
+  "phase": "DB2",
+  "plan_id": "category_specific_intraday_strategy_v13",
+  "research_line_id": "v13categoryintraday",
+  "schema_version": 1,
+  "snapshot_database": "saxo_research_v13",
+  "source_database": "saxo_market",
+  "source_inventory_relative_path": "manifests/import_file_inventory.csv",
+  "source_inventory_sha256": "72abbdcedd75b290b46d4ca8396125ebe99863e16e8c570c0f06fdf8440282db",
+  "table_counts_before_snapshot_registry_row": {
+    "catalog.instrument": 18,
+    "catalog.session_calendar": 0,
+    "catalog.session_interval": 0,
+    "catalog.source_dataset": 6,
+    "curated.etf_total_return_daily": 54285,
+    "curated.market_bar": 329745,
+    "derived.market_bar_1d_risk": 0,
+    "derived.market_bar_4h": 0,
+    "ops.ingestion_run": 69,
+    "ops.source_file": 69,
+    "ops.watermark": 0,
+    "quality.event": 5,
+    "raw.market_bar_revision": 544397,
+    "raw.reference_observation": 83978
+  }
+}

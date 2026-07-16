@@ -1,0 +1,14 @@
+{
+  "created_at_utc": "2026-07-16T15:27:45.798899Z",
+  "database": "saxo_research_v13",
+  "dump_relative_path": "backups/postgres/saxo_research_v13_db2.dump",
+  "dump_sha256": "3211fc37bdda970171d1ffe9c1767bbea4d49fe4cc2538a09318950cd3228160",
+  "dump_size_bytes": 53397996,
+  "format": "pg_dump_custom",
+  "pg_restore_list_pass": true,
+  "phase": "DB2",
+  "research_snapshot_content_manifest": "manifests/db2_research_snapshot_content.json",
+  "research_snapshot_content_sha256": "c275d078dcdff418ff2d34eb8e2e38a8d790510881556341f6bafbf0c8b63d6b",
+  "restore_smoke_test_status": "LOCKED_UNTIL_DB4",
+  "schema_version": 1
+}

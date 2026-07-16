@@ -4,7 +4,7 @@
   "plan_id": "category_specific_intraday_strategy_v13",
   "research_line_id": "v13categoryintraday",
   "amendment_id": "v13_database_prerequisite_20260716_v2",
-  "status": "SPEC_REFROZEN_DB1_IMPLEMENTED_AND_PASSED",
+  "status": "SPEC_REFROZEN_DB1_DB2_PASS_DB3_OFFLINE_PASS_LIVE_BLOCKED",
   "purpose": "build_a_reproducible_incremental_market_data_store_before_strategy_rule_or_performance_validation",
   "gate_amendment": {
     "prior_next_phase": "RT0",
@@ -137,6 +137,12 @@
       "required_columns": ["ingestion_run_id", "source_file_id", "instrument_id", "horizon_minutes", "time_utc", "open", "high", "low", "close", "open_bid", "high_bid", "low_bid", "close_bid", "open_ask", "high_ask", "low_ask", "close_ask", "volume", "market_trading_state", "price_basis", "is_complete", "data_version", "delayed_by_minutes", "retrieved_at_utc", "payload_sha256"],
       "foreign_keys": [{"columns": ["source_file_id"], "references": "ops.source_file(source_file_id)"}]
     },
+    "raw.reference_observation": {
+      "primary_key": ["source_file_id", "row_number"],
+      "required_columns": ["source_file_id", "row_number", "reference_kind", "reference_key", "layer", "observation_time_utc", "payload_json", "payload_sha256"],
+      "layers": ["raw", "research_metadata"],
+      "foreign_keys": [{"columns": ["source_file_id"], "references": "ops.source_file(source_file_id)"}]
+    },
     "curated.market_bar": {
       "primary_key": ["instrument_id", "horizon_minutes", "time_utc", "price_basis"],
       "allowed_horizons_minutes": [60],
@@ -145,8 +151,11 @@
     "curated.etf_total_return_daily": {
       "primary_key": ["source_dataset_id", "ticker", "date"],
       "separate_from_Saxo_raw_OHLC": true,
-      "required_columns": ["source_dataset_id", "ticker", "date", "currency", "open_unadjusted", "high_unadjusted", "low_unadjusted", "close_unadjusted", "adjusted_close", "total_return_index", "volume", "dividend_cash", "split_factor", "source", "quality_status"],
-      "foreign_keys": [{"columns": ["source_dataset_id"], "references": "catalog.source_dataset(source_dataset_id)"}]
+      "required_columns": ["source_dataset_id", "ticker", "date", "currency", "open_unadjusted", "high_unadjusted", "low_unadjusted", "close_unadjusted", "adjusted_close", "total_return_index", "volume", "dividend_cash", "split_factor", "source", "quality_status", "source_file_id"],
+      "foreign_keys": [
+        {"columns": ["source_dataset_id"], "references": "catalog.source_dataset(source_dataset_id)"},
+        {"columns": ["source_file_id"], "references": "ops.source_file(source_file_id)"}
+      ]
     },
     "derived.market_bar_4h": {
       "primary_key": ["derivation_version", "instrument_id", "time_utc", "price_basis"],
@@ -166,7 +175,7 @@
     },
     "ops.research_snapshot": {
       "primary_key": ["snapshot_id"],
-      "required_columns": ["snapshot_id", "plan_id", "research_line_id", "cutoff_utc", "source_database", "source_manifest_sha256", "row_counts_json", "snapshot_sha256", "frozen_at_utc", "status"]
+      "required_columns": ["snapshot_id", "plan_id", "research_line_id", "cutoff_utc", "source_database", "source_manifest_sha256", "row_counts_json", "snapshot_sha256", "frozen_at_utc", "status", "snapshot_manifest_relative_path", "dump_relative_path", "dump_sha256", "dump_size_bytes", "dump_pg_restore_list_pass"]
     },
     "ops.backup_run": {
       "primary_key": ["backup_run_id"],
@@ -297,7 +306,7 @@
       "ops.v_backup_status": ["database_name", "last_success_at_utc", "sha256", "pg_restore_list_pass", "restore_smoke_tested_at_utc", "restore_smoke_test_status", "age_seconds"]
     },
     "view_database_matrix": {
-      "saxo_market": ["analytics.v_data_inventory", "analytics.v_data_coverage", "analytics.v_data_lineage", "ops.v_ingestion_status", "quality.v_open_event", "ops.v_storage_usage", "ops.v_backup_status"],
+      "saxo_market": ["analytics.v_data_inventory", "analytics.v_data_coverage", "analytics.v_data_freshness", "analytics.v_data_lineage", "ops.v_ingestion_status", "quality.v_open_event", "ops.v_storage_usage", "ops.v_backup_status"],
       "saxo_research_v13": ["analytics.v_data_inventory", "analytics.v_data_coverage", "analytics.v_data_lineage", "ops.v_storage_usage"],
       "saxo_forward_v13_before_evaluation": []
     },
@@ -357,25 +366,55 @@
     "db/migrations/0006_operational_views.sql",
     "db/migrations/0007_operational_procedures.sql",
     "db/migrations/0008_quality_privilege_hardening.sql",
+    "db/migrations/0009_db2_import_support.sql",
+    "db/migrations/0010_db3_incremental_support.sql",
+    "db/migrations/0011_db3_coverage_refinement.sql",
+    "db/migrations/0012_db3_full_refetch_guard.sql",
     "market_db/connection.py",
     "market_db/migrate.py",
     "market_db/import_legacy.py",
+    "market_db/research_snapshot.py",
     "market_db/incremental_update.py",
     "market_db/derive_bars.py",
+    "market_db/session_calendar.py",
+    "market_db/saxo_client.py",
     "market_db/backup.py",
     "market_db/validate.py",
     "market_db/inspect.py",
     "market_db/operate.py",
     "docs/database_operations_runbook.md",
+    "docs/db2_implementation_plan.md",
+    "docs/db2_implementation_result.md",
+    "docs/db3_implementation_plan.md",
+    "docs/db3_implementation_result.md",
     "tests/test_inspect_cli.py",
     "tests/test_operate_cli.py",
-    "manifests/db0_spec_amendment_v2_manifest.json"
+    "manifests/db0_spec_amendment_v2_manifest.json",
+    "manifests/db2_research_snapshot_content.json",
+    "manifests/db2_research_snapshot_dump.json",
+    "manifests/db2_implementation_manifest.json",
+    "manifests/db3_implementation_manifest.json"
   ],
+  "DB3_result": {
+    "offline_status": "PASS",
+    "live_status": "BLOCKED_LIVE_SIM_TOKEN",
+    "canonical_watermarks": 13,
+    "session_calendars": {"ETF_verified_instruments": 11, "FX_provisional_instruments": 2},
+    "derived_4h_rows": 107623,
+    "derived_1d_rows": 44292,
+    "coverage": {"WARN_instruments": 11, "NOT_EVALUATED_instruments": 2, "FAIL_instruments": 0},
+    "freshness": {"STALE_instruments": 11, "NOT_EVALUATED_instruments": 2},
+    "staging_rows": 0,
+    "research_DB3_migrations": 0,
+    "orders_or_prechecks_sent": 0,
+    "token_or_account_identifier_persisted": false,
+    "next_allowed_work": "DB3_live_SIM_gate_only"
+  },
   "phases": [
     {"phase": "DB0", "name": "implementation_spec_freeze", "status": "COMPLETE_SPEC_ONLY", "unlocks": "DB1_ONLY"},
     {"phase": "DB1", "name": "docker_postgres_roles_schema_migration_empty_inspection_and_controlled_operations", "status": "PASS"},
-    {"phase": "DB2", "name": "legacy_import_reconciliation_inventory_lineage_and_frozen_research_snapshot", "status": "NEXT"},
-    {"phase": "DB3", "name": "incremental_Saxo_update_revision_derived_bars_and_freshness_monitoring", "status": "LOCKED"},
+    {"phase": "DB2", "name": "legacy_import_reconciliation_inventory_lineage_and_frozen_research_snapshot", "status": "PASS"},
+    {"phase": "DB3", "name": "incremental_Saxo_update_revision_derived_bars_and_freshness_monitoring", "status": "OFFLINE_PASS_LIVE_BLOCKED"},
     {"phase": "DB4", "name": "read_API_backup_restore_retention_runbook_and_operational_gate", "status": "LOCKED"},
     {"phase": "RT0", "name": "strategy_rule_cost_and_trial_freeze", "status": "LOCKED_UNTIL_DB1_DB4_PASS"}
   ],

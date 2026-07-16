@@ -6,7 +6,7 @@
 
 このプロジェクトの目的は、Saxo OpenAPIから取得した市場データを、再現可能・追記可能・監査可能なPostgreSQLデータベースで管理し、後続の市場分析と短期売買戦略研究に利用できる状態にすることです。
 
-現在は**Phase DB1 PASS**です。空のPostgreSQL基盤、権限分離、運用CLI、migration、runtime検証まで完了しています。市場データはまだ投入していません。
+現在は**Phase DB3 OFFLINE PASS / LIVE SIM BLOCKED**です。DB2の移行・研究snapshotを保持したまま、増分取得、revision、calendar、watermark、4H/1D派生、coverage/freshness運用まで実装・実DB検証済みです。Saxo SIMのsession-only tokenが現在のprocessにないため、live smoke・13銘柄取得・再取得冪等性だけが未実施です。
 
 | 項目 | 現在の状態 |
 |---|---|
@@ -18,11 +18,15 @@
 | PostgreSQLコンテナ | 稼働中、healthcheck・restart persistence PASS |
 | DB・role・schema・table | 完了、3 DB、用途別role、checksum付きmigration |
 | 運用確認 | `market_db.inspect`、`market_db.operate`、runbook実装済み |
-| CSVインポート | 未実施 |
-| Saxo API増分更新 | 未実装 |
+| CSVインポート | 完了、69ファイル・781,808 source row、再実行は全件skip |
+| Research snapshot | 完了、cutoff `2024-06-28T23:59:59Z`、default read-only、dump検証PASS |
+| Saxo API増分更新 | 実装済み、offline gate PASS、live SIM token待ち |
+| Calendar / watermark | canonical 13割当・初期化済み。ETF verified rules、FXはlive schedule照合までprovisional |
+| 4H / 1D派生 | 4H 107,623行、1D 44,292行。完成・PASS 1Hだけから生成 |
+| 鮮度・coverage | CLI/view実装済み。現状ETF STALE、FX NOT_EVALUATED、calendar外/欠損は分離表示 |
 | 研究・バックテスト | 未実施 |
 
-次に許可されている工程は、**Phase DB2：既存CSVインポート、inventory/lineage照合、research snapshotのみ**です。DB3以降へ先回りしないでください。
+次に許可されている工程は、**Phase DB3 live SIM gateの完了だけ**です。session-only tokenでsmoke、canonical 13銘柄、直後の2回目更新を実行し、validatorをPASSさせます。DB4と研究Phaseへ先回りしないでください。
 
 ## 2. 絶対に守る境界
 
@@ -31,7 +35,7 @@
 3. 秘密情報はGit管理外の `.secrets/` に置き、ファイル権限を0600にします。値を標準出力へ表示しません。
 4. Saxoの未調整OHLCと、分配金再投資を含むETF total-return系列は別テーブル・別`price_basis`として管理します。混ぜません。
 5. 4時間足と日次リスク系列は、受理済み1時間足から決定論的に生成します。Saxo APIから取得済みの生4時間足は検算用アーカイブであり、正本にしません。
-6. DB1ではCSVの本インポート、API取得、特徴量、シグナル、損益、WFO、Holdout評価を行いません。
+6. DB2ではAPI取得・4H/1D派生を行わず、DB3で初めて実施しました。特徴量、シグナル、損益、WFO、Holdout評価は引き続き行いません。
 7. `2024-06-28T23:59:59Z`以前の研究スナップショットと、それ以後のforwardデータは物理DBで分離します。FDW・dblink・cross-database linkは禁止です。
 8. `docker compose down -v`、volume削除、CSV削除、DB初期化などの破壊操作は、ユーザーの明示承認なしに実行しません。
 9. 実装が動いたことと、研究戦略に優位性があることを混同しません。DB1〜DB4はデータ基盤の品質ゲートです。
@@ -44,13 +48,19 @@
 2. `specs/saxo_db_import_spec.json` — この新プロジェクトでの正本ディレクトリ、ファイル数、移管ルール
 3. `docs/v13_phase_db0_database_implementation_spec.md` — 人間向けの凍結済みDB実装仕様
 4. `specs/v13_phase_db0_database_spec.json` — 機械可読なDB・role・schema・table・増分更新仕様
-5. `docs/db1_implementation_plan.md` — DB1の実装順序、運用view/CLI/runbook、テスト、判定規則
-6. `manifests/db0_spec_amendment_v2_manifest.json` — 運用仕様を追加したv2再凍結の成果物hash
-7. `manifests/project_bootstrap_manifest.json` — プロジェクト作成時のv1状態と移管結果
-8. `manifests/import_file_inventory.csv` — 69 CSVの相対パス、行数、サイズ、SHA-256
-9. `docs/saxo_api_data_acquisition_handoff.md` — 24時間token、instrument確認、初回フル取得、DB3増分取得、DataVersion、品質・security gate
-10. `docs/saxo_db_project_plan.md` — DB0〜DB4と研究再開条件
-11. `docs/v13_category_specific_intraday_strategy_research_plan.md` — DB完成後の研究目的。DB構築中は実行しない
+5. `docs/db3_implementation_plan.md` — DB3取得・transaction・calendar・live gate計画
+6. `docs/db3_implementation_result.md` — DB3 offline実測、live blocker、未解放範囲
+7. `manifests/db3_implementation_manifest.json` — DB3 offline gateの機械可読証跡
+8. `docs/database_operations_runbook.md` — DB1〜DB3の実行可能な運用手順と後続lock
+9. `docs/db2_implementation_plan.md` — DB2の分類、import、snapshot、gateと実施結果
+10. `docs/db2_implementation_result.md` — DB2の実測件数、品質、snapshot、未実施範囲
+11. `manifests/db2_implementation_manifest.json` — DB2の機械可読証跡
+12. `docs/db1_implementation_plan.md` — DB1の実装順序、運用view/CLI/runbook、テスト、判定規則
+13. `manifests/db0_spec_amendment_v2_manifest.json` — 運用仕様を追加したv2再凍結の成果物hash
+14. `manifests/import_file_inventory.csv` — 69 CSVの相対パス、行数、サイズ、SHA-256
+15. `docs/saxo_api_data_acquisition_handoff.md` — token、instrument確認、full/incremental取得、DataVersion、品質・security gate
+16. `docs/saxo_db_project_plan.md` — DB0〜DB4と研究再開条件
+17. `docs/v13_category_specific_intraday_strategy_research_plan.md` — DB完成後の研究目的。DB構築中は実行しない
 
 相違がある場合の優先順位は、`README.md`の安全境界 → `specs/saxo_db_import_spec.json`の新プロジェクト相対パス → `specs/v13_phase_db0_database_spec.json`の技術仕様 → 人間向け文書です。仕様を変更する必要が出た場合は、黙って解釈変更せず、差分と理由を提示して再凍結してください。
 
@@ -126,6 +136,7 @@ schemaは `catalog`、`ops`、`raw`、`staging`、`curated`、`derived`、`quali
 - `ops.source_file`
 - `ops.watermark`
 - `raw.market_bar_revision`
+- `raw.reference_observation`
 - `curated.market_bar`
 - `curated.etf_total_return_daily`
 - `derived.market_bar_4h`
@@ -135,7 +146,7 @@ schemaは `catalog`、`ops`、`raw`、`staging`、`curated`、`derived`、`quali
 - `ops.backup_run`
 - `ops.schema_migration`
 
-運用者はtableを直接探索するのではなく、read-only viewと`python3 -m market_db.inspect`を標準入口として、dataset inventory、coverage、freshness、lineage、ingestion run、品質event、storage、backup状態を確認します。品質eventとbackup実績の状態更新は、`saxo_ops_operator`を使う`market_db.operate`の許可済みprocedureだけに限定します。DB1では空DBに対して安全に動作させ、DB2以降で実データの件数・期間・品質を検証します。
+運用者はtableを直接探索するのではなく、read-only viewと`python3 -m market_db.inspect`を標準入口として、dataset inventory、coverage、freshness、lineage、ingestion run、品質event、storage、backup状態を確認します。品質eventとbackup実績の状態更新は、`saxo_ops_operator`を使う`market_db.operate`の許可済みprocedureだけに限定します。DB2では実データの件数・期間・品質をgate化済みです。session calendar未登録のcoverage/freshnessはDB3まで`NOT_EVALUATED`です。
 
 固定viewは`analytics.v_data_inventory`、`analytics.v_data_coverage`、`analytics.v_data_lineage`、`ops.v_ingestion_status`、`quality.v_open_event`、`ops.v_storage_usage`、`ops.v_backup_status`です。research DBにはinventory/coverage/lineage/storageだけを公開し、forward DBは評価ゲート前の参照対象にしません。
 
@@ -145,9 +156,9 @@ schemaは `catalog`、`ops`、`raw`、`staging`、`curated`、`derived`、`quali
 
 DB1は、データを投入せず、Docker/PostgreSQL基盤、migration、role境界を再現可能な形で構築し、2026-07-16にruntime gateを含めてPASSしました。詳細は`docs/db1_implementation_result.md`と`manifests/db1_implementation_manifest.json`を参照してください。
 
-### DB1で作る成果物
+### DB1で作成済みの成果物
 
-最低限、次を作成してください。
+DB1では最低限、次を作成済みです。
 
 ```text
 compose.yaml
@@ -230,37 +241,30 @@ docs/database_operations_runbook.md
 
 成果物が存在するだけではPASSにしません。実行時検証が失敗した場合は、`FAIL`または`BLOCKED`として原因、再現手順、次に必要な条件を記録してください。
 
-## 8. DB1後の工程
+## 8. DB3の現在地と後続工程
 
-DB1 PASSによりDB2だけを解放しました。DB3以降は引き続きLOCKEDです。
+DB2 PASSによりDB3だけを解放しました。DB4とRT0は引き続きLOCKEDです。
 
-### Phase DB2：既存CSVインポート
+### Phase DB2：既存CSVインポート（PASS）
 
-- `manifests/import_file_inventory.csv`を入力正本にする。
-- source fileを`ops.source_file`へ登録し、SHA-256で二重取込を防止する。
-- stagingで型、時刻、OHLC、重複、時間軸を検証する。
-- Saxo raw、ETF total-return、分析baselineを別系統でロードする。
-- datasetを`catalog.source_dataset`へ登録し、`ops.source_file`から参照する。
-- raw revisionはappend-only、curatedは決定論的upsertとする。
-- 行数、min/max時刻、重複、欠損、checksumを照合する。
-- inventory、coverage、lineageの出力をimport manifestと照合する。
-- cutoff以前を`saxo_research_v13`へ物理snapshot化し、dumpとmanifestのSHA-256を記録する。
+- 69 source file、781,808 source rowをimmutableな入力として登録した。
+- raw market bar 636,629行、reference 90,894行、curated 1H 394,992行、ETF total-return 54,285行を分類保存した。
+- 既知品質FAIL 5件はrawを改変せずOPEN eventとして保持した。
+- source file単位のlineage不一致0件、coverageは`NOT_EVALUATED`を確認した。
+- cutoff以前だけを`saxo_research_v13`へ物理copyし、default read-only化した。
+- snapshot content/dump manifest、dump SHA-256、`pg_restore --list`を検証した。restore smoke testはDB4までLOCKEDである。
 
-### Phase DB3：増分更新
+### Phase DB3：増分更新（OFFLINE PASS / LIVE BLOCKED）
 
-- 実装前に`docs/saxo_api_data_acquisition_handoff.md`を全文読む。
-- APIの正本足は60分足のみ。
-- watermarkは最新の完全足を表す。
-- overlapはEtf 20本、FxSpot 72本。
-- `Mode=From`でforward pagingし、境界sampleを主キーで重複排除する。
-- `DataVersion`変化時は通常増分を止め、対象銘柄の60分足全履歴をrevision runで再取得する。
-- advisory lockで同時更新を防止する。
-- stage → validate → raw append → curated upsert → watermark update → commitの単一transactionにする。
-- quality gate失敗時はcurated/watermarkをrollbackし、失敗run metadataを残す。
-- 受理済み60分足から4Hと日次risk系列を決定論的に再生成する。
-- session calendar、holiday、短縮取引、DSTに基づいてcoverageと完成足を判定する。
-- freshness、watermark、failed run、open quality eventを運用CLIで確認する。
-- HTTP 429は上限付き指数backoff。注文・precheck endpointは呼ばない。
+- SIM限定GET allow-list、token redaction、429有限retryを実装した。
+- Etf 20本、FxSpot 72本の実bar overlapと`Mode=From` forward pagingを実装した。
+- raw JSON atomic保存、SHA-256、source file、raw revision、curated latest、watermarkをrun IDで追跡する。
+- stage → validate → raw append → curated upsert → watermark → 4H/1Dを単一transactionでcommitする。失敗時はDB変更をrollbackし、raw artifactとsanitized run metadataだけを残す。
+- `DataVersion`変化時は`STALE_DATA_VERSION`で停止する。対象1銘柄だけを`Mode=UpTo`で全取得し、guard付きprocedureで置換する`full-refetch`経路を実装した。
+- ETF calendarはholiday、短縮取引、DST、例外休場をUTC化した。FXはSaxo live trading schedule照合前なのでprovisional・`NOT_EVALUATED`である。
+- coverageはmissingとout-of-sessionを分ける。既存ETFは11銘柄ともWARN、FX 2銘柄はNOT_EVALUATEDで、FAILは0。
+- 現在のfreshnessは、live未更新のためETF 11銘柄STALE、FX 2銘柄NOT_EVALUATEDである。
+- offline test 54件とDB3 offline validatorはPASS。live tokenがないため総合は`BLOCKED_LIVE_SIM_TOKEN`である。
 
 ### Phase DB4：参照・運用ゲート
 
@@ -294,15 +298,21 @@ python3 -m json.tool specs/v13_phase_db0_database_spec.json >/dev/null
 git status --short
 ```
 
-DB1実装後に実行する確認例:
+DB3現在状態の確認例:
 
 ```bash
 docker compose -p saxo-market-data config
 docker compose -p saxo-market-data ps
 docker compose -p saxo-market-data exec postgres pg_isready -d saxo_market
-python3 -m pytest
-python3 -m market_db.validate --phase db1
+SAXO_DB_INTEGRATION=1 python3 -m pytest
+python3 -m market_db.validate --phase db3
+python3 -m market_db.session_calendar status
+python3 -m market_db.incremental_update status
+python3 -m market_db.import_legacy status
+python3 -m market_db.research_snapshot status
 python3 -m market_db.inspect inventory
+python3 -m market_db.inspect lineage
+python3 -m market_db.inspect quality
 python3 -m market_db.inspect storage
 ```
 
@@ -310,17 +320,17 @@ python3 -m market_db.inspect storage
 
 ## 11. 別AIが最後に報告する形式
 
-DB1作業の完了報告には、最低限次を含めてください。
+DB3作業の完了報告には、最低限次を含めてください。
 
 1. 結論: `PASS` / `FAIL` / `BLOCKED`
 2. 作成・変更したファイル
-3. Docker image tagとdigest
-4. 起動したservice、DB、role、schema
+3. canonical 13、watermark、raw/curated/4H/1Dの実測件数
+4. revision、quality event、coverage、freshness状態
 5. 適用migration番号とSHA-256
-6. healthcheck、restart persistence、権限テスト、秘密情報検査の結果
-7. 運用view、inspect CLI、runbookの検証結果
+6. research DBが未変更・read-onlyであること
+7. 全testとDB3 validatorのoffline/live結果
 8. 移管69 CSVが未変更であること
-9. 市場データをまだ投入していないこと
+9. token/account情報保存0、注文/precheck 0、戦略計算0
 10. 残課題と、次に解放されたPhase
 
 「コードを書いた」「テストファイルを作った」だけでPASSと報告しないでください。Docker daemonが利用できない等で実行確認できない場合は、実装ゲートと実行ゲートを分け、実行ゲートを`BLOCKED`としてください。
@@ -329,9 +339,9 @@ DB1作業の完了報告には、最低限次を含めてください。
 
 別のAIへは、次の依頼文で再開できます。
 
-> `/Users/tikeda/workspace/trade/saxo_db/README.md`を最初から最後まで読み、DB1結果manifestと運用runbookを確認してください。現在はDB1 PASS、市場データ0件です。次はPhase DB2だけを実施し、69 CSVをimmutableな入力としてimport、inventory/coverage/lineage照合、cutoff以前のresearch snapshot凍結を行ってください。Saxo API増分更新、特徴量、戦略、WFO、Holdoutには進まないでください。
+> repository rootの`README.md`、DB3計画・結果、運用runbookを読んでください。DB3 offline gateはPASS、live gateは`BLOCKED_LIVE_SIM_TOKEN`です。session-only tokenを保存せずにsmokeとcanonical 13増分更新を直後に2回実行し、`market_db.validate --phase db3`をPASSさせてください。DataVersion block時だけ対象銘柄のguard付きfull-refetchを使います。DB4、restore/retention、特徴量、戦略、WFO、Holdoutには進まないでください。
 
 ---
 
-最終更新: 2026-07-16 JST  
-現在のゲート: `DB0 v2=RE-FROZEN / DB1=PASS / DB2=NEXT / DB3-DB4=LOCKED / RT0=LOCKED`
+最終更新: 2026-07-17 JST
+現在のゲート: `DB0 v2=RE-FROZEN / DB1=PASS / DB2=PASS / DB3=OFFLINE_PASS_LIVE_BLOCKED / DB4=LOCKED / RT0=LOCKED`

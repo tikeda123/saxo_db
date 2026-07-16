@@ -13,3 +13,4 @@ pgdata/
 *.dump
 *.sql.gz
 data/import/**/*.csv
+data/acquisition/runs/

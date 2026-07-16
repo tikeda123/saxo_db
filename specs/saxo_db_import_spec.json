@@ -2,7 +2,7 @@
   "schema_version": 2,
   "project": "saxo_db",
   "spec_id": "saxo_db_import_bundle_20260716_v2",
-  "status": "BUNDLE_READY_DB1_PASS_DB2_NOT_STARTED",
+  "status": "BUNDLE_IMPORTED_DB1_DB2_PASS_DB3_OFFLINE_PASS_LIVE_BLOCKED",
   "origin_project": "../saxo_api",
   "inventory": "manifests/import_file_inventory.csv",
   "source_files_are_immutable": true,
@@ -73,11 +73,27 @@
     "copy_Saxo_raw_intraday_and_daily",
     "quality_gate_and_curate_1h",
     "load_external_total_return_and_macro_sources_separately",
-    "derive_4h_and_1d_from_accepted_completed_1h",
     "create_physical_research_snapshot_through_2024_06_28",
-    "recompute_and_compare_RA0_baseline",
-    "backup_restore_and_hash_manifest"
+    "register_RA0_baseline_as_research_metadata",
+    "create_snapshot_dump_and_hash_manifest"
   ],
+  "DB2_result": {
+    "source_files_registered": 69,
+    "source_rows_registered": 781808,
+    "source_datasets_registered": 6,
+    "instruments_registered": 18,
+    "raw_market_bar_revision_rows": 636629,
+    "raw_reference_observation_rows": 90894,
+    "curated_1h_rows": 394992,
+    "curated_etf_total_return_rows": 54285,
+    "open_source_quality_events": 5,
+    "source_file_lineage_mismatches": 0,
+    "coverage_status": "NOT_EVALUATED_until_DB3_session_calendar",
+    "research_snapshot_cutoff_utc": "2024-06-28T23:59:59Z",
+    "research_database_default_read_only": true,
+    "snapshot_dump_pg_restore_list_pass": true,
+    "restore_smoke_test_status": "LOCKED_UNTIL_DB4"
+  },
   "operational_registration": {
     "source_dataset_registry": "catalog.source_dataset",
     "session_calendar_registry": ["catalog.session_calendar", "catalog.session_interval"],
@@ -107,6 +123,15 @@
     "account_key_or_client_key_present": false,
     "credentials_may_be_added_to_import_bundle": false
   },
-  "next_phase": "DB2_NEXT_NOT_STARTED",
+  "DB3_result": {
+    "offline_status": "PASS",
+    "live_status": "BLOCKED_LIVE_SIM_TOKEN",
+    "canonical_watermarks": 13,
+    "derived_4h_rows": 107623,
+    "derived_1d_rows": 44292,
+    "research_database_unchanged": true,
+    "next_allowed_work": "DB3_live_SIM_gate_only"
+  },
+  "next_phase": "DB3_LIVE_GATE_ONLY",
   "RT0_status": "LOCKED_UNTIL_DB4_PASS"
 }
