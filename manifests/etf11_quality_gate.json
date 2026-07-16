@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "phase": 3,
+  "status": "complete",
+  "quality_gate": "PASS",
+  "phase4_unlock": true,
+  "input_snapshot_id": "20260712T135236Z",
+  "output_dataset_id": "etf11_phase3_20260712T135236Z_v1",
+  "tickers": [
+    "SPY",
+    "IWM",
+    "EFA",
+    "EEM",
+    "VNQ",
+    "SHY",
+    "IEF",
+    "TLT",
+    "TIP",
+    "LQD",
+    "GLD"
+  ],
+  "rows": 54285,
+  "warmup_rows": 2772,
+  "wfo_rows": 51513,
+  "signal_eligible_start": "2005-11-17",
+  "wfo_end": "2024-06-30",
+  "available_wfo_years_after_warmup": 18.618,
+  "holdout_locked": true,
+  "holdout_strategy_evaluation_count": 0,
+  "blocking_checks": [],
+  "warnings": [
+    {
+      "scope": "EEM",
+      "check": "daily_total_return_outlier",
+      "observed": 2.0,
+      "details": "Retained for review; never auto-corrected."
+    }
+  ],
+  "automatic_corrections": 0
+}

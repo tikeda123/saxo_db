@@ -1,0 +1,277 @@
+{
+  "schema_version": 1,
+  "phase": "DB0",
+  "plan_id": "category_specific_intraday_strategy_v13",
+  "research_line_id": "v13categoryintraday",
+  "amendment_id": "v13_database_prerequisite_20260716_v1",
+  "status": "SPEC_FROZEN_IMPLEMENTATION_NOT_STARTED",
+  "purpose": "build_a_reproducible_incremental_market_data_store_before_strategy_rule_or_performance_validation",
+  "gate_amendment": {
+    "prior_next_phase": "RT0",
+    "new_next_phase": "DB1",
+    "RT0_status": "LOCKED_UNTIL_DB1_DB2_DB3_DB4_PASS",
+    "strategy_PnL_allowed_in_DB0_DB4": false,
+    "portfolio_optimization_allowed_in_DB0_DB4": false
+  },
+  "technology": {
+    "authoritative_database": "PostgreSQL",
+    "container_runtime": "Docker_Compose",
+    "image": "postgres:18.4-bookworm",
+    "image_policy": "exact_minor_and_distribution_tag_then_record_resolved_multiarch_digest_in_DB1_manifest",
+    "python_driver": "psycopg[binary,pool]==3.3.4",
+    "optional_analytics_export": "Parquet_and_DuckDB_read_only_not_authoritative",
+    "timescaledb": false,
+    "initial_table_partitioning": false,
+    "partitioning_review_trigger": "curated_market_bars_at_least_10000000_rows_or_total_relation_size_at_least_8_GB_or_p95_research_query_over_2_seconds"
+  },
+  "docker": {
+    "compose_file": "compose.yaml",
+    "project_name": "saxo-market-data",
+    "service": "postgres",
+    "host_binding": "127.0.0.1:54329",
+    "container_port": 5432,
+    "platform_override": null,
+    "timezone": "UTC",
+    "restart_policy": "unless-stopped",
+    "healthcheck": "pg_isready_against_saxo_market",
+    "named_volume": "saxo_pg18_data",
+    "volume_mount": "/var/lib/postgresql",
+    "public_network_exposure": false,
+    "admin_UI": false
+  },
+  "secret_policy": {
+    "compose_secrets_directory": ".secrets",
+    "git_ignored": true,
+    "file_mode": "0600",
+    "password_in_compose_or_committed_env": false,
+    "Saxo_access_token_in_database": false,
+    "Saxo_account_key_or_identifiers_in_database": false,
+    "Saxo_access_token_handling": "Flask_session_memory_or_process_environment_only",
+    "secret_value_logging": false
+  },
+  "databases": {
+    "saxo_market": {
+      "purpose": "updateable_all_history_operational_store",
+      "writers": ["saxo_ingest"],
+      "readers": ["saxo_app_reader", "saxo_analyst_reader"]
+    },
+    "saxo_research_v13": {
+      "purpose": "immutable_development_snapshot_through_2024_06_28_23_59_59_UTC",
+      "writers_after_freeze": [],
+      "readers": ["v13_research_reader"],
+      "cross_database_link_to_saxo_market": false
+    },
+    "saxo_forward_v13": {
+      "purpose": "append_only_new_forward_data_after_RF0_freeze",
+      "writers": ["v13_forward_writer_via_security_definer_procedure"],
+      "readers_before_evaluation_gate": [],
+      "cross_database_link_to_saxo_market": false
+    }
+  },
+  "roles": {
+    "saxo_db_owner": "NOLOGIN_migration_object_owner",
+    "saxo_migrator": "LOGIN_DDL_only_no_application_use",
+    "saxo_ingest": "LOGIN_market_DML_and_ingestion_procedures_only",
+    "saxo_app_reader": "LOGIN_read_only_curated_and_ops_status_only",
+    "saxo_analyst_reader": "LOGIN_read_only_market_analytics_views",
+    "v13_research_reader": "LOGIN_read_only_research_snapshot_only",
+    "v13_forward_writer": "LOGIN_execute_append_procedure_only_no_select",
+    "postgres_superuser": "bootstrap_and_emergency_only_not_used_by_application"
+  },
+  "schemas": {
+    "catalog": "instrument_and_source_master",
+    "ops": "ingestion_runs_source_files_watermarks_schema_migrations",
+    "raw": "append_only_provider_revisions_and_imported_legacy_rows",
+    "staging": "transaction_scoped_validation_before_merge",
+    "curated": "latest_quality_eligible_1h_bars_and_reference_daily_data",
+    "derived": "deterministic_4h_and_1d_bars_from_accepted_1h",
+    "quality": "quality_events_and_gate_results",
+    "analytics": "read_only_views_for_application_and_research"
+  },
+  "tables": {
+    "catalog.instrument": {
+      "primary_key": ["instrument_id"],
+      "unique_key": ["provider", "environment", "uic", "asset_type"],
+      "required_columns": ["instrument_id", "provider", "environment", "market_key", "symbol", "uic", "asset_type", "category", "currency", "exchange_id", "active_from_utc", "active_to_utc"]
+    },
+    "ops.ingestion_run": {
+      "primary_key": ["ingestion_run_id"],
+      "required_columns": ["ingestion_run_id", "started_at_utc", "finished_at_utc", "trigger", "environment", "status", "requested_series", "successful_series", "inserted_rows", "updated_rows", "revision_rows", "rejected_rows", "source_manifest_sha256", "error_code"]
+    },
+    "ops.source_file": {
+      "primary_key": ["source_file_id"],
+      "unique_key": ["relative_path", "sha256"],
+      "required_columns": ["source_file_id", "ingestion_run_id", "relative_path", "sha256", "size_bytes", "row_count", "source_dataset_id", "registered_at_utc"]
+    },
+    "ops.watermark": {
+      "primary_key": ["instrument_id", "horizon_minutes", "price_basis"],
+      "required_columns": ["instrument_id", "horizon_minutes", "price_basis", "latest_seen_time_utc", "latest_complete_time_utc", "data_version", "updated_at_utc"]
+    },
+    "raw.market_bar_revision": {
+      "primary_key": ["ingestion_run_id", "instrument_id", "horizon_minutes", "time_utc", "price_basis"],
+      "append_only": true,
+      "required_columns": ["ingestion_run_id", "instrument_id", "horizon_minutes", "time_utc", "open", "high", "low", "close", "open_bid", "high_bid", "low_bid", "close_bid", "open_ask", "high_ask", "low_ask", "close_ask", "volume", "market_trading_state", "price_basis", "is_complete", "data_version", "delayed_by_minutes", "retrieved_at_utc", "payload_sha256"]
+    },
+    "curated.market_bar": {
+      "primary_key": ["instrument_id", "horizon_minutes", "time_utc", "price_basis"],
+      "allowed_horizons_minutes": [60],
+      "required_columns": ["instrument_id", "horizon_minutes", "time_utc", "open", "high", "low", "close", "open_bid", "high_bid", "low_bid", "close_bid", "open_ask", "high_ask", "low_ask", "close_ask", "volume", "market_trading_state", "price_basis", "is_complete", "data_version", "latest_ingestion_run_id", "retrieved_at_utc", "quality_status"]
+    },
+    "curated.etf_total_return_daily": {
+      "primary_key": ["source_dataset_id", "ticker", "date"],
+      "separate_from_Saxo_raw_OHLC": true,
+      "required_columns": ["source_dataset_id", "ticker", "date", "currency", "open_unadjusted", "high_unadjusted", "low_unadjusted", "close_unadjusted", "adjusted_close", "total_return_index", "volume", "dividend_cash", "split_factor", "source", "quality_status"]
+    },
+    "derived.market_bar_4h": {
+      "primary_key": ["derivation_version", "instrument_id", "time_utc", "price_basis"],
+      "source": "curated_market_bar_60m_only",
+      "raw_FX_4h_allowed": false
+    },
+    "derived.market_bar_1d_risk": {
+      "primary_key": ["derivation_version", "instrument_id", "session_date", "price_basis"],
+      "source": "curated_market_bar_60m_only",
+      "role": "prior_close_regime_volatility_tail_and_risk_cap_only"
+    },
+    "quality.event": {
+      "primary_key": ["quality_event_id"],
+      "required_columns": ["quality_event_id", "ingestion_run_id", "instrument_id", "horizon_minutes", "time_utc", "rule_id", "severity", "observed_value", "action", "created_at_utc"]
+    },
+    "ops.research_snapshot": {
+      "primary_key": ["snapshot_id"],
+      "required_columns": ["snapshot_id", "plan_id", "research_line_id", "cutoff_utc", "source_database", "source_manifest_sha256", "row_counts_json", "snapshot_sha256", "frozen_at_utc", "status"]
+    }
+  },
+  "data_types": {
+    "event_time": "TIMESTAMPTZ_normalized_to_UTC",
+    "session_date": "DATE",
+    "price": "NUMERIC_24_12",
+    "volume": "NUMERIC_30_8_nullable",
+    "identifiers": "BIGINT_identity_or_TEXT_as_declared",
+    "sha256": "CHAR_64_lowercase_hex",
+    "json_metadata": "JSONB",
+    "booleans": "BOOLEAN_not_string"
+  },
+  "initial_import": {
+    "intraday_manifest": "data/v12/intraday/20260716T115307Z/dataset_manifest.json",
+    "intraday_manifest_sha256": "220d6aa49f742ccdbf763d5ab335874a7422bea439e5a5f40c8c476d2011cb2c",
+    "intraday_series": 26,
+    "intraday_rows": 525381,
+    "intraday_1h_rows": 394992,
+    "intraday_1h_completed_rows": 394979,
+    "intraday_1h_curated_latest_rows_including_incomplete": 394992,
+    "intraday_1h_analysis_eligible_completed_rows": 394979,
+    "intraday_4h_rows_raw_archive_only": 130389,
+    "intraday_4h_completed_rows": 130376,
+    "intraday_4h_quality_pass_series": 11,
+    "raw_FX_4h_quality_fail_series": ["EURUSD", "USDJPY"],
+    "ETF_daily_file": "data/etf11/normalized/20260712T135236Z_v1/wfo/etf_daily.csv",
+    "ETF_daily_rows": 54285,
+    "ETF_daily_sha256": "429c59d891f11b2d25475a17bab4306088b77454fb8af3a88bd01ad7dbdc4998",
+    "EURUSD_daily_file": "data/daily/20260711T142448Z/eurusd_daily.csv",
+    "EURUSD_daily_rows": 14474,
+    "EURUSD_daily_sha256": "1f6816508015a04417d57dec60135d7e5b3caff36d0f7382cdab5f4ad1277823",
+    "USDJPY_daily_file": "data/daily/20260711T142448Z/usdjpy_daily.csv",
+    "USDJPY_daily_rows": 8597,
+    "USDJPY_daily_sha256": "789360875d55fa897efba89337760c29b601972f5e6c7418a4ec6389ef50259d",
+    "source_CSV_JSON_deleted_after_import": false
+  },
+  "incremental_update": {
+    "canonical_API_horizon_minutes": 60,
+    "raw_4h_incremental_collection": false,
+    "watermark_basis": "latest_complete_time_utc_per_instrument_and_price_basis",
+    "overlap_bars": {"Etf": 20, "FxSpot": 72},
+    "completed_bars_only_for_analysis": true,
+    "latest_incomplete_bar_stored": true,
+    "single_writer_lock": "PostgreSQL_advisory_lock",
+    "transaction": "stage_validate_append_raw_upsert_curated_update_watermark_commit",
+    "upsert_rule": "incoming_retrieved_at_newer_and_unique_bar_key_matches",
+    "historical_change": "append_raw_revision_and_update_curated_with_audit_event",
+    "quality_gate_failure": "rollback_curated_and_watermark_but_preserve_run_failure_metadata",
+    "HTTP_429": "bounded_exponential_backoff_existing_collector_policy",
+    "orders_or_prechecks": 0
+  },
+  "quality_rules": [
+    "unique_bar_key",
+    "time_utc_not_null_and_UTC",
+    "positive_OHLC",
+    "high_at_least_open_close_low",
+    "low_at_most_open_close_high",
+    "FX_bid_ask_present",
+    "FX_bid_not_above_ask",
+    "completed_bar_not_in_future",
+    "monotonic_series_watermark",
+    "derived_4h_uses_only_completed_1h",
+    "research_snapshot_max_time_not_after_2024_06_28_23_59_59_UTC"
+  ],
+  "research_isolation": {
+    "development_cutoff_utc": "2024-06-28T23:59:59Z",
+    "snapshot_database": "saxo_research_v13",
+    "physical_row_filter": "time_utc_at_or_before_cutoff",
+    "database_default_read_only_after_freeze": true,
+    "research_role_has_market_database_connect": false,
+    "foreign_data_wrapper_or_dblink": false,
+    "snapshot_manifest_and_pg_dump_sha256_required": true,
+    "existing_post_boundary_data_role": "LOCKED_LEGACY_SHADOW_NOT_RESEARCH_GATE",
+    "retroactive_holdout_allowed": false
+  },
+  "backup_restore": {
+    "named_volume_is_backup": false,
+    "format": "pg_dump_custom",
+    "backup_directory": "backups/postgres",
+    "git_ignored": true,
+    "required_events": ["after_initial_import", "before_and_after_schema_migration", "after_successful_incremental_update_daily_max_once"],
+    "retention": {"daily": 7, "weekly": 4},
+    "verification": ["pg_restore_list", "sha256_manifest", "monthly_restore_smoke_test_to_temporary_database"]
+  },
+  "application_interface": {
+    "Flask_connection_role": "saxo_app_reader",
+    "Flask_pool_max_size": 5,
+    "Flask_statement_timeout_seconds": 30,
+    "manual_refresh": "enqueue_single_ingest_process_not_write_from_request_thread",
+    "analysis_queries": "parameterized_SQL_only",
+    "default_time_filter": "explicit_start_and_end_required_for_large_bar_queries",
+    "database_admin_UI": false
+  },
+  "migration_policy": {
+    "directory": "db/migrations",
+    "format": "numbered_idempotent_SQL",
+    "runner": "psycopg_transactional_runner",
+    "migration_table": "ops.schema_migration",
+    "checksum_required": true,
+    "down_migration_in_production_data": false,
+    "restore_backup_instead_of_destructive_down": true
+  },
+  "planned_artifacts": [
+    "compose.yaml",
+    ".env.example",
+    ".dockerignore",
+    "scripts/create_local_db_secrets.py",
+    "db/migrations/0001_bootstrap.sql",
+    "db/migrations/0002_market_schema.sql",
+    "market_db/connection.py",
+    "market_db/migrate.py",
+    "market_db/import_legacy.py",
+    "market_db/incremental_update.py",
+    "market_db/derive_bars.py",
+    "market_db/backup.py",
+    "market_db/validate.py",
+    "data/v13/db0/phase_db0_20260716_v1/manifest.json"
+  ],
+  "phases": [
+    {"phase": "DB0", "name": "implementation_spec_freeze", "status": "COMPLETE_SPEC_ONLY", "unlocks": "DB1_ONLY"},
+    {"phase": "DB1", "name": "docker_postgres_roles_schema_and_migration_framework", "status": "NEXT"},
+    {"phase": "DB2", "name": "legacy_import_reconciliation_and_frozen_research_snapshot", "status": "LOCKED"},
+    {"phase": "DB3", "name": "incremental_Saxo_update_revision_and_derived_bar_pipeline", "status": "LOCKED"},
+    {"phase": "DB4", "name": "read_API_backup_restore_and_operational_gate", "status": "LOCKED"},
+    {"phase": "RT0", "name": "strategy_rule_cost_and_trial_freeze", "status": "LOCKED_UNTIL_DB1_DB4_PASS"}
+  ],
+  "DB0_prohibited_actions": {
+    "docker_image_pull_or_container_start": true,
+    "database_or_volume_creation": true,
+    "Python_dependency_install": true,
+    "data_import_or_mutation": true,
+    "Saxo_API_call": true,
+    "strategy_signal_PnL_WFO_or_portfolio_calculation": true,
+    "credential_persistence": true
+  }
+}

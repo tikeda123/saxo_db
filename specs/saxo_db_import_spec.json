@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "project": "saxo_db",
+  "spec_id": "saxo_db_import_bundle_20260716_v1",
+  "status": "BUNDLE_READY_DATABASE_NOT_BUILT",
+  "origin_project": "../saxo_api",
+  "inventory": "manifests/import_file_inventory.csv",
+  "source_files_are_immutable": true,
+  "database_implementation_started": false,
+  "groups": {
+    "saxo_intraday": {
+      "path": "data/import/intraday/normalized",
+      "csv_files": 26,
+      "rows": 525381,
+      "role": "raw_market_bar_revision",
+      "series": 26,
+      "canonical_strategy_horizon_minutes": 60,
+      "raw_240m_role": "archive_only",
+      "raw_FX_240m_quality_fail": ["EURUSD", "USDJPY"]
+    },
+    "saxo_intraday_summary": {
+      "path": "data/import/intraday/collection_summary.csv",
+      "csv_files": 1,
+      "rows": 26,
+      "role": "ops_import_reconciliation_not_market_bar"
+    },
+    "saxo_multi_asset_daily": {
+      "path": "data/import/daily/saxo_multi_asset",
+      "csv_files": 8,
+      "rows": 52692,
+      "price_series": ["EURUSD", "USDJPY", "Gold", "US500", "US_Treasury", "WTI"],
+      "role": "raw_legacy_reference",
+      "summary_and_master_are_not_price_bars": true
+    },
+    "saxo_ETF_daily_raw": {
+      "path": "data/import/daily/saxo_etf_raw",
+      "csv_files": 14,
+      "rows": 58592,
+      "price_series_count": 12,
+      "role": "raw_daily_reference",
+      "summary_and_master_are_not_price_bars": true
+    },
+    "ETF11_external_sources": {
+      "path": "data/import/daily/etf11_sources",
+      "csv_files": 14,
+      "rows": 90727,
+      "role": "external_total_return_and_macro_source",
+      "separate_from_Saxo_raw": true
+    },
+    "ETF11_curated_total_return": {
+      "path": "data/import/daily/curated_etf_total_return/etf_daily.csv",
+      "csv_files": 1,
+      "rows": 54285,
+      "role": "curated_adjusted_daily_reference",
+      "separate_from_Saxo_raw": true
+    },
+    "RA0_analysis_baseline": {
+      "path": "data/import/analysis_baseline",
+      "csv_files": 5,
+      "rows": 105,
+      "role": "research_reproduction_baseline_not_market_bar"
+    }
+  },
+  "totals": {
+    "csv_files": 69,
+    "csv_rows_including_metadata_and_derived_duplicates": 781808
+  },
+  "import_order": [
+    "verify_inventory_and_source_manifests",
+    "load_instrument_masters_to_catalog",
+    "register_ingestion_runs_and_source_files",
+    "copy_Saxo_raw_intraday_and_daily",
+    "quality_gate_and_curate_1h",
+    "load_external_total_return_and_macro_sources_separately",
+    "derive_4h_and_1d_from_accepted_completed_1h",
+    "create_physical_research_snapshot_through_2024_06_28",
+    "recompute_and_compare_RA0_baseline",
+    "backup_restore_and_hash_manifest"
+  ],
+  "research_boundary": {
+    "development_end_utc": "2024-06-28T23:59:59Z",
+    "post_boundary_existing_data": "LOCKED_LEGACY_SHADOW",
+    "retroactive_holdout_allowed": false
+  },
+  "security": {
+    "Saxo_access_token_present": false,
+    "account_key_or_client_key_present": false,
+    "credentials_may_be_added_to_import_bundle": false
+  },
+  "next_phase": "DB1_NOT_STARTED",
+  "RT0_status": "LOCKED_UNTIL_DB4_PASS"
+}

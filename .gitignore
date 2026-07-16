@@ -1,0 +1,11 @@
+.DS_Store
+.env
+.secrets/
+.venv/
+__pycache__/
+.pytest_cache/
+backups/
+pgdata/
+*.dump
+*.sql.gz
+data/import/**/*.csv

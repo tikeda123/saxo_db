@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "status": "data_collection_spec_frozen_amendment_5",
+  "dataset_id_prefix": "saxo_sim_etf12_daily",
+  "strategy_candidates": [
+    "multi_asset_absolute_momentum_etf_12_v3a",
+    "multi_asset_dual_momentum_etf_12_v3b"
+  ],
+  "holdout_policy": {
+    "months": 24,
+    "split_rule": "reserve_the_last_24_complete_calendar_months_after_the_common_history_period_is_known",
+    "unlock_rule": "run_once_after_walk_forward_specification_and_gates_are_frozen"
+  },
+  "saxo_chart": {
+    "asset_types": [
+      "Etf",
+      "Stock"
+    ],
+    "horizon_minutes": 1440,
+    "count_per_page": 1200,
+    "default_max_pages": 5,
+    "price_adjustment": "raw_saxo_chart_ohlc_not_total_return_adjusted",
+    "completed_bars_only_for_research": true
+  },
+  "candidates": [
+    {
+      "sleeve_id": "us_large_cap",
+      "ticker": "SPY",
+      "description": "US large-cap equity",
+      "description_terms": [
+        "SPDR",
+        "S&P 500"
+      ]
+    },
+    {
+      "sleeve_id": "us_small_cap",
+      "ticker": "IWM",
+      "description": "US small-cap equity",
+      "description_terms": [
+        "Russell 2000"
+      ]
+    },
+    {
+      "sleeve_id": "developed_ex_us",
+      "ticker": "EFA",
+      "description": "Developed equity ex-US",
+      "description_terms": [
+        "MSCI EAFE"
+      ]
+    },
+    {
+      "sleeve_id": "emerging_markets",
+      "ticker": "EEM",
+      "description": "Emerging-market equity",
+      "description_terms": [
+        "Emerging Markets"
+      ]
+    },
+    {
+      "sleeve_id": "us_reit",
+      "ticker": "VNQ",
+      "description": "US real estate",
+      "description_terms": [
+        "Real Estate"
+      ]
+    },
+    {
+      "sleeve_id": "short_treasury",
+      "ticker": "SHY",
+      "description": "US Treasury 1-3 year; defensive asset candidate, not cash",
+      "description_terms": [
+        "1-3 Year Treasury"
+      ]
+    },
+    {
+      "sleeve_id": "intermediate_treasury",
+      "ticker": "IEF",
+      "description": "US Treasury 7-10 year",
+      "description_terms": [
+        "7-10 Year Treasury"
+      ]
+    },
+    {
+      "sleeve_id": "long_treasury",
+      "ticker": "TLT",
+      "description": "US Treasury 20+ year",
+      "description_terms": [
+        "20+ Year Treasury"
+      ]
+    },
+    {
+      "sleeve_id": "inflation_linked_bond",
+      "ticker": "TIP",
+      "description": "US inflation-linked Treasury",
+      "description_terms": [
+        "TIPS"
+      ]
+    },
+    {
+      "sleeve_id": "investment_grade_credit",
+      "ticker": "LQD",
+      "description": "US investment-grade corporate bond",
+      "description_terms": [
+        "Investment Grade",
+        "Invst Grade"
+      ]
+    },
+    {
+      "sleeve_id": "gold",
+      "ticker": "GLD",
+      "description": "Gold",
+      "description_terms": [
+        "Gold"
+      ]
+    },
+    {
+      "sleeve_id": "broad_commodities",
+      "ticker": "ICOM",
+      "description": "iShares Diversified Commodity Swap UCITS ETF; fifth fallback after DBC, PDBC, COMT, GSG and AIGC were unavailable",
+      "search_keywords": [
+        "ICOM",
+        "iShares Diversified Commodity Swap"
+      ],
+      "description_terms": [
+        "Diversified Commodity",
+        "Commodity Swap"
+      ]
+    }
+  ]
+}

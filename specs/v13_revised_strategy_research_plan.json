@@ -1,0 +1,229 @@
+{
+  "schema_version": 1,
+  "plan_id": "category_specific_intraday_strategy_v13",
+  "research_line_id": "v13categoryintraday",
+  "document_version": "2026-07-16_v1",
+  "status": "RESEARCH_PLAN_FROZEN_PERFORMANCE_NOT_EVALUATED",
+  "objective": "select_or_reject_one_cost_feasible_primary_intraday_strategy_for_each_market_category_before_any_portfolio_allocation",
+  "capital_assumption": {
+    "base_currency": "JPY",
+    "initial_capital": 1000000,
+    "fractional_share_assumption": false,
+    "leverage_is_required_for_pass": false,
+    "failed_or_blocked_category_allocation": "CASH_NOT_REDISTRIBUTED_DURING_STANDALONE_RESEARCH"
+  },
+  "supersession": {
+    "superseded_plan_id": "short_term_category_strategy_portfolio_v12",
+    "preserved_as_audit_history": true,
+    "v12_ST2_and_later_unlocks": "CANCELLED",
+    "reason": "the former plan specified category holding periods before characterizing 1h_4h_1d market structure"
+  },
+  "data_boundary": {
+    "development_end_utc": "2024-06-28T23:59:59Z",
+    "post_boundary_existing_data": "LOCKED_LEGACY_SHADOW_NOT_A_RESEARCH_GATE",
+    "final_confirmation": "NEW_24_COMPLETE_MONTH_FORWARD_AFTER_FINAL_SPEC_FREEZE",
+    "retroactive_holdout_allowed": false
+  },
+  "frequency_architecture": {
+    "1h": {
+      "role": "PRIMARY_SIGNAL_AND_EXECUTION_CLOCK",
+      "same_bar_execution": false,
+      "minimum_execution_lag": "next_1h_bar"
+    },
+    "4h": {
+      "role": "CONFIRMATION_OR_EXCLUSION_FILTER_ONLY",
+      "construction": "deterministic_resample_of_accepted_1h_bars",
+      "raw_FX_4h_use": "PROHIBITED",
+      "incomplete_4h_bar_use": "PROHIBITED"
+    },
+    "1d": {
+      "role": "PRIOR_CLOSE_REGIME_VOLATILITY_TAIL_AND_RISK_CAP_ONLY",
+      "directional_entry_exit_use": "PROHIBITED"
+    }
+  },
+  "market_characterization": {
+    "phase": "RA0",
+    "status": "COMPLETE_PERFORMANCE_NOT_EVALUATED",
+    "directory": "data/v13/ra0/phase_ra0_20260716_v1",
+    "interpretation": "data/v13/ra0/phase_ra0_20260716_v1/category_interpretation.csv",
+    "interpretation_sha256": "1995ebe640b45fb4452d2ecc7361a990bb075e0bd229a5d4319e8fcf7b2b0cce"
+  },
+  "candidate_strategies": {
+    "equity_reit": {
+      "primary_id": "v13_eq_open_breadth_1h",
+      "status": "RECOMMENDED_FOR_RT0_FREEZE_NOT_PERFORMANCE_VALIDATED",
+      "target": ["SPY"],
+      "explanatory_series": ["SPY", "IWM", "EFA", "EEM", "VNQ"],
+      "hypothesis": "the completed opening hour contains market-wide directional information that may persist during the same cash session when breadth and range agree",
+      "rule_shape": {
+        "signal": "opening_hour_direction_plus_cross_ETF_breadth_plus_opening_range_state",
+        "entry": "SPY_next_1h_bar_after_opening_signal",
+        "exit": "time_exit_before_US_cash_close_or_frozen_stop",
+        "overnight_position": false,
+        "short_allowed_in_research": true
+      },
+      "reason_not_generic_trend": "unconditional_1h_continuation_is_not_present_and_daily_bars_are_not_the_entry_clock",
+      "explicitly_rejected_shortcuts": [
+        "SPY_buy_and_hold_as_algorithmic_alpha",
+        "automatic_overnight_gap_fade",
+        "same_rule_applied_to_all_five_ETFs",
+        "daily_MA_entry"
+      ]
+    },
+    "bond_credit": {
+      "primary_id": "v13_bc_lqd_ief_reversion_1h",
+      "status": "RECOMMENDED_FOR_RT0_FREEZE_CONDITIONAL_ON_IMPLEMENTATION",
+      "target": ["LQD", "IEF"],
+      "hypothesis": "a large one-hour beta-adjusted credit-versus-rates relative-return shock partially reverses over the following hours",
+      "rule_shape": {
+        "signal": "past_only_rolling_beta_residual_zscore_shock",
+        "entry": "next_1h_bar_opposite_relative_shock",
+        "exit": "residual_mean_or_max_three_completed_1h_bars_or_session_end",
+        "portfolio_form": "two_leg_beta_neutral_relative_value",
+        "overnight_position": false
+      },
+      "implementation_gate": [
+        "both_legs_available_and_shortable_in_target_Saxo_account",
+        "borrow_and_financing_terms_observable",
+        "whole_unit_minimum_size_feasible_at_JPY_1000000",
+        "round_trip_cost_does_not_mechanically_exceed_frozen_gross_move_threshold"
+      ],
+      "implementation_failure_action": "BLOCKED_IMPLEMENTATION_NO_LONG_ONLY_PROXY",
+      "challenger_id": "v13_bc_tip_ief_reversion_1h"
+    },
+    "gold": {
+      "primary_id": "v13_gld_open_range_1h",
+      "status": "RECOMMENDED_FOR_RT0_FREEZE_NOT_PERFORMANCE_VALIDATED",
+      "target": ["GLD"],
+      "hypothesis": "a high-range opening hour that closes near its extreme may identify a same-session range-expansion episode",
+      "rule_shape": {
+        "signal": "opening_range_percentile_plus_close_location_value",
+        "entry": "next_1h_bar_in_opening_direction",
+        "exit": "max_two_or_three_completed_1h_bars_or_US_session_end",
+        "overnight_position": false
+      },
+      "explicit_caution": "near_zero_1h_autocorrelation_means_the_edge_is_not_established_by_RA0"
+    },
+    "fx": {
+      "primary_id": "v13_fx_session_reversion_1h",
+      "status": "RECOMMENDED_FOR_RT0_FREEZE_NOT_PERFORMANCE_VALIDATED",
+      "target": ["EURUSD", "USDJPY"],
+      "hypothesis": "a session-normalized extreme one-hour move partially reverses unless a completed four-hour persistence filter identifies continuation",
+      "rule_shape": {
+        "signal": "pair_and_UTC_session_specific_rolling_zscore_of_completed_1h_return",
+        "entry": "next_1h_bar_against_overextension",
+        "exit": "rolling_mean_or_max_three_completed_1h_bars",
+        "allowed_signal_sessions": ["07_12_UTC", "13_16_UTC"],
+        "new_positions_21_23_UTC": false,
+        "overnight_or_rollover_position": false,
+        "historical_swap_required": false
+      },
+      "pair_policy": "each_pair_must_pass_standalone_before_combination"
+    }
+  },
+  "trial_budget": {
+    "primary_families_per_category": 1,
+    "challenger_families_per_category_max": 1,
+    "parameter_cells_per_family_max": 12,
+    "exact_parameter_sets_frozen_in": "RT0_BEFORE_ANY_STRATEGY_PNL",
+    "machine_learning": false,
+    "full_sample_best_parameter_selection": false
+  },
+  "common_WFO": {
+    "development_data_only": true,
+    "training": "expanding_past_only",
+    "outer_test_window": "calendar_quarter",
+    "outer_step": "calendar_quarter",
+    "common_outer_test_start": "2021-01-01T00:00:00Z",
+    "common_outer_test_end": "2024-06-28T23:59:59Z",
+    "expected_outer_folds": 14,
+    "minimum_outer_folds": 12,
+    "minimum_pre_first_test_training_years": 3,
+    "embargo": "at_least_max_feature_lookback_plus_max_holding_bars",
+    "inner_selection": "training_segment_only_from_pre_frozen_parameter_cells",
+    "fold_aggregation": "concatenate_once_only_outer_OOS_daily_ledger"
+  },
+  "standalone_gate": {
+    "required_all": [
+      "data_and_implementation_gate_PASS",
+      "net_expectancy_positive_after_base_cost",
+      "HAC_Sharpe_positive",
+      "positive_outer_fold_ratio_at_least_0_60",
+      "cost_2x_total_return_not_negative",
+      "one_bar_execution_delay_total_return_not_negative",
+      "no_single_fold_contributes_more_than_0_50_of_positive_gross_PnL",
+      "minimum_effective_independent_trades_met",
+      "JPY_1000000_whole_unit_simulation_feasible"
+    ],
+    "statistical_reporting": [
+      "HAC_t_stat",
+      "probabilistic_and_deflated_Sharpe",
+      "stationary_bootstrap_confidence_interval",
+      "multiple_testing_trial_count"
+    ],
+    "minimum_effective_independent_trades": 100,
+    "benchmark": "same_capital_cash_plus_category_specific_no_signal_baseline",
+    "fail_action": "REJECT_OR_NEW_RESEARCH_LINE_NOT_PORTFOLIO_RESCUE"
+  },
+  "phases": [
+    {
+      "phase": "RA0",
+      "name": "1h_4h_1d_market_characterization",
+      "status": "COMPLETE_PERFORMANCE_NOT_EVALUATED",
+      "unlocks": "RT0_ONLY"
+    },
+    {
+      "phase": "RT0",
+      "name": "strategy_rule_cost_and_trial_freeze",
+      "status": "NEXT",
+      "deliverables": ["exact_state_transitions", "parameter_cells", "cost_manifest", "instrument_implementation_precheck"],
+      "unlocks": "RD1_ONLY"
+    },
+    {
+      "phase": "RD1",
+      "name": "common_1h_ledger_4h_resample_and_1d_regime_dataset",
+      "status": "LOCKED",
+      "deliverables": ["calendar_and_DST_audit", "completed_bar_flags", "deterministic_4h", "corporate_action_policy", "session_cost_tables"]
+    },
+    {
+      "phase": "RE1_E_B_G_F",
+      "name": "category_by_category_deterministic_implementation_and_lookahead_audit",
+      "status": "LOCKED",
+      "sequence": ["equity_reit", "bond_credit", "gold", "fx"]
+    },
+    {
+      "phase": "RW1_E_B_G_F",
+      "name": "category_by_category_standalone_14_fold_WFO",
+      "status": "LOCKED",
+      "sequence": ["equity_reit", "bond_credit", "gold", "fx"],
+      "portfolio_weights_calculated": false
+    },
+    {
+      "phase": "RC0",
+      "name": "standalone_accept_reject_or_block_decisions",
+      "status": "LOCKED",
+      "minimum_portfolio_eligible_categories": 2
+    },
+    {
+      "phase": "RP0_RP2",
+      "name": "portfolio_risk_budget_and_combined_WFO",
+      "status": "LOCKED",
+      "entry_condition": "at_least_two_standalone_category_PASS",
+      "rules": ["risk_allocation_not_alpha_rescue", "unused_category_budget_remains_cash", "correlation_and_liquidity_caps", "no_weight_optimization_on_final_forward"]
+    },
+    {
+      "phase": "RF0",
+      "name": "final_spec_freeze_demo_shadow_and_new_24_month_forward",
+      "status": "LOCKED",
+      "live_trading": "SEPARATE_USER_AUTHORIZATION_REQUIRED"
+    }
+  ],
+  "research_integrity": {
+    "category_specific_standalone_pass_before_portfolio": true,
+    "failed_category_rescue_by_FX_or_allocation": false,
+    "buy_and_hold_is_out_of_scope_as_algorithmic_alpha": true,
+    "buy_and_hold_may_be_reported_as_context_only": true,
+    "no_orders_or_Saxo_prechecks_in_plan_phase": true,
+    "no_credentials_persisted": true
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "phase": "RA0",
+  "plan_id": "category_specific_intraday_strategy_v13",
+  "research_line_id": "v13categoryintraday",
+  "status": "MARKET_CHARACTERIZATION_COMPLETE_PERFORMANCE_NOT_EVALUATED",
+  "development_end_utc": "2024-06-28T23:59:59Z",
+  "frequency_metric_rows": 39,
+  "session_metric_rows": 43,
+  "ETF_gap_metric_rows": 11,
+  "relative_value_metric_rows": 8,
+  "market_signal_values": 0,
+  "strategy_position_values": 0,
+  "strategy_PnL_values": 0,
+  "parameter_searches": 0,
+  "WFO_or_holdout_evaluations": 0,
+  "portfolio_weight_calculations": 0,
+  "Saxo_API_calls": 0,
+  "primary_strategies_frozen": 0,
+  "outputs": {
+    "frequency_metrics.csv": {
+      "sha256": "366f6d3737ea0f1195eb5d26e765e736e9dad76b2117e2b3d58158836a030157",
+      "size_bytes": 15108
+    },
+    "session_metrics.csv": {
+      "sha256": "671a4fe71dfb9cc96e166424aef9d92f3db9cff4e086bdaf65db7e847344e675",
+      "size_bytes": 6582
+    },
+    "etf_gap_metrics.csv": {
+      "sha256": "ae686c09219d4f279e8102eb983ece0423fce7151905da4d42b2c8f43632f379",
+      "size_bytes": 2204
+    },
+    "relative_value_metrics.csv": {
+      "sha256": "58920a0f21e965a0277d2732946ce7dc8fde879c4aece320b1bc4691dd3aac5b",
+      "size_bytes": 1229
+    }
+  }
+}

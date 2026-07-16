@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "phase": "DB0",
+  "plan_id": "category_specific_intraday_strategy_v13",
+  "research_line_id": "v13categoryintraday",
+  "amendment_id": "v13_database_prerequisite_20260716_v1",
+  "status": "DB0_SPEC_COMPLETE_IMPLEMENTATION_NOT_STARTED",
+  "spec_frozen_at_local_date": "2026-07-16",
+  "source_inventory_verified": {
+    "intraday_series": 26,
+    "intraday_rows": 525381,
+    "intraday_1h_rows": 394992,
+    "intraday_1h_completed_rows": 394979,
+    "intraday_4h_rows": 130389,
+    "ETF_daily_rows": 54285,
+    "EURUSD_daily_rows": 14474,
+    "USDJPY_daily_rows": 8597
+  },
+  "side_effect_counts": {
+    "docker_image_pulls": 0,
+    "containers_created": 0,
+    "volumes_created": 0,
+    "database_connections": 0,
+    "dependencies_installed": 0,
+    "data_files_mutated": 0,
+    "Saxo_API_calls": 0,
+    "strategy_PnL_or_WFO_runs": 0
+  },
+  "credentials_persisted": false,
+  "next_phase": "DB1",
+  "RT0_status": "LOCKED_UNTIL_DB1_DB4_PASS",
+  "outputs": {
+    "config/v13_phase_db0_database_spec.json": {
+      "sha256": "400439d0964111b46be1a637ce82c617056079d1f01650f5918b8dbeb6a82ef7",
+      "size_bytes": 13695
+    },
+    "docs/v13_phase_db0_database_implementation_spec.md": {
+      "sha256": "511f37371148382392cc218df0046d4823cce1a2e0c5cc1d12e86eb3e96a4aae",
+      "size_bytes": 17529
+    },
+    "validate_v13_phase_db0.py": {
+      "sha256": "df55dc3ce43c302ca4a3b1927826ac229813c150eeb93c88ffcb828a7f78b071",
+      "size_bytes": 15614
+    },
+    "tests/test_v13_phase_db0.py": {
+      "sha256": "3a2d4b9302d156face6d4303d7f3ecaa9238a22fb9381f71745434591fa638f5",
+      "size_bytes": 2304
+    }
+  }
+}

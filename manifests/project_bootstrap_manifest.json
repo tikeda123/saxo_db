@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "project": "saxo_db",
+  "bootstrap_id": "saxo_db_bootstrap_20260716_v1",
+  "status": "PROJECT_BOOTSTRAP_AND_IMPORT_BUNDLE_COMPLETE_DATABASE_NOT_BUILT",
+  "origin_project": "../saxo_api",
+  "copied_data": {
+    "csv_files": 69,
+    "csv_rows_including_metadata_and_derived_duplicates": 781808,
+    "csv_size_bytes": 160403659,
+    "hash_matches": 69,
+    "hash_mismatches": 0,
+    "inventory": "manifests/import_file_inventory.csv",
+    "inventory_sha256": "72abbdcedd75b290b46d4ca8396125ebe99863e16e8c570c0f06fdf8440282db"
+  },
+  "copied_reference_artifacts": {
+    "documents": 3,
+    "specifications": 4,
+    "source_and_phase_manifests": 9,
+    "verified_copy_mismatches": 0
+  },
+  "new_project_outputs": {
+    "README.md": {
+      "sha256": "25fa5a7deb14728b2a09db85e56b4b2b53796d84836c7e77f4f33ca8ff90a45c",
+      "size_bytes": 16227
+    },
+    "docs/saxo_api_data_acquisition_handoff.md": {
+      "sha256": "64fc1ef7440cca2c8ed43fca825e92ce715fe808e8d08c4261be0f3e4f359e4a",
+      "size_bytes": 25101
+    },
+    ".gitignore": {
+      "sha256": "3381857b8c728bf8e65c083080cbb607a8a552dc38e024354262c9779d403d36",
+      "size_bytes": 114
+    },
+    "docs/saxo_db_project_plan.md": {
+      "sha256": "42f327eb4d5cfe0bf8d8cd33c66cf1cd038a171801d0081839a952f85296749b",
+      "size_bytes": 4778
+    },
+    "specs/saxo_db_import_spec.json": {
+      "sha256": "7e700dbdb6fe5508123edee996e9ccf4388bb94f5bf465c937733c9875fcfd49",
+      "size_bytes": 3089
+    },
+    "data/import/README.md": {
+      "sha256": "71e2201608b61dfdd72f1165f264ae15b00e2d3c630af47ba47abc8cfe105b6c",
+      "size_bytes": 706
+    },
+    "manifests/import_file_inventory.csv": {
+      "sha256": "72abbdcedd75b290b46d4ca8396125ebe99863e16e8c570c0f06fdf8440282db",
+      "size_bytes": 18785
+    }
+  },
+  "security": {
+    "credential_pattern_matches": 0,
+    "Saxo_access_token_copied": false,
+    "account_key_client_key_or_account_identifier_copied": false
+  },
+  "side_effect_counts": {
+    "origin_market_data_files_modified": 0,
+    "docker_files_created": 0,
+    "docker_image_pulls": 0,
+    "containers_created": 0,
+    "volumes_created": 0,
+    "databases_created": 0,
+    "database_imports": 0,
+    "dependencies_installed": 0,
+    "Saxo_API_calls": 0,
+    "strategy_PnL_or_WFO_runs": 0
+  },
+  "phase_status": {
+    "SDB0": "COMPLETE",
+    "DB1": "NOT_STARTED_REQUIRES_EXPLICIT_USER_INSTRUCTION",
+    "DB2": "LOCKED",
+    "DB3": "LOCKED",
+    "DB4": "LOCKED",
+    "RT0": "LOCKED_UNTIL_DB4_PASS"
+  }
+}

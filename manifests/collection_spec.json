@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "dataset_id": "v12shortterm_saxo_sim_intraday_raw_v1",
+  "environment": "SIMULATION_ONLY",
+  "generated_for": "Phase_ST0_1_and_ST1_intraday_data_gate",
+  "chart": {
+    "endpoint": "/chart/v3/charts",
+    "horizons_minutes": [
+      60,
+      240
+    ],
+    "count_per_page": 1200,
+    "default_max_pages": 50,
+    "maximum_max_pages": 50,
+    "mode": "UpTo",
+    "field_groups": "Data,DisplayAndFormat,ChartInfo",
+    "required_history_years": 8.0,
+    "target_history_years": 10.0,
+    "completed_bar_only_for_research": true
+  },
+  "security": {
+    "persist_access_token": false,
+    "persist_account_key": false,
+    "persist_account_identifiers": false,
+    "orders_or_prechecks": false
+  },
+  "source_masters": {
+    "ETF": "config/v3_phase1_etf11_instrument_master.csv",
+    "ETF_sha256": "a3cba8b4eaf0badd4078236b69046addf141b41d736b5f8d29da9d61c6723f4c",
+    "FX": "data/daily/20260711T142448Z/instrument_master.csv",
+    "FX_sha256": "bc74cd8d96ad0fb0f1210b0c984882525ec2bef7829155823f71a6abfdc9bae6"
+  },
+  "instruments": [
+    {
+      "category": "equity_reit",
+      "key": "spy",
+      "symbol": "SPY:arcx",
+      "uic": 36590,
+      "asset_type": "Etf",
+      "currency": "USD"
+    },
+    {
+      "category": "equity_reit",
+      "key": "iwm",
+      "symbol": "IWM:arcx",
+      "uic": 31933,
+      "asset_type": "Etf",
+      "currency": "USD"
+    },
+    {
+      "category": "equity_reit",
+      "key": "efa",
+      "symbol": "EFA:arcx",
+      "uic": 31874,
+      "asset_type": "Etf",
+      "currency": "USD"
+    },
+    {
+      "category": "equity_reit",
+      "key": "eem",
+      "symbol": "EEM:arcx",
+      "uic": 31871,
+      "asset_type": "Etf",
+      "currency": "USD"
+    },
+    {
+      "category": "equity_reit",
+      "key": "vnq",
+      "symbol": "VNQ:arcx",
+      "uic": 34910,
+      "asset_type": "Etf",
+      "currency": "USD"
+    },
+    {
+      "category": "bond_credit",
+      "key": "shy",
+      "symbol": "SHY:xnas",
+      "uic": 7522053,
+      "asset_type": "Etf",
+      "currency": "USD"
+    },
+    {
+      "category": "bond_credit",
+      "key": "ief",
+      "symbol": "IEF:xnas",
+      "uic": 7522010,
+      "asset_type": "Etf",
+      "currency": "USD"
+    },
+    {
+      "category": "bond_credit",
+      "key": "tlt",
+      "symbol": "TLT:xnas",
+      "uic": 3441903,
+      "asset_type": "Etf",
+      "currency": "USD"
+    },
+    {
+      "category": "bond_credit",
+      "key": "tip",
+      "symbol": "TIP:arcx",
+      "uic": 31996,
+      "asset_type": "Etf",
+      "currency": "USD"
+    },
+    {
+      "category": "bond_credit",
+      "key": "lqd",
+      "symbol": "LQD:arcx",
+      "uic": 31923,
+      "asset_type": "Etf",
+      "currency": "USD"
+    },
+    {
+      "category": "gold",
+      "key": "gld",
+      "symbol": "GLD:arcx",
+      "uic": 32664,
+      "asset_type": "Etf",
+      "currency": "USD"
+    },
+    {
+      "category": "fx",
+      "key": "eurusd",
+      "symbol": "EURUSD",
+      "uic": 21,
+      "asset_type": "FxSpot",
+      "currency": "USD"
+    },
+    {
+      "category": "fx",
+      "key": "usdjpy",
+      "symbol": "USDJPY",
+      "uic": 42,
+      "asset_type": "FxSpot",
+      "currency": "JPY"
+    }
+  ],
+  "research_limitations": {
+    "ETF_raw_intraday_is_total_return_adjusted": false,
+    "corporate_actions_and_cash_distributions_required_separately": true,
+    "FX_point_in_time_realized_swap_included": false,
+    "current_collection_alone_unlocks_FX_overnight_research": false,
+    "API_capability_alone_proves_history_coverage": false
+  }
+}

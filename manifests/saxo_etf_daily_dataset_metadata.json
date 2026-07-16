@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "dataset_type": "saxo_sim_etf12_raw_daily_chart",
+  "instrument_count_expected": 12,
+  "instrument_count_success": 12,
+  "horizon_minutes": 1440,
+  "total_return_adjusted": false,
+  "raw_price_quality_gate": "FAIL",
+  "wfo_holdout_data_gate": "FAIL_TOTAL_RETURN_DATA_REQUIRED",
+  "research_warning": "Saxo Chart raw OHLC is not a dividend-adjusted total-return series. Do not run the v3 WFO/holdout simulation until distributions and splits are sourced and validated separately.",
+  "holdout_months": 24,
+  "access_token_saved": false,
+  "account_key_saved": false
+}

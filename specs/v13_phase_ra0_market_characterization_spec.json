@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "phase": "RA0",
+  "plan_id": "category_specific_intraday_strategy_v13",
+  "research_line_id": "v13categoryintraday",
+  "status": "frozen_before_market_characterization_execution",
+  "purpose": "characterize_1h_4h_1d_market_structure_before_freezing_one_primary_strategy_per_category",
+  "supersession": {
+    "prior_plan_id": "short_term_category_strategy_portfolio_v12",
+    "prior_research_line_id": "v12shortterm",
+    "rule": "preserve_v12_artifacts_as_audit_history_but_cancel_v12_ST2_unlock_and_replace_future_strategy_phases",
+    "v12_collected_intraday_data_may_be_reused": true,
+    "v12_performance_results_used_for_v13_selection": false
+  },
+  "data_boundary": {
+    "development_end_utc": "2024-06-28T23:59:59Z",
+    "post_boundary_intraday_read_for_strategy_characterization": false,
+    "existing_holdout_or_post_boundary_role": "LOCKED_NOT_USED_FOR_STRATEGY_FAMILY_PARAMETER_OR_GATE_SELECTION",
+    "final_confirmation": "new_24_complete_month_forward_after_final_spec_freeze",
+    "retroactive_holdout_creation_allowed": false
+  },
+  "inputs": {
+    "intraday_directory": "data/v12/intraday/20260716T115307Z/normalized",
+    "intraday_manifest": "data/v12/intraday/20260716T115307Z/dataset_manifest.json",
+    "intraday_manifest_sha256": "220d6aa49f742ccdbf763d5ab335874a7422bea439e5a5f40c8c476d2011cb2c",
+    "ETF_daily": "data/etf11/normalized/20260712T135236Z_v1/wfo/etf_daily.csv",
+    "ETF_daily_sha256": "429c59d891f11b2d25475a17bab4306088b77454fb8af3a88bd01ad7dbdc4998",
+    "ETF_daily_manifest": "data/etf11/normalized/20260712T135236Z_v1/phase3_manifest.json",
+    "ETF_daily_manifest_sha256": "0fef889f154ed24dc9d8ea0d9848174244470c9d150774ad72c01456363eb157",
+    "EURUSD_daily": "data/daily/20260711T142448Z/eurusd_daily.csv",
+    "EURUSD_daily_sha256": "1f6816508015a04417d57dec60135d7e5b3caff36d0f7382cdab5f4ad1277823",
+    "USDJPY_daily": "data/daily/20260711T142448Z/usdjpy_daily.csv",
+    "USDJPY_daily_sha256": "789360875d55fa897efba89337760c29b601972f5e6c7418a4ec6389ef50259d"
+  },
+  "frequency_roles_to_test": {
+    "1h": "candidate_primary_signal_and_execution_clock",
+    "4h": "confirmation_and_feature_clock_not_independent_primary_until_rebuilt_from_1h",
+    "1d": "regime_volatility_tail_and_risk_budget_only_not_entry_or_exit_clock"
+  },
+  "analysis_universe": {
+    "equity_reit": ["SPY", "IWM", "EFA", "EEM", "VNQ"],
+    "bond_credit": ["SHY", "IEF", "TLT", "TIP", "LQD"],
+    "gold": ["GLD"],
+    "fx": ["EURUSD", "USDJPY"]
+  },
+  "frozen_metrics": [
+    "bar_count_and_coverage",
+    "mean_and_standard_deviation_log_return",
+    "annualized_volatility",
+    "return_autocorrelation_lag_1_and_4",
+    "same_session_return_autocorrelation_lag_1",
+    "absolute_return_autocorrelation_lag_1",
+    "variance_ratio_4_and_12",
+    "sign_persistence",
+    "skew_excess_kurtosis_q01_and_expected_shortfall_1pct",
+    "ETF_overnight_gap_and_open_to_close_decomposition",
+    "1h_session_mean_volatility_positive_rate",
+    "category_relative_return_autocorrelation_and_two_sigma_shock_reversal"
+  ],
+  "data_treatment": {
+    "completed_bars_only": true,
+    "ETF_intraday_return_basis": "raw_Saxo_close_to_close_with_gap_reported_separately",
+    "ETF_daily_return_basis": "distribution_and_split_adjusted_total_return_index",
+    "FX_return_basis": "Bid_Ask_mid",
+    "FX_4h_crossed_bid_ask_rows": "exclude_and_count_without_modifying_raw_source",
+    "FX_4h_future_strategy_input": "deterministically_resample_accepted_1h_Bid_Ask_bars",
+    "same_bar_signal_and_execution": false,
+    "future_bar_reads": false
+  },
+  "interpretation_rules": {
+    "analysis_is_strategy_performance_backtest": false,
+    "positive_descriptive_metric_is_profitability_proof": false,
+    "category_primary_count_after_RA0": 0,
+    "one_primary_per_category_frozen_only_in_RT0": true,
+    "failed_category_may_be_rescued_by_portfolio_or_FX": false,
+    "cross_category_series_may_define_explanatory_state_but_not_become_holdings_in_another_lane": true
+  },
+  "prohibited_in_RA0": {
+    "transaction_cost_strategy_PnL": true,
+    "parameter_grid_search": true,
+    "WFO_or_holdout_evaluation": true,
+    "portfolio_weight_optimization": true,
+    "machine_learning": true,
+    "Saxo_API_calls_orders_or_prechecks": true
+  },
+  "output_directory": "data/v13/ra0/phase_ra0_20260716_v1"
+}

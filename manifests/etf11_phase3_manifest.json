@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "phase": 3,
+  "status": "complete",
+  "quality_gate": "PASS",
+  "phase4_unlock": true,
+  "input_manifest": "config/v3_phase2_dataset_manifest.json",
+  "input_manifest_sha256": "57377bcd1ca13eaf5b9150ac77c2929efed3a177f9dcdd4bed6fb83ed8db2758",
+  "input_snapshot_id": "20260712T135236Z",
+  "output_dataset_id": "etf11_phase3_20260712T135236Z_v1",
+  "output_path": "data/etf11/normalized/20260712T135236Z_v1",
+  "rows": 54285,
+  "tickers": 11,
+  "signal_eligible_start": "2005-11-17",
+  "wfo_end": "2024-06-30",
+  "available_wfo_years_after_warmup": 18.618,
+  "holdout": {
+    "status": "LOCKED",
+    "start": "2024-07-01",
+    "end": "2026-06-30",
+    "months": 24,
+    "strategy_evaluation_count": 0,
+    "lock_manifest": "holdout_locked/LOCKED.json"
+  },
+  "files": {
+    "holdout_locked/LOCKED.json": {
+      "size_bytes": 4068,
+      "sha256": "6ec66f2d38472f29cffef1b25cc2dec48856024cc50785ccafa94a2c8320eb83"
+    },
+    "holdout_locked/etf/eem_source.csv": {
+      "size_bytes": 105001,
+      "sha256": "a65cec41f16eec6dbbef27b0e764ec289c56043bdfc0b5ba5e6e3ce007c4c41c"
+    },
+    "holdout_locked/etf/efa_source.csv": {
+      "size_bytes": 104523,
+      "sha256": "c0c6a64bf6333559fa68771ef5be65f024844757b02875487703e8435294bc90"
+    },
+    "holdout_locked/etf/gld_source.csv": {
+      "size_bytes": 103998,
+      "sha256": "cd239c0aaf21644a1e317a8bde058d40446bfdd25338ce23d0daceadd2477823"
+    },
+    "holdout_locked/etf/ief_source.csv": {
+      "size_bytes": 103737,
+      "sha256": "e0f74f1b731d43f833b35c6f342219d0187d1ad241e4dddf074bcfc1589f9a5b"
+    },
+    "holdout_locked/etf/iwm_source.csv": {
+      "size_bytes": 105494,
+      "sha256": "87fc4c32a72eab708c53a36d05b4077e8cc2a955b2ba9aa5dfcb68a9423925d8"
+    },
+    "holdout_locked/etf/lqd_source.csv": {
+      "size_bytes": 106634,
+      "sha256": "17cea3d04be284d19c2eb42d7412347ff6cfe6f545741060c8b3154e33bb3618"
+    },
+    "holdout_locked/etf/shy_source.csv": {
+      "size_bytes": 103854,
+      "sha256": "c195082cfc6a1f8b500e16452e0f5fc5754027e7e38b510012a088ef33892888"
+    },
+    "holdout_locked/etf/spy_source.csv": {
+      "size_bytes": 103932,
+      "sha256": "53c7e30ab8c98afe257f70522fe1216d01ad5df6834336585640342797a2ad03"
+    },
+    "holdout_locked/etf/tip_source.csv": {
+      "size_bytes": 106182,
+      "sha256": "fefa69ad3f35f908e22d94bd2e8952f816101134f31a9580251cbba92c624899"
+    },
+    "holdout_locked/etf/tlt_source.csv": {
+      "size_bytes": 104352,
+      "sha256": "41948633349a608c4c0b70c80d43617b2c69af46686dd75cc2bb763ffd5a296a"
+    },
+    "holdout_locked/etf/vnq_source.csv": {
+      "size_bytes": 103571,
+      "sha256": "3b1e1923bf761495ac6e227ea3e1a6fc1b99c7cff5d0f9dea1abc4fb33ce9eb7"
+    },
+    "holdout_locked/macro/jpy_cash_source.csv": {
+      "size_bytes": 1065,
+      "sha256": "bb82c98b06ee9f6fd1d5d1d84bb035de343a3f13ac5f93b41155960e27d94baf"
+    },
+    "holdout_locked/macro/usd_cash_source.csv": {
+      "size_bytes": 14634,
+      "sha256": "9f24f4bc9944796f170839fea7c177fb55b4e42e40e7e7938bae2fe31bbebc04"
+    },
+    "holdout_locked/macro/usdjpy_source.csv": {
+      "size_bytes": 12983,
+      "sha256": "80565719f634493928be1e2fdf619758a5be8dd6016c688b753f73daa31bb94e"
+    },
+    "quality_gate.json": {
+      "size_bytes": 839,
+      "sha256": "7902f4cf56eec7101b8d60c776060764335603c44a2473bbb63d63f92eb2899d"
+    },
+    "wfo/calendar_alignment.csv": {
+      "size_bytes": 183421,
+      "sha256": "91a40843aa108b3be02624d9b7170b33f8ac26061f4a5d3e26f87c4e8dc26e55"
+    },
+    "wfo/calendar_gaps.csv": {
+      "size_bytes": 33,
+      "sha256": "f5162d9f58055377f88b56c2e743ac43731c009acd31577771a9b1399c5b9d47"
+    },
+    "wfo/corporate_action_audit.csv": {
+      "size_bytes": 87069,
+      "sha256": "4937533a1942357e174dc008be6996c52094ce4b72a0787cd120e8b9fa68fb33"
+    },
+    "wfo/data_quality_report.csv": {
+      "size_bytes": 8146,
+      "sha256": "6b8736de9f58690e9a7592d3b3653cd52f5901a3a76c571dd7dd85d49194d8ab"
+    },
+    "wfo/etf_daily.csv": {
+      "size_bytes": 18521097,
+      "sha256": "429c59d891f11b2d25475a17bab4306088b77454fb8af3a88bd01ad7dbdc4998"
+    },
+    "wfo/etf_daily.parquet": {
+      "size_bytes": 3340567,
+      "sha256": "7f99c0ed6085ddb9def6b27ded6b20e1ff8353b73b9204ef546e6972c22033ac"
+    },
+    "wfo/exclusion_log.csv": {
+      "size_bytes": 1667,
+      "sha256": "34b23a11d32b75de8d621fb3899b65623d9277bfa121996afa14eaea9966fd71"
+    },
+    "wfo/macro/jpy_cash.csv": {
+      "size_bytes": 10476,
+      "sha256": "b58a90fdb13a4aae53407c7c788ad7273e532c7ab0421b2fc6ff9c8fe36bf02b"
+    },
+    "wfo/macro/usd_cash.csv": {
+      "size_bytes": 142555,
+      "sha256": "ff57968225d656b51a1eff6c8a7476f7641935fe08e54097d6070c6411db775d"
+    },
+    "wfo/macro/usdjpy.csv": {
+      "size_bytes": 126066,
+      "sha256": "e53c356a2f76c884416b811d2ce2f65e9eb45612969fecb07832d87289115ac4"
+    },
+    "wfo/return_outliers.csv": {
+      "size_bytes": 204,
+      "sha256": "ce263106dea90ad8533ab5c57d7af9e2b1602d39d82ce2655293f59477eff15c"
+    },
+    "wfo/yearly_counts.csv": {
+      "size_bytes": 9541,
+      "sha256": "3d7aa941fae878db932333f161d142fc8641c949fac4bb5c44e7f270aa4b2f84"
+    }
+  },
+  "sensitive_values_persisted": false
+}
