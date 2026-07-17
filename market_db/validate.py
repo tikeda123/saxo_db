@@ -47,6 +47,26 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def manifest_artifact_state(payload: dict[str, Any]) -> tuple[list[str], set[str]]:
+    """Return mismatches and the paths currently attested by an implementation manifest."""
+    mismatches: list[str] = []
+    valid_paths: set[str] = set()
+    for relative_path, expected in payload.get("artifacts", {}).items():
+        path = project_root() / relative_path
+        if not path.is_file():
+            mismatches.append(f"missing:{relative_path}")
+            continue
+        size_match = path.stat().st_size == int(expected["size_bytes"])
+        sha_match = _sha256(path) == expected["sha256"]
+        if not size_match:
+            mismatches.append(f"size:{relative_path}")
+        if not sha_match:
+            mismatches.append(f"sha256:{relative_path}")
+        if size_match and sha_match:
+            valid_paths.add(relative_path)
+    return mismatches, valid_paths
+
+
 def db3_manifest_baseline_is_valid(payload: dict[str, Any]) -> bool:
     """Validate immutable DB3 implementation evidence without freezing live row counts."""
     derived = payload.get("derived")
@@ -702,16 +722,7 @@ def validate_db4_data() -> dict[str, Any]:
     implementation: dict[str, Any] = {"exists": manifest_path.is_file()}
     if manifest_path.is_file():
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-        mismatches: list[str] = []
-        for relative_path, expected in payload.get("artifacts", {}).items():
-            path = project_root() / relative_path
-            if not path.is_file():
-                mismatches.append(f"missing:{relative_path}")
-                continue
-            if path.stat().st_size != int(expected["size_bytes"]):
-                mismatches.append(f"size:{relative_path}")
-            if _sha256(path) != expected["sha256"]:
-                mismatches.append(f"sha256:{relative_path}")
+        mismatches, _ = manifest_artifact_state(payload)
         parquet_manifest_path = project_root() / str(
             payload.get("parquet", {}).get("manifest_relative_path", "")
         )
@@ -740,6 +751,42 @@ def validate_db4_data() -> dict[str, Any]:
                 "parquet_verified": parquet_check,
             }
         )
+
+    extension_path = project_root() / "manifests/data_management_web_ui_implementation_manifest.json"
+    extension: dict[str, Any] = {"exists": extension_path.is_file(), "status": "NOT_PRESENT"}
+    if extension_path.is_file():
+        extension_payload = json.loads(extension_path.read_text(encoding="utf-8"))
+        extension_mismatches, extension_valid_paths = manifest_artifact_state(extension_payload)
+        parent = extension_payload.get("parent_evidence", {})
+        extension_baseline_valid = (
+            extension_payload.get("phase") == "DMUI4"
+            and extension_payload.get("status") == "PASS"
+            and extension_payload.get("orders_or_prechecks_sent") == 0
+            and extension_payload.get("database_write_routes") == 0
+            and extension_payload.get("access_token_saved") is False
+            and extension_payload.get("account_identifier_saved") is False
+            and parent.get("relative_path") == "manifests/db4_implementation_manifest.json"
+            and parent.get("sha256") == _sha256(manifest_path)
+            and extension_payload.get("migration", {}).get("number") == "0014"
+            and extension_payload.get("chart_framework", {}).get("version") == "5.2.0"
+        )
+        baseline_mismatches = implementation.get("artifact_mismatches", [])
+        superseded_paths = sorted({
+            item.split(":", 1)[1]
+            for item in baseline_mismatches
+            if ":" in item and item.split(":", 1)[1] in extension_valid_paths
+        })
+        implementation["artifact_mismatches"] = [
+            item for item in baseline_mismatches
+            if ":" not in item or item.split(":", 1)[1] not in extension_valid_paths
+        ]
+        implementation["superseded_artifacts"] = superseded_paths
+        extension.update({
+            "artifact_mismatches": extension_mismatches,
+            "baseline_valid": extension_baseline_valid,
+            "status": "PASS" if extension_baseline_valid and not extension_mismatches else "FAIL",
+        })
+    implementation["extension_manifest"] = extension
     result["implementation_manifest"] = implementation
 
     backup_pass = (
@@ -772,6 +819,7 @@ def validate_db4_data() -> dict[str, Any]:
         implementation.get("baseline_valid") is True
         and implementation.get("artifact_mismatches") == []
         and implementation.get("parquet_verified") is True
+        and implementation.get("extension_manifest", {}).get("status") in {"PASS", "NOT_PRESENT"}
     )
     result["status"] = "PASS" if (
         result["migration"]["applied"]

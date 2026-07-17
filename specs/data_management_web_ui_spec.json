@@ -1,0 +1,295 @@
+{
+  "schema_version": 1,
+  "phase": "DMUI4",
+  "status": "PASS",
+  "created_at_jst": "2026-07-17",
+  "purpose": "make_managed_dataset_inventory_time_coverage_ohlc_quality_freshness_and_lineage_visible_without_sql_or_cli",
+  "research_gate_effect": "NONE",
+  "scope": {
+    "audience": ["local_database_operator", "data_researcher"],
+    "language": "ja",
+    "display_timezones": ["Asia/Tokyo", "UTC"],
+    "database_time_basis": "UTC",
+    "read_only": true,
+    "database": "saxo_market",
+    "allowed_http_methods": ["GET", "HEAD"],
+    "out_of_scope": [
+      "data_acquisition",
+      "reconcile_or_full_refetch",
+      "data_mutation_or_deletion",
+      "backup_or_restore_execution",
+      "arbitrary_sql",
+      "saxo_token_or_account_input",
+      "orders_or_prechecks",
+      "strategy_signals_or_pnl_or_wfo_or_holdout"
+    ]
+  },
+  "architecture": {
+    "browser_url": "http://127.0.0.1:8766/ui/",
+    "api_base": "/api/v1",
+    "same_origin": true,
+    "database_role": "saxo_app_reader",
+    "transaction_mode": "read_only",
+    "max_pool_connections": 5,
+    "statement_timeout_seconds": 30,
+    "existing_reconcile_ui_unchanged": "http://127.0.0.1:8765/",
+    "browser_direct_database_access": false
+  },
+  "chart_framework": {
+    "selected": "TradingView_Lightweight_Charts",
+    "version": "5.2.0",
+    "version_policy": "pinned_exact_self_hosted_version",
+    "distribution": "self_hosted_local_asset_no_cdn",
+    "license": "Apache-2.0_with_TradingView_attribution_and_link",
+    "advanced_charts": "deferred_until_official_repository_access_and_feature_need_are_confirmed",
+    "trading_platform_or_broker_api": false
+  },
+  "data_roles": [
+    {
+      "role": "CANONICAL_1H",
+      "relation": "curated.market_bar",
+      "chart_type": "candlestick",
+      "default_visible": true,
+      "strategy_eligible_only": true
+    },
+    {
+      "role": "DERIVED_4H",
+      "relation": "derived.market_bar_4h",
+      "chart_type": "candlestick",
+      "default_visible": true,
+      "source": "accepted_canonical_1h_only"
+    },
+    {
+      "role": "DERIVED_1D_RISK",
+      "relation": "derived.market_bar_1d_risk",
+      "chart_type": "candlestick",
+      "default_visible": true,
+      "source": "accepted_canonical_1h_only"
+    },
+    {
+      "role": "TOTAL_RETURN_DAILY",
+      "relation": "curated.etf_total_return_daily",
+      "chart_type": "line_total_return_index",
+      "default_visible": false,
+      "separate_from_saxo_ohlc": true
+    },
+    {
+      "role": "RAW_ARCHIVE",
+      "relation": "raw.market_bar_revision",
+      "chart_type": "none_by_default",
+      "default_visible": false,
+      "badge": "RAW_ARCHIVE_NOT_FOR_STRATEGY"
+    },
+    {
+      "role": "REFERENCE_METADATA",
+      "relation": "raw.reference_observation",
+      "chart_type": "none_by_default",
+      "default_visible": false
+    }
+  ],
+  "stored_chart_layers": ["1h", "4h", "1d"],
+  "client_side_resampling_allowed": false,
+  "ohlc_definitions": {
+    "native_ohlc_1h": "provider_Open_High_Low_Close",
+    "bid_ask_mid_1h": "each_OHLC_field_equals_bid_plus_ask_divided_by_two_with_original_bid_ask_retained_for_audit",
+    "derived_4h_and_1d": "complete_PASS_1h_only_open_first_high_max_low_min_close_last_volume_sum",
+    "derived_4h_bucket": "session_open_anchored_four_hour_bucket",
+    "derived_1d_bucket": "session_date",
+    "total_return_daily": "line_total_return_index_not_saxo_native_candlestick"
+  },
+  "inventory_snapshot_2026_07_17": {
+    "dynamic_not_ui_constants": true,
+    "canonical_instruments": 13,
+    "canonical_1h_rows": 480355,
+    "derived_4h_rows": 128469,
+    "derived_1d_rows": 47784,
+    "etf_total_return_symbols": 11,
+    "etf_total_return_rows": 54285,
+    "etf_total_return_period_utc": ["2004-11-18", "2024-06-28"]
+  },
+  "screens": [
+    {
+      "id": "overview",
+      "route": "/ui/overview",
+      "purpose": "summary_cards_layer_category_distribution_coverage_matrix_current_alerts_recent_runs"
+    },
+    {
+      "id": "inventory",
+      "route": "/ui/inventory",
+      "purpose": "dataset_instrument_layer_price_basis_role_and_period_inventory"
+    },
+    {
+      "id": "series_detail",
+      "route": "/ui/series/<series_id>",
+      "purpose": "candlestick_or_total_return_chart_rows_coverage_quality_lineage_and_definitions"
+    },
+    {
+      "id": "quality",
+      "route": "/ui/quality",
+      "purpose": "separate_current_eligibility_from_historical_audit_events"
+    },
+    {
+      "id": "runs",
+      "route": "/ui/runs",
+      "purpose": "ingestion_run_source_file_manifest_and_derivation_lineage"
+    },
+    {
+      "id": "operations",
+      "route": "/ui/operations",
+      "purpose": "read_only_backup_restore_smoke_retention_and_storage_status"
+    }
+  ],
+  "overview_metrics": [
+    "active_dataset_count_by_kind",
+    "canonical_instrument_count",
+    "canonical_1h_row_count",
+    "derived_4h_row_count",
+    "derived_1d_row_count",
+    "stale_warn_fail_series_count",
+    "latest_ingestion_run_status_and_time",
+    "latest_backup_and_restore_smoke_status"
+  ],
+  "inventory_filters": [
+    "canonical_only_or_all",
+    "dataset",
+    "role",
+    "category",
+    "symbol",
+    "layer",
+    "price_basis",
+    "quality_status",
+    "freshness_status",
+    "calendar_verification",
+    "active",
+    "period"
+  ],
+  "series_detail": {
+    "default_bar_limit": 1000,
+    "maximum_bar_limit": 10000,
+    "range_semantics": "start_inclusive_end_exclusive",
+    "sort": "ascending_time",
+    "initial_eligibility_filter": "complete_and_quality_pass",
+    "operator_eligibility_modes": {
+      "eligible": "complete_PASS_only_default",
+      "stored_complete": "complete_PASS_WARN_NOT_EVALUATED_with_non_dismissible_warning"
+    },
+    "failed_or_incomplete_bar_behavior": "exclude_from_chart_show_count_and_time_in_quality_tab_or_marks",
+    "daily_chart_time": "00:00:00Z_with_session_date_in_tooltip",
+    "volume_null_behavior": "hide_volume_pane_do_not_coerce_to_zero",
+    "period_presets": ["1M", "3M", "6M", "1Y", "3Y", "ALL"],
+    "tabs": ["data", "coverage", "quality", "lineage", "definition"],
+    "marks": ["missing_interval", "incomplete", "revision", "quality_event", "ingestion_boundary"]
+  },
+  "api_additions": [
+    {
+      "method": "GET",
+      "path": "/api/v1/ui/overview"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ui/series"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ui/series/<series_id>"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ui/chart-bars"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ui/chart-marks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ui/quality-summary"
+    }
+  ],
+  "api_contract": {
+    "response_fields": ["api_version", "generated_at_utc", "data", "paging", "warnings"],
+    "chart_series_kinds": {
+      "ohlc": ["time", "open", "high", "low", "close", "volume", "price_basis"],
+      "line": ["time", "value", "price_basis"]
+    },
+    "series_id": "opaque_server_resolved_dataset_instrument_role_layer_price_basis_identifier",
+    "eligibility_allow_list": ["eligible", "stored_complete"],
+    "stored_complete_requires_warning_and_row_quality_status": true,
+    "failed_incomplete_and_raw_archive_chart_access": false,
+    "fixed_order_by": true,
+    "parameterized_queries": true,
+    "relation_name_from_request": false,
+    "stable_error_codes_without_sql_or_secret": true
+  },
+  "status_order": ["FAIL", "STALE", "WARN", "NOT_EVALUATED", "PASS"],
+  "status_rules": {
+    "current_quality_and_historical_audit_events_are_separate": true,
+    "provisional_calendar_is_not_pass": true,
+    "status_is_not_color_only": true,
+    "unknown_role_behavior": "isolate_as_UNKNOWN_ROLE_never_promote_to_canonical"
+  },
+  "security": {
+    "loopback_only": true,
+    "external_network_requests": false,
+    "external_cdn": false,
+    "telemetry": false,
+    "browser_cache": "no_store",
+    "display_cache": "page_memory_only",
+    "local_or_session_storage_secrets": false,
+    "saxo_token_or_account_fields": false,
+    "absolute_path_exposure": false
+  },
+  "performance_targets": {
+    "overview_p95_seconds": 2.0,
+    "chart_1000_bars_p95_seconds": 1.0,
+    "table_default_page_size": 50,
+    "table_maximum_page_size": 200,
+    "filter_debounce_milliseconds": 250,
+    "cancel_stale_requests": true
+  },
+  "acceptance_gates": [
+    "six_screens_implemented",
+    "1h_4h_1d_candlestick_and_total_return_line_rendered",
+    "warn_and_not_evaluated_series_visible_only_with_non_dismissible_operator_warning",
+    "ui_values_match_read_api_and_cli",
+    "chart_ascending_unique_complete_pass_and_ohlc_invariant",
+    "pagination_boundaries_have_no_duplicate_or_missing_rows",
+    "raw_archive_and_canonical_are_unambiguous",
+    "current_quality_and_historical_events_are_unambiguous",
+    "no_write_routes_arbitrary_sql_token_account_order_or_precheck",
+    "no_non_loopback_browser_requests",
+    "tradingview_attribution_and_license_present",
+    "db1_db4_validators_and_full_pytest_regression_pass"
+  ],
+  "implementation_phases": [
+    "DMUI0_specification_freeze",
+    "DMUI1_ui_read_models_api_contracts_and_tests",
+    "DMUI2_overview_inventory_quality_runs",
+    "DMUI3_lightweight_charts_series_detail",
+    "DMUI4_e2e_accessibility_operations_runbook_and_release"
+  ],
+  "implementation_result": {
+    "implemented_at_jst": "2026-07-17",
+    "six_screens": "PASS",
+    "migration": "0014_data_management_ui_reader.sql",
+    "overview_five_run_seconds": [0.886879, 0.883848, 0.828680, 0.837504, 0.826804],
+    "series_detail_five_run_seconds": [1.809492, 1.747140, 1.788639, 1.792215, 1.8014],
+    "chart_1000_bars_five_run_seconds": [0.784203, 0.846965, 0.775757, 0.799243, 0.894013],
+    "unit_regression": {"passed": 80, "integration_skipped": 23},
+    "full_database_integration": {"passed": 103, "failed": 0},
+    "db4_validator": "PASS_WITH_DMUI4_EXTENSION_MANIFEST",
+    "browser_console_errors": 0,
+    "orders_or_prechecks_sent": 0,
+    "database_write_routes": 0,
+    "result_document": "docs/data_management_web_ui_implementation_result.md",
+    "manifest": "manifests/data_management_web_ui_implementation_manifest.json"
+  },
+  "references": [
+    "docs/data_management_web_ui_spec.md",
+    "docs/db4_implementation_result.md",
+    "docs/database_operations_runbook.md",
+    "specs/v13_phase_db0_database_spec.json",
+    "https://github.com/tradingview/lightweight-charts",
+    "https://www.tradingview.com/charting-library-docs/latest/connecting_data/Datafeed-API/"
+  ]
+}

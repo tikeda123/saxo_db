@@ -9,11 +9,23 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Callable, Iterable, Mapping, Protocol, Sequence
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, render_template, request
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
 from .connection import MARKET_DB, read_secret, target
+from .data_ui import (
+    MAX_UI_PAGE_ROWS,
+    chart_marks,
+    chart_rows as ui_chart_rows,
+    filter_series,
+    inventory_series,
+    overview_payload,
+    parse_offset,
+    quality_summary_payload,
+    resolve_series,
+    series_detail,
+)
 from .inspect import QUERY_SPECS
 
 
@@ -92,7 +104,6 @@ BAR_QUERIES: Mapping[str, BarQuery] = {
         FROM curated.market_bar b
         JOIN catalog.instrument i ON i.instrument_id=b.instrument_id
         WHERE i.market_key=%s
-          AND b.derivation_version='db3_accepted_1h_calendar_v1'
           AND b.time_utc >= %s AND b.time_utc < %s
           AND b.is_complete AND b.quality_status='PASS'
         ORDER BY b.time_utc, b.price_basis
@@ -208,7 +219,11 @@ def create_app(reader: QueryReader | None = None) -> Flask:
     def secure_headers(response):
         response.headers["Cache-Control"] = "no-store, max-age=0"
         response.headers["Pragma"] = "no-cache"
-        response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self'; style-src 'self'; "
+            "img-src 'self' data:; connect-src 'self'; font-src 'self'; "
+            "object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+        )
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
@@ -240,6 +255,11 @@ def create_app(reader: QueryReader | None = None) -> Flask:
                 "api_version": 1,
             }
         )
+
+    @app.get("/ui/")
+    @app.get("/ui/<path:ui_path>")
+    def data_management_ui(ui_path: str = "overview"):
+        return render_template("data_ui.html", initial_view=ui_path)
 
     @app.get("/health")
     def health():
@@ -341,6 +361,140 @@ def create_app(reader: QueryReader | None = None) -> Flask:
             """
         )
         return jsonify(json_value({"row_count": len(rows), "rows": rows}))
+
+    @app.get("/api/v1/ui/overview")
+    def ui_overview():
+        return jsonify(json_value({"api_version": 1, "data": overview_payload(selected_reader)}))
+
+    @app.get("/api/v1/ui/series")
+    def ui_series():
+        try:
+            limit = parse_limit(request.args.get("limit"), MAX_UI_PAGE_ROWS)
+            offset = parse_offset(request.args.get("offset"))
+            canonical_value = request.args.get("canonical_only", "false").strip().lower()
+            if canonical_value not in {"true", "false"}:
+                raise ValueError("canonical_only must be true or false")
+            rows = filter_series(
+                inventory_series(selected_reader),
+                role=request.args.get("role", "").strip().upper(),
+                category=request.args.get("category", "").strip(),
+                symbol=request.args.get("symbol", "").strip(),
+                layer=request.args.get("layer", "").strip(),
+                status=request.args.get("status", "").strip().upper(),
+                canonical_only=canonical_value == "true",
+            )
+        except ValueError:
+            return jsonify({"status": "FAILED", "error_code": "INVALID_REQUEST"}), 400
+        selected = rows[offset:offset + limit]
+        return jsonify(
+            json_value(
+                {
+                    "api_version": 1,
+                    "generated_at_utc": datetime.now(timezone.utc),
+                    "data": selected,
+                    "paging": {
+                        "offset": offset,
+                        "limit": limit,
+                        "total": len(rows),
+                        "has_more": offset + len(selected) < len(rows),
+                    },
+                    "warnings": [],
+                }
+            )
+        )
+
+    @app.get("/api/v1/ui/series/<selected_id>")
+    def ui_series_detail(selected_id: str):
+        try:
+            detail = series_detail(selected_reader, selected_id)
+        except ValueError:
+            return jsonify({"status": "FAILED", "error_code": "INVALID_REQUEST"}), 400
+        except LookupError:
+            return jsonify({"status": "FAILED", "error_code": "SERIES_NOT_FOUND"}), 404
+        return jsonify(
+            json_value(
+                {
+                    "api_version": 1,
+                    "generated_at_utc": datetime.now(timezone.utc),
+                    "data": detail,
+                    "paging": None,
+                    "warnings": [],
+                }
+            )
+        )
+
+    @app.get("/api/v1/ui/chart-bars")
+    def ui_chart_bars():
+        try:
+            selected_id = request.args.get("series_id", "").strip().lower()
+            start = parse_utc(request.args.get("start", ""), "start")
+            end = parse_utc(request.args.get("end", ""), "end")
+            limit = parse_limit(request.args.get("limit"), MAX_BAR_ROWS)
+            eligibility = request.args.get("eligibility", "eligible").strip().lower()
+            series = resolve_series(selected_reader, selected_id)
+            kind, rows = ui_chart_rows(
+                selected_reader,
+                series,
+                start=start,
+                end=end,
+                limit=limit,
+                eligibility=eligibility,
+            )
+        except ValueError:
+            return jsonify({"status": "FAILED", "error_code": "INVALID_REQUEST"}), 400
+        except LookupError:
+            return jsonify({"status": "FAILED", "error_code": "SERIES_NOT_FOUND"}), 404
+        truncated = len(rows) > limit
+        warnings = []
+        if eligibility == "stored_complete":
+            warnings.append("NON_ELIGIBLE_STORED_COMPLETE_DATA_MAY_BE_INCLUDED")
+        if truncated:
+            warnings.append("RESULT_TRUNCATED")
+        selected_rows = rows[-limit:] if truncated else rows
+        return jsonify(
+            json_value(
+                {
+                    "api_version": 1,
+                    "generated_at_utc": datetime.now(timezone.utc),
+                    "data": selected_rows,
+                    "paging": {"limit": limit, "truncated": truncated},
+                    "warnings": warnings,
+                    "series_id": selected_id,
+                    "series_kind": kind,
+                    "eligibility": eligibility,
+                    "start": start,
+                    "end": end,
+                }
+            )
+        )
+
+    @app.get("/api/v1/ui/chart-marks")
+    def ui_chart_marks():
+        try:
+            selected_id = request.args.get("series_id", "").strip().lower()
+            start = parse_utc(request.args.get("start", ""), "start")
+            end = parse_utc(request.args.get("end", ""), "end")
+            series = resolve_series(selected_reader, selected_id)
+            rows = chart_marks(selected_reader, series, start, end)
+        except ValueError:
+            return jsonify({"status": "FAILED", "error_code": "INVALID_REQUEST"}), 400
+        except LookupError:
+            return jsonify({"status": "FAILED", "error_code": "SERIES_NOT_FOUND"}), 404
+        return jsonify(
+            json_value(
+                {
+                    "api_version": 1,
+                    "generated_at_utc": datetime.now(timezone.utc),
+                    "data": rows,
+                    "paging": {"limit": len(rows), "truncated": False},
+                    "warnings": [],
+                }
+            )
+        )
+
+    @app.get("/api/v1/ui/quality-summary")
+    def ui_quality_summary():
+        return jsonify(json_value({"api_version": 1, "data": quality_summary_payload(selected_reader)}))
 
     if isinstance(selected_reader, DatabaseReader):
         atexit.register(selected_reader.close)

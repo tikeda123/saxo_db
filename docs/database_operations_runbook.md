@@ -243,6 +243,34 @@ curl --fail 'http://127.0.0.1:8766/api/v1/bars?instrument_key=iwm&layer=1h&start
 
 barはinstrument、layer、UTC start/endが必須で最大10,000行である。APIは`saxo_app_reader`、read-only transaction、最大5接続、30秒statement timeoutを使う。write method、任意relation、任意SQL、token入力を追加しない。
 
+### 11.1 データ管理Web UI
+
+Read APIを起動した同じprocessで、データ管理UIも利用できる。
+
+```bash
+.venv/bin/python -m market_db.read_api --port 8766
+```
+
+ブラウザで <http://127.0.0.1:8766/ui/overview> を開く。`8765`の取得・Reconcile用operator UIとは別の画面であり、Saxo tokenは不要で、入力欄も存在しない。停止は起動terminalで`Ctrl-C`を使う。
+
+- `データ概要`: 有効dataset、正式13銘柄、1H/4H/1D件数、現在の品質・鮮度、最新run
+- `データ在庫`: 正式・派生・total return・raw/archive・referenceを別系列として検索し、50件ずつ確認
+- `系列チャート`: 保存済み1H/4H/1Dをローソク足、ETF total returnを折れ線で確認
+- `品質・鮮度`: current guardrailと過去のOPEN eventを分離して確認
+- `取込・由来`: run、error code、相対manifest path、source file lineageを確認
+- `バックアップ`: backup/restore smokeとrelation別sizeを確認
+
+チャートの既定は`eligible`だけである。`管理確認モード`はcompleteだが`WARN/NOT_EVALUATED`の保存済みbarを監査表示し、固定警告を出す。これは研究利用可能への昇格ではない。画面から取得、Reconcile、修正、削除、backup、restore、注文を実行できない。
+
+UI確認用の固定endpoint:
+
+```bash
+curl --fail http://127.0.0.1:8766/api/v1/ui/overview
+curl --fail 'http://127.0.0.1:8766/api/v1/ui/series?canonical_only=true&limit=50&offset=0'
+```
+
+assetは自己ホストし、TradingView Lightweight Charts 5.2.0とApache-2.0 licenseを同梱する。DB4の旧実装manifestは変更せず、DMUI4 manifestが現行artifactと旧DB4 manifestの親SHA-256を検証する。
+
 3 DBのbackupとmarket DBのrestore smoke:
 
 ```bash
@@ -279,7 +307,7 @@ SAXO_DB_INTEGRATION=1 .venv/bin/python -m pytest
 .venv/bin/python -m market_db.validate --phase db4
 ```
 
-統合testをskipした結果はPASSにしない。DB4 validatorはDB1〜DB3を回帰し、migration 0013、reader権限、3 DB backup、market restore smoke、一時DB削除、Parquet再読込、implementation manifestを検証する。
+統合testをskipした結果はPASSにしない。DB4 validatorはDB1〜DB3を回帰し、migration 0013/0014、reader権限、3 DB backup、market restore smoke、一時DB削除、Parquet再読込、DB4親manifestとDMUI4拡張manifestを検証する。
 
 ## 13. Secret rotation
 

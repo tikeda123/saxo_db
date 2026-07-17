@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>saxo_db Data Console</title>
+  <link rel="stylesheet" href="/static/data-ui/data-ui.css">
+</head>
+<body>
+  <a class="skip-link" href="#content">本文へ移動</a>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="/ui/overview" aria-label="データ概要へ">
+        <span class="brand-mark">S</span>
+        <span><strong>saxo_db</strong><small>Data Console</small></span>
+      </a>
+      <nav aria-label="データ管理">
+        <a data-view="overview" href="/ui/overview"><span>01</span>データ概要</a>
+        <a data-view="inventory" href="/ui/inventory"><span>02</span>データ在庫</a>
+        <a data-view="series" href="/ui/series"><span>03</span>系列チャート</a>
+        <a data-view="quality" href="/ui/quality"><span>04</span>品質・鮮度</a>
+        <a data-view="runs" href="/ui/runs"><span>05</span>取込・由来</a>
+        <a data-view="operations" href="/ui/operations"><span>06</span>バックアップ</a>
+      </nav>
+      <div class="sidebar-note">
+        <span class="status-dot" id="health-dot"></span>
+        <div><strong id="health-label">接続確認中</strong><small>READ ONLY / LOOPBACK</small></div>
+      </div>
+    </aside>
+    <main id="content" tabindex="-1">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">SAXO MARKET DATA OPERATIONS</p>
+          <h1 id="page-title">データ概要</h1>
+        </div>
+        <div class="topbar-meta">
+          <span>表示時刻</span>
+          <select id="timezone-select" aria-label="表示時刻">
+            <option value="Asia/Tokyo">JST</option>
+            <option value="UTC">UTC</option>
+          </select>
+          <span id="as-of">as of —</span>
+        </div>
+      </header>
+      <div id="page" class="page" aria-live="polite">
+        <section class="loading-card"><span class="spinner"></span>データを読み込んでいます</section>
+      </div>
+      <footer>
+        <span>DB4 Read API / saxo_app_reader</span>
+        <span>Charts by <a href="https://www.tradingview.com/" rel="noopener noreferrer">TradingView</a></span>
+      </footer>
+    </main>
+  </div>
+  <script src="/static/vendor/lightweight-charts-5.2.0/lightweight-charts.standalone.production.js"></script>
+  <script src="/static/data-ui/data-ui.js"></script>
+</body>
+</html>

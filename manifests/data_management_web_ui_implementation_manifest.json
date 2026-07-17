@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "phase": "DMUI4",
+  "status": "PASS",
+  "implemented_at_jst": "2026-07-17",
+  "parent_evidence": {
+    "relative_path": "manifests/db4_implementation_manifest.json",
+    "sha256": "0aabf74c0a059b35d8af0d1a30d3f023cf65e3ec039d234717e6b56bc387e788",
+    "policy": "immutable_parent_with_explicit_hash_attested_supersession"
+  },
+  "migration": {
+    "number": "0014",
+    "filename": "0014_data_management_ui_reader.sql",
+    "sha256": "5294c4dd4585cebbf960cfe1c2b88e532a5ad3bf5f6ceb08f9a8a38527983999",
+    "database": "saxo_market",
+    "status": "APPLIED"
+  },
+  "chart_framework": {
+    "name": "TradingView Lightweight Charts",
+    "version": "5.2.0",
+    "distribution": "self_hosted",
+    "license": "Apache-2.0",
+    "attribution_present": true
+  },
+  "runtime_evidence": {
+    "six_screens": "PASS",
+    "overview_five_run_seconds": [0.886879, 0.883848, 0.82868, 0.837504, 0.826804],
+    "series_detail_five_run_seconds": [1.809492, 1.74714, 1.788639, 1.792215, 1.8014],
+    "chart_1000_bars_five_run_seconds": [0.784203, 0.846965, 0.775757, 0.799243, 0.894013],
+    "browser_console_errors": 0
+  },
+  "test_evidence": {
+    "unit_passed": 80,
+    "integration_skipped_in_unit_run": 23,
+    "full_database_integration_passed": 103,
+    "full_database_integration_failed": 0,
+    "db4_validator": "PASS"
+  },
+  "orders_or_prechecks_sent": 0,
+  "database_write_routes": 0,
+  "access_token_saved": false,
+  "account_identifier_saved": false,
+  "artifacts": {
+    "README.md": {"size_bytes": 24163, "sha256": "bb3a0ec988a6553b8f0b27c740f24b2fe37a45f72d038ab0b0189bf9520e6b5f"},
+    "db/migrations/0014_data_management_ui_reader.sql": {"size_bytes": 294, "sha256": "5294c4dd4585cebbf960cfe1c2b88e532a5ad3bf5f6ceb08f9a8a38527983999"},
+    "market_db/migrate.py": {"size_bytes": 12438, "sha256": "6802cb76082066cddbb17b4c3bd2fc91ff39ebd10b4f73d5702f701c63824a24"},
+    "market_db/read_api.py": {"size_bytes": 19268, "sha256": "d2ba55540fa5441874f4e2b32219714bac5923840997df1d929a90115718d423"},
+    "market_db/data_ui.py": {"size_bytes": 17657, "sha256": "3df2d7d5b2cdb77da2a7d4fa506f2377c07207df33113c70d89f32bd84ad99b3"},
+    "market_db/validate.py": {"size_bytes": 42534, "sha256": "626bb336d494ac89c5a33f1afeb2ec6800206817f85420b7ea56c29ccf9d267b"},
+    "market_db/templates/data_ui.html": {"size_bytes": 2517, "sha256": "5949566c5462505907e9918d05beb8c6751b38d6f30863750b784a402a86b115"},
+    "market_db/static/data-ui/data-ui.css": {"size_bytes": 13778, "sha256": "3d12a813f21f382899cf9eaad146cd2624d9bb54871cf99e12e9ec0f2de0c10d"},
+    "market_db/static/data-ui/data-ui.js": {"size_bytes": 38539, "sha256": "03c8e872b290e19892bf23551d597906b9738f178686a312b0a03c408c3cdb76"},
+    "market_db/static/vendor/lightweight-charts-5.2.0/lightweight-charts.standalone.production.js": {"size_bytes": 196203, "sha256": "c0992580867c4912cc9385b3c2728315bcc1a76c7f1087dca908430fccdf31d7"},
+    "market_db/static/vendor/lightweight-charts-5.2.0/LICENSE": {"size_bytes": 11347, "sha256": "70c9d5382506dd184465425c08a99ad9bd6d9ac1313c252968ba0b585e5ef823"},
+    "tests/test_data_ui.py": {"size_bytes": 12083, "sha256": "52c875858e0be2c8cede0c98530a2e096c45f1c5697d30233a814686a2fd820d"},
+    "tests/test_read_api.py": {"size_bytes": 7607, "sha256": "63f7bc4d47ab12866f10374647bd9ed310e474f53152c32efc705ce0b1314b73"},
+    "tests/test_migration_runner.py": {"size_bytes": 946, "sha256": "8e83ff437d78039a31c963dbc0c2957c2da3cafe19b5c22fe15a2c615209c71b"},
+    "tests/test_db1_integration.py": {"size_bytes": 13574, "sha256": "447f15c708fa92bd736492264d29bba740d3d2c2652878c2627e3556048aefd7"},
+    "docs/data_management_web_ui_spec.md": {"size_bytes": 20956, "sha256": "0abbbfbdc2e27b994e1c8e24009189fb38e1f0ea10c1f9bf954b4274f98b244e"},
+    "docs/data_management_web_ui_implementation_result.md": {"size_bytes": 4365, "sha256": "e7ad427ea6f23871f8713a638cfbbb5eeffb3e3b6c697e2ea198a69eb433149c"},
+    "docs/database_operations_runbook.md": {"size_bytes": 22373, "sha256": "65e2c7131ec38ff5b527128e88cfbd8c503ba7b4ec7aad464b56435c14072710"},
+    "specs/data_management_web_ui_spec.json": {"size_bytes": 10475, "sha256": "09d3d6d6010465c68af714f65e39009079812a7ad94cb1d14b3c604c192adf0e"}
+  }
+}

@@ -6,7 +6,7 @@
 
 このプロジェクトの目的は、Saxo OpenAPIから取得した市場データを、再現可能・追記可能・監査可能なPostgreSQLデータベースで管理し、後続の市場分析と短期売買戦略研究に利用できる状態にすることです。
 
-現在は**Phase DB4 PASS / RT0 NEXT**です。DB3までの増分取得・revision・calendar・watermark・4H/1D派生に加え、loopback read API、3 DB backup、別名restore smoke、DB別retention、Parquet exportまで実装・実DB検証済みです。
+現在は**Phase DB4 PASS / DMUI4 PASS / RT0 NEXT**です。DB3までの増分取得・revision・calendar・watermark・4H/1D派生、DB4の参照・backupに加え、管理データの在庫・期間・品質・由来・OHLCを確認する読み取り専用Web UIまで実装・実DB検証済みです。
 
 | 項目 | 現在の状態 |
 |---|---|
@@ -25,6 +25,7 @@
 | 4H / 1D派生 | 現在4H 128,469行、1D 47,784行。完成・PASS 1Hだけから生成 |
 | 鮮度・coverage | CLI/view実装済み。現状STALE 11、NOT_EVALUATED 2、FAIL 0。calendar外/欠損は分離表示 |
 | Read API | `127.0.0.1:8766`、read-only role、固定endpoint、CLI安定列8 view一致 |
+| データ管理Web UI | `127.0.0.1:8766/ui/overview`、6画面、TradingView Lightweight Charts 5.2.0、1H/4H/1D OHLCとtotal return折れ線、DMUI4 PASS |
 | Backup / restore | 3 DB custom dump・SHA-256・`pg_restore --list` PASS、market別名restore PASS |
 | Retention / export | DB別daily 7・weekly 4、IWM 1H Parquet 13行のDuckDB再読込PASS |
 | 研究・バックテスト | 未実施 |
@@ -50,25 +51,27 @@ AI側でlive gateを運用する場合は、`python3 -m market_db.operator_ui`�
 別のAIは、作業開始前に次をこの順序で読んでください。
 
 1. `README.md` — 現在地、禁止事項、次工程
-2. `specs/saxo_db_import_spec.json` — この新プロジェクトでの正本ディレクトリ、ファイル数、移管ルール
-3. `docs/v13_phase_db0_database_implementation_spec.md` — 人間向けの凍結済みDB実装仕様
-4. `specs/v13_phase_db0_database_spec.json` — 機械可読なDB・role・schema・table・増分更新仕様
-5. `docs/db4_implementation_plan.md` — DB4 read API・backup・restore・retention計画
-6. `docs/db4_implementation_result.md` — DB4 runtime drillと実測結果
-7. `manifests/db4_implementation_manifest.json` — DB4 gateの機械可読証跡
-8. `docs/db3_implementation_plan.md` — DB3取得・transaction・calendar・live gate計画
-9. `docs/db3_implementation_result.md` — DB3 offline実測、live blocker、未解放範囲
-10. `manifests/db3_implementation_manifest.json` — DB3 offline gateの機械可読証跡
-11. `docs/database_operations_runbook.md` — DB1〜DB4の実行可能な運用手順と後続lock
-12. `docs/db2_implementation_plan.md` — DB2の分類、import、snapshot、gateと実施結果
-13. `docs/db2_implementation_result.md` — DB2の実測件数、品質、snapshot、未実施範囲
-14. `manifests/db2_implementation_manifest.json` — DB2の機械可読証跡
-15. `docs/db1_implementation_plan.md` — DB1の実装順序、運用view/CLI/runbook、テスト、判定規則
-16. `manifests/db0_spec_amendment_v2_manifest.json` — 運用仕様を追加したv2再凍結の成果物hash
-17. `manifests/import_file_inventory.csv` — 69 CSVの相対パス、行数、サイズ、SHA-256
-18. `docs/saxo_api_data_acquisition_handoff.md` — token、instrument確認、full/incremental取得、DataVersion、品質・security gate
-19. `docs/saxo_db_project_plan.md` — DB0〜DB4と研究再開条件
-20. `docs/v13_category_specific_intraday_strategy_research_plan.md` — DB完成後の研究目的
+2. `docs/data_management_web_ui_spec.md` / `specs/data_management_web_ui_spec.json` — DMUIの画面、指標、API、安全境界
+3. `docs/data_management_web_ui_implementation_result.md` / `manifests/data_management_web_ui_implementation_manifest.json` — DMUI4実測結果と現行成果物hash
+4. `specs/saxo_db_import_spec.json` — この新プロジェクトでの正本ディレクトリ、ファイル数、移管ルール
+5. `docs/v13_phase_db0_database_implementation_spec.md` — 人間向けの凍結済みDB実装仕様
+6. `specs/v13_phase_db0_database_spec.json` — 機械可読なDB・role・schema・table・増分更新仕様
+7. `docs/db4_implementation_plan.md` — DB4 read API・backup・restore・retention計画
+8. `docs/db4_implementation_result.md` — DB4 runtime drillと実測結果
+9. `manifests/db4_implementation_manifest.json` — DB4 gateの機械可読証跡
+10. `docs/db3_implementation_plan.md` — DB3取得・transaction・calendar・live gate計画
+11. `docs/db3_implementation_result.md` — DB3 offline実測、live blocker、未解放範囲
+12. `manifests/db3_implementation_manifest.json` — DB3 offline gateの機械可読証跡
+13. `docs/database_operations_runbook.md` — DB1〜DB4・DMUIの実行可能な運用手順と後続lock
+14. `docs/db2_implementation_plan.md` — DB2の分類、import、snapshot、gateと実施結果
+15. `docs/db2_implementation_result.md` — DB2の実測件数、品質、snapshot、未実施範囲
+16. `manifests/db2_implementation_manifest.json` — DB2の機械可読証跡
+17. `docs/db1_implementation_plan.md` — DB1の実装順序、運用view/CLI/runbook、テスト、判定規則
+18. `manifests/db0_spec_amendment_v2_manifest.json` — 運用仕様を追加したv2再凍結の成果物hash
+19. `manifests/import_file_inventory.csv` — 69 CSVの相対パス、行数、サイズ、SHA-256
+20. `docs/saxo_api_data_acquisition_handoff.md` — token、instrument確認、full/incremental取得、DataVersion、品質・security gate
+21. `docs/saxo_db_project_plan.md` — DB0〜DB4と研究再開条件
+22. `docs/v13_category_specific_intraday_strategy_research_plan.md` — DB完成後の研究目的
 
 相違がある場合の優先順位は、`README.md`の安全境界 → `specs/saxo_db_import_spec.json`の新プロジェクト相対パス → `specs/v13_phase_db0_database_spec.json`の技術仕様 → 人間向け文書です。仕様を変更する必要が出た場合は、黙って解釈変更せず、差分と理由を提示して再凍結してください。
 

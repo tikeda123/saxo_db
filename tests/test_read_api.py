@@ -34,12 +34,31 @@ def test_read_api_root_has_security_headers_and_write_methods_are_rejected():
     assert response.status_code == 200
     assert response.get_json()["read_only"] is True
     assert response.headers["Cache-Control"].startswith("no-store")
-    assert response.headers["Content-Security-Policy"] == "default-src 'none'; frame-ancestors 'none'"
+    csp = response.headers["Content-Security-Policy"]
+    assert "default-src 'self'" in csp
+    assert "script-src 'self'" in csp
+    assert "object-src 'none'" in csp
+    assert "frame-ancestors 'none'" in csp
     assert response.headers["X-Frame-Options"] == "DENY"
 
     rejected = client.post("/api/v1/bars", json={"sql": "DELETE FROM curated.market_bar"})
     assert rejected.status_code == 405
     assert rejected.get_json() == {"error_code": "READ_ONLY_API", "status": "FAILED"}
+
+
+def test_data_management_ui_is_same_origin_and_uses_only_local_assets():
+    app = create_app(FakeReader())
+    client = app.test_client()
+    response = client.get("/ui/overview")
+    page = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "saxo_db Data Console" in page
+    assert "/static/vendor/lightweight-charts-5.2.0/" in page
+    assert "https://cdn" not in page
+    assert "SAXO_ACCESS_TOKEN" not in page
+    assert "localStorage" not in page
+    assert "sessionStorage" not in page
 
 
 def test_health_requires_app_reader_and_read_only_transaction():
