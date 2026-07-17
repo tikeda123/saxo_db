@@ -1,7 +1,7 @@
 # saxo_db 独立データ管理プロジェクト計画
 
 作成日: 2026-07-16
-状態: **DB1 PASS / DB2 PASS / DB3 OFFLINE PASS / LIVE SIM TOKEN待ち / DB4 LOCKED**
+状態: **DB1 PASS / DB2 PASS / DB3 PASS / DB4 NEXT**
 
 ## 1. 目的
 
@@ -101,19 +101,21 @@ Saxo raw OHLCとはsource、price basis、tableを分ける。調整済み日次
 - known quality FAIL 5件をOPEN eventとして保持
 - research snapshotの物理分離・read-only化、dump SHA-256、`pg_restore --list`を検証
 
-### DB3 — 増分更新（OFFLINE PASS / LIVE BLOCKED）
+### DB3 — 増分更新（PASS）
 
 - SIM限定GET client、canonical 13 detail/schedule照合、token redactionを実装
 - Etf 20・FxSpot 72実バーoverlap、revision、idempotent upsertを実装
 - quality失敗時にcurated/derived/watermarkをrollbackし、raw artifactと失敗runを保持
 - DataVersion変化を`STALE_DATA_VERSION`で停止し、対象1銘柄だけのguard付き全履歴refetchを実装
-- 受理済み完成1Hから4H 107,623行・1D 44,292行を生成
+- full-refetch限定で、過去FX High/Low交差を最大10件かつ0.01%以下だけ無補正隔離し、raw原本・`rejected_rows`・解決済みWARNへ監査記録
+- localhost限定・token非保存・固定reconcile専用のoperator UIでAI側運用を可能にする
+- 受理済み完成1Hから4H 128,469行・1D 47,784行を生成
 - US ETF holiday・短縮取引・DST・例外休場を登録。FXはlive schedule照合までprovisional
 - missingとout-of-sessionを分けたcoverage、calendar基準freshness、watermark、failed run監視を実装
-- offline test/validator PASS、token永続化ゼロ、注文APIゼロ
-- live smoke・13銘柄更新・2回目冪等性はsession-only token待ち
+- offline/live test・総合validator PASS、token永続化ゼロ、注文APIゼロ
+- canonical 13 watermark `ACTIVE`、通常run 104・105連続PASS
 
-### DB4 — 分析・運用（LOCKED）
+### DB4 — 分析・運用（NEXT）
 
 - 運用CLIとread-only query APIの一致
 - inventory・coverage・freshness・lineage・quality・storage監視
@@ -145,4 +147,4 @@ DB4がPASSするまで、元計画のRT0戦略検証は再開しない。
 - token・口座情報保存
 - strategy signal、PnL、WFO、portfolio計算
 
-Saxo APIはDB3のSIM限定GET allow-listだけを許可する。DB1・DB2とDB3 offline gateは実環境でPASSした。次に許可する作業はDB3 live gateだけであり、DB4とRT0はLOCKEDのままとする。
+Saxo APIはDB3のSIM限定GET allow-listだけを許可する。DB1・DB2・DB3は実環境でPASSした。次に許可する作業はDB4のread API、backup/restore、retention、runbook運用ゲートだけであり、RT0はDB4 PASSまでLOCKEDとする。

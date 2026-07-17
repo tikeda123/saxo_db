@@ -44,6 +44,24 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def db3_manifest_baseline_is_valid(payload: dict[str, Any]) -> bool:
+    """Validate immutable DB3 implementation evidence without freezing live row counts."""
+    derived = payload.get("derived")
+    if not isinstance(derived, dict):
+        return False
+
+    def positive_int(value: object) -> bool:
+        return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+    return (
+        positive_int(derived.get("market_bar_4h_rows"))
+        and positive_int(derived.get("market_bar_4h_analysis_eligible_rows"))
+        and positive_int(derived.get("market_bar_1d_rows"))
+        and positive_int(derived.get("market_bar_1d_analysis_eligible_rows"))
+        and derived.get("quality_fail_rows") == 0
+    )
+
+
 def validate_import_inventory() -> dict[str, Any]:
     root = project_root()
     inventory_path = root / "manifests" / "import_file_inventory.csv"
@@ -450,10 +468,11 @@ def validate_db3_data() -> dict[str, Any]:
                 "offline_status_pass": payload.get("offline_status") == "PASS",
                 "live_status": payload.get("live_status"),
                 "migration_hashes_match": recorded_migrations == actual_migrations,
-                "derived_counts_match": (
-                    payload.get("derived", {}).get("market_bar_4h_rows") == offline["derived"]["4h"]["rows"]
-                    and payload.get("derived", {}).get("market_bar_1d_rows") == offline["derived"]["1d"]["rows"]
-                ),
+                # These counts are immutable implementation-time evidence, not a
+                # live invariant. Current derived rows are validated separately
+                # above because successful incremental/full-refetch runs change
+                # them by design.
+                "derived_baseline_valid": db3_manifest_baseline_is_valid(payload),
                 "no_persisted_credentials": (
                     payload.get("security", {}).get("access_token_persisted") is False
                     and payload.get("security", {}).get("account_identifier_persisted") is False
@@ -480,7 +499,7 @@ def validate_db3_data() -> dict[str, Any]:
         and offline["research_post_cutoff_rows"] == [0, 0, 0]
         and manifest_check.get("offline_status_pass") is True
         and manifest_check.get("migration_hashes_match") is True
-        and manifest_check.get("derived_counts_match") is True
+        and manifest_check.get("derived_baseline_valid") is True
         and manifest_check.get("no_persisted_credentials") is True
     )
     offline["status"] = "PASS" if offline_pass else "FAIL"

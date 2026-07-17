@@ -6,7 +6,7 @@
 
 このプロジェクトの目的は、Saxo OpenAPIから取得した市場データを、再現可能・追記可能・監査可能なPostgreSQLデータベースで管理し、後続の市場分析と短期売買戦略研究に利用できる状態にすることです。
 
-現在は**Phase DB3 OFFLINE PASS / LIVE SIM BLOCKED**です。DB2の移行・研究snapshotを保持したまま、増分取得、revision、calendar、watermark、4H/1D派生、coverage/freshness運用まで実装・実DB検証済みです。Saxo SIMのsession-only tokenが現在のprocessにないため、live smoke・13銘柄取得・再取得冪等性だけが未実施です。
+現在は**Phase DB3 PASS / DB4 NEXT**です。DB2の移行・研究snapshotを保持したまま、増分取得、revision、calendar、watermark、4H/1D派生、coverage/freshness運用まで実装・実DB検証済みです。Saxo SIMのcanonical 13全銘柄を復旧し、通常run 104・105の連続PASSとDB3総合validator PASSを確認しました。
 
 | 項目 | 現在の状態 |
 |---|---|
@@ -20,13 +20,15 @@
 | 運用確認 | `market_db.inspect`、`market_db.operate`、runbook実装済み |
 | CSVインポート | 完了、69ファイル・781,808 source row、再実行は全件skip |
 | Research snapshot | 完了、cutoff `2024-06-28T23:59:59Z`、default read-only、dump検証PASS |
-| Saxo API増分更新 | 実装済み、offline gate PASS、live SIM token待ち |
-| Calendar / watermark | canonical 13割当・初期化済み。ETF verified rules、FXはlive schedule照合までprovisional |
-| 4H / 1D派生 | 4H 107,623行、1D 44,292行。完成・PASS 1Hだけから生成 |
-| 鮮度・coverage | CLI/view実装済み。現状ETF STALE、FX NOT_EVALUATED、calendar外/欠損は分離表示 |
+| Saxo API増分更新 | 実装済み、smoke・13銘柄refetch・通常run連続2回・DB3 validator PASS、local operator UI実装済み |
+| Calendar / watermark | canonical 13割当済み、`ACTIVE=13`。ETF verified、FX provisional |
+| 4H / 1D派生 | 現在4H 128,469行、1D 47,784行。完成・PASS 1Hだけから生成 |
+| 鮮度・coverage | CLI/view実装済み。現状STALE 11、NOT_EVALUATED 2、FAIL 0。calendar外/欠損は分離表示 |
 | 研究・バックテスト | 未実施 |
 
-次に許可されている工程は、**Phase DB3 live SIM gateの完了だけ**です。session-only tokenでsmoke、canonical 13銘柄、直後の2回目更新を実行し、validatorをPASSさせます。DB4と研究Phaseへ先回りしないでください。
+次に許可されている工程は、**Phase DB4のread API・backup/restore・retention・runbook運用ゲート**です。DB3は完了しています。RT0と研究PhaseはDB4 PASSまで開始しません。
+
+AI側でlive gateを運用する場合は、`python3 -m market_db.operator_ui`を起動して`http://127.0.0.1:8765/`を開く。ユーザーはpassword欄へtokenを1回入力するだけで、その後の固定`reconcile` job開始・進捗監視・validatorはAIが行う。tokenはURL、コマンド引数、file、DB、log、cookie、browser storageへ保存せず、jobの子process環境だけへ渡す。
 
 ## 2. 絶対に守る境界
 
@@ -254,17 +256,20 @@ DB2 PASSによりDB3だけを解放しました。DB4とRT0は引き続きLOCKED
 - cutoff以前だけを`saxo_research_v13`へ物理copyし、default read-only化した。
 - snapshot content/dump manifest、dump SHA-256、`pg_restore --list`を検証した。restore smoke testはDB4までLOCKEDである。
 
-### Phase DB3：増分更新（OFFLINE PASS / LIVE BLOCKED）
+### Phase DB3：増分更新（PASS）
 
-- SIM限定GET allow-list、token redaction、429有限retryを実装した。
+- SIM限定GET allow-list、token redaction、429および一時的network例外の1/2/4秒・最大4attempt有限retryを実装した。
 - Etf 20本、FxSpot 72本の実bar overlapと`Mode=From` forward pagingを実装した。
 - raw JSON atomic保存、SHA-256、source file、raw revision、curated latest、watermarkをrun IDで追跡する。
 - stage → validate → raw append → curated upsert → watermark → 4H/1Dを単一transactionでcommitする。失敗時はDB変更をrollbackし、raw artifactとsanitized run metadataだけを残す。
 - `DataVersion`変化時は`STALE_DATA_VERSION`で停止する。対象1銘柄だけを`Mode=UpTo`で全取得し、guard付きprocedureで置換する`full-refetch`経路を実装した。
+- full-refetch限定で、過去FxSpot High/Low交差を最大10 unique rowかつ全観測の0.01%以下だけ無補正隔離する。raw JSON・SHA-256・元Bid/Askを保持し、`rejected_rows`と解決済みWARNへ記録する。通常run、Open/Close、最新sample、閾値超過は全runをFAILする。
+- localhost限定operator UIは、任意commandを受け付けず、固定`market_db.incremental_update reconcile`をsingle jobとして起動する。CSRF、same-origin、no-store、CSP、token出力redactionを強制する。
 - ETF calendarはholiday、短縮取引、DST、例外休場をUTC化した。FXはSaxo live trading schedule照合前なのでprovisional・`NOT_EVALUATED`である。
 - coverageはmissingとout-of-sessionを分ける。既存ETFは11銘柄ともWARN、FX 2銘柄はNOT_EVALUATEDで、FAILは0。
-- 現在のfreshnessは、live未更新のためETF 11銘柄STALE、FX 2銘柄NOT_EVALUATEDである。
-- offline test 54件とDB3 offline validatorはPASS。live tokenがないため総合は`BLOCKED_LIVE_SIM_TOKEN`である。
+- 現在のwatermarkは`ACTIVE=13`であり、freshnessはSTALE 11、NOT_EVALUATED 2、FAIL 0である。
+- EURUSDは過去High/Low交差5件、USDJPYは9件を上限内で無補正隔離し、raw原本と解決済みWARNを保持した。
+- 通常run 104・105が連続PASSし、DB3総合validatorもPASSした。分割実行した全test 74件はPASS。
 
 ### Phase DB4：参照・運用ゲート
 
@@ -308,6 +313,7 @@ SAXO_DB_INTEGRATION=1 python3 -m pytest
 python3 -m market_db.validate --phase db3
 python3 -m market_db.session_calendar status
 python3 -m market_db.incremental_update status
+python3 -m market_db.operator_ui
 python3 -m market_db.import_legacy status
 python3 -m market_db.research_snapshot status
 python3 -m market_db.inspect inventory
@@ -339,9 +345,9 @@ DB3作業の完了報告には、最低限次を含めてください。
 
 別のAIへは、次の依頼文で再開できます。
 
-> repository rootの`README.md`、DB3計画・結果、運用runbookを読んでください。DB3 offline gateはPASS、live gateは`BLOCKED_LIVE_SIM_TOKEN`です。session-only tokenを保存せずにsmokeとcanonical 13増分更新を直後に2回実行し、`market_db.validate --phase db3`をPASSさせてください。DataVersion block時だけ対象銘柄のguard付きfull-refetchを使います。DB4、restore/retention、特徴量、戦略、WFO、Holdoutには進まないでください。
+> repository rootの`README.md`、DB3計画・結果、運用runbookを読んでください。DB3はcanonical 13の`ACTIVE`、通常run 104・105連続PASS、総合validator PASSで完了しています。次に許可されたPhase DB4のread API、backup/restore、retention、runbook drillだけを実装してください。RT0、特徴量、戦略、PnL、WFO、HoldoutはDB4 PASSまで開始しないでください。
 
 ---
 
 最終更新: 2026-07-17 JST
-現在のゲート: `DB0 v2=RE-FROZEN / DB1=PASS / DB2=PASS / DB3=OFFLINE_PASS_LIVE_BLOCKED / DB4=LOCKED / RT0=LOCKED`
+現在のゲート: `DB0 v2=RE-FROZEN / DB1=PASS / DB2=PASS / DB3=PASS / DB4=NEXT / RT0=LOCKED`

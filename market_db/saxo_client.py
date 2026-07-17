@@ -141,7 +141,10 @@ class SaxoClient:
                     },
                     timeout=self._timeout,
                 )
-            except (OSError, TimeoutError) as exc:
+            except (OSError, TimeoutError):
+                if attempt < 3:
+                    self._sleep(waits[attempt])
+                    continue
                 raise SaxoAPIError("FAILED_NETWORK") from None
             self.request_count += 1
             self.rate_limit_summary.update(safe_rate_headers(response.headers))

@@ -2,7 +2,7 @@
 
 作成日: 2026-07-17 JST
 前提: `DB1=PASS / DB2=PASS`
-状態: **OFFLINE IMPLEMENTATION COMPLETE AND PASS / LIVE SIM GATE BLOCKED BY SESSION TOKEN**
+状態: **IMPLEMENTED / LIVE GATE PASS / COMPLETE**
 
 ## 1. 目的
 
@@ -24,19 +24,23 @@ DB3ではsession calendar、holiday、短縮取引、DSTを登録し、coverage�
 
 ## 3. 実装範囲
 
-1. SIM限定GET client、token非表示、endpoint allow-list、429上限retry
+1. SIM限定GET client、token非表示、endpoint allow-list、429・一時的network例外のGET限定上限retry
 2. canonical instrument detail照合と自動置換禁止
 3. raw JSON atomic保存、SHA-256、相対path manifest
 4. ETF 20本、FX 72本の実bar overlapとFrom paging
 5. Decimal正規化、ETF native OHLC、FX Bid/Askとmid
 6. quality gate、raw append、revision event、curated idempotent upsert
-7. DataVersion変化のfull-refetch block
-8. watermark初期化・成功時のみ前進・失敗時rollback
-9. US ETF calendarとFX schedule登録、coverage/freshness view
-10. 完成1Hだけから4H/1D生成
-11. unit/fixture/DB transaction testとmanual SIM integration gate
+7. DataVersion変化のfull-refetch blockと自動`reconcile`
+8. full-refetch限定の過去FX High/Low交差row隔離・監査・上限制御
+9. watermark初期化・成功時のみ前進・失敗時rollback
+10. US ETF calendarとFX schedule登録、coverage/freshness view
+11. 完成1Hだけから4H/1D生成
+12. unit/fixture/DB transaction testとmanual SIM integration gate
+13. localhost限定operator UIによるsession-only token受渡し、single reconcile job、AI側進捗監視
 
 DataVersion不一致時は通常runを`BLOCKED_FULL_REFETCH_REQUIRED`で全rollbackし、対象watermarkを`STALE_DATA_VERSION`へ移す。復旧は対象1銘柄、専用trigger、STALE watermarkの3条件をprocedureが確認した場合だけ、`Mode=UpTo`全履歴refetchとcurated再構築を許可する。既存最古時刻に届かなければ置換前に停止する。
+
+full-refetchで過去FxSpotのHigh/Low集計極値だけに`Bid > Ask`が含まれる場合は、最大10 unique rowかつ全unique観測の0.01%以下、最新形成中sample以外という全条件を満たしたときだけ隔離する。source値は修正せずraw JSONへ残し、該当rowをDB barから除外して`rejected_rows`と解決済みWARNへ記録する。Open/Close交差、通常run、閾値超過、重複矛盾は全runをFAILする。
 
 ## 4. Runtime順序
 
@@ -50,4 +54,8 @@ DataVersion不一致時は通常runを`BLOCKED_FULL_REFETCH_REQUIRED`で全rollb
 
 tokenがない場合、実装・offline runtime gateを完了しても総合判定は`BLOCKED_LIVE_SIM_TOKEN`とする。tokenをfile、DB、manifest、logへ保存しない。
 
-2026-07-17実施結果は`docs/db3_implementation_result.md`を正本とする。offline gateは全項目PASS、live smoke・13 detail/schedule/chart・直後2回目runだけが未実施である。DB4とRT0はLOCKEDを維持する。
+長期full-refetchの途中でtimeout・接続切断等の一時的network例外が起きた場合は、同一GETだけを1/2/4秒待機で最大4attemptまで再試行する。4回失敗時は`FAILED_NETWORK`でrunを停止し、無限retry、write API retry、別instrumentへの自動代替はしない。
+
+operator UIはDB4の一般read APIやDB管理UIではない。DB3 live gateの固定`reconcile`だけを起動する一時credential bridgeであり、loopback bind、same-origin/CSRF、no-store、single job、`shell=False`、出力redactionを必須とする。ユーザーがpassword欄へ入力し、AIはtoken値を取得せず開始・監視だけを行う。
+
+2026-07-17実施結果は`docs/db3_implementation_result.md`を正本とする。offline gateとlive gateは全項目PASSした。canonical 13 watermarkはすべて`ACTIVE`、EURUSD/USDJPYの限定隔離付きfull-refetch、通常run 104・105の連続PASS、DB3総合validator PASSを確認した。DB4だけを次工程として解放し、RT0はDB4 PASSまでLOCKEDを維持する。

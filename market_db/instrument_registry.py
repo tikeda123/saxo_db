@@ -10,7 +10,7 @@ from typing import Any
 from .connection import project_root
 
 
-CANONICAL_SPEC = Path("specs/source_collection/v12_intraday_collection.json")
+CANONICAL_SPEC = Path("specs/source_collection/v13_db3_incremental_collection.json")
 
 
 class InstrumentDriftError(RuntimeError):

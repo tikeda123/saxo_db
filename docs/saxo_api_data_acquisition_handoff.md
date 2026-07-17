@@ -2,7 +2,7 @@
 
 作成日: 2026-07-16 JST  
 対象環境: Saxo OpenAPI Simulation（SIM）  
-状態: **ACQUISITION SPEC DOCUMENTED / IMPLEMENTATION NOT STARTED**
+状態: **DB3 PASS / DB4 NEXT**
 
 ## 1. この文書の目的
 
@@ -13,7 +13,7 @@
 1. **初回フル取得**: DBをゼロから再構築するとき、13銘柄の60分足を取得可能な最古時点まで後方取得する。
 2. **増分取得**: DB2完了後、`ops.watermark`を起点に最新60分足を重複取得し、revisionを監査しながらDBへ反映する。
 
-この文書を作成した時点では、API取得コード、Docker、DB、migration、incremental jobはまだ実装していない。現在の次工程はREADMEに記載されたDB1であり、本書のAPI実装は**DB3までLOCKED**である。
+DB1・DB2・DB3はPASSし、DB3のAPI取得、DB transaction、派生足、運用CLIは実装・live検証済みである。本書は現在のDB3取得契約と障害復旧手順を定義する。DB4は次工程、研究工程はDB4 PASSまでLOCKEDである。
 
 ## 2. 変更してはいけない取得方針
 
@@ -99,7 +99,7 @@ Authorization: Bearer <session-only-token>
 
 ## 6. Canonical instrument master
 
-機械可読な正本は `specs/source_collection/v12_intraday_collection.json` の`instruments`である。
+DB3増分取得の機械可読な正本は `specs/source_collection/v13_db3_incremental_collection.json` である。旧`v12_intraday_collection.json`は初回収集時点の不変契約として保持する。
 
 | category | key | symbol | UIC | AssetType | currency |
 |---|---|---|---:|---|---|
@@ -253,6 +253,17 @@ Saxo公式Chart仕様では、`DataVersion`が変化した場合、そのinstrum
 
 DataVersion変化を「最新数十本だけの更新」で済ませない。ETFのsplit等で過去OHLC全体が変更される可能性がある。
 
+### 10.1 full-refetch時の限定FX極値隔離
+
+通常増分runでは、FxSpotのいずれかのfieldで`Bid > Ask`を検出した時点で従来どおり全runをFAILする。例外は`DataVersion`復旧用の`manual_db3_full_refetch`だけであり、次をすべて満たす過去rowに限定する。
+
+- AssetTypeが`FxSpot`で、交差fieldが`High`または`Low`だけである。
+- 交差するunique rowが最大10件で、かつ取得したunique観測row全体の0.01%以下である。
+- 形成中の最新sampleではない。
+- 同一timestampに受理rowとreject rowが併存せず、重複page間の交差値が一致する。
+
+合格したrowも値を修正しない。swap、interpolate、clamp、上書きは禁止し、raw JSON、page SHA-256、相対path、timestamp、元のBid/Askを保持する。該当rowは`raw.market_bar_revision`、curated、4H/1Dから除外し、`ops.ingestion_run.rejected_rows`へ件数、`quality.event`へ`db3_fx_crossed_extrema_quarantine`の解決済みWARNを1 rowずつ記録する。Open/Close交差、Bid/Ask欠損、OHLC違反、最新sample、件数または比率超過は例外にせず、DB barを変更しないまま全runをFAILする。
+
 ## 11. 正規化ルール
 
 ### 11.1 共通
@@ -278,7 +289,7 @@ DataVersion変化を「最新数十本だけの更新」で済ませない。ETF
 - `OpenBid/Ask`、`HighBid/Ask`、`LowBid/Ask`、`CloseBid/Ask`をすべて保持する。
 - BidとAskの両方がある場合だけ、各fieldのmidを`(Bid + Ask) / 2`で計算する。
 - `price_basis=bid_ask_mid`。
-- Bid/Ask欠損またはBid > Askを自動修正しない。
+- Bid/Ask欠損またはBid > Askを自動修正しない。限定full-refetch隔離でもsource値は変更しない。
 - FXのVolumeはsource仕様上利用不能または意味が異なる場合があるため、NULLを失敗理由にしない。
 
 ## 12. 完成bar判定
@@ -314,7 +325,7 @@ Chartの最新sampleはbar開始時に作成され、その後更新される。
 - HTTP requestが許可endpointだけ
 - order/precheck countが0
 
-重大品質違反は、値を補正して続行せず、runをFAILさせる。raw payloadとquality eventに事実を残す。DataVersion correctionは通常品質FAILとは別にfull refetchへrouteする。
+重大品質違反は、値を補正して続行せず、runをFAILさせる。raw payloadとquality eventに事実を残す。DataVersion correctionは通常品質FAILとは別にfull refetchへrouteする。唯一の限定例外は10.1の過去FX High/Low極値隔離であり、通常増分runには適用しない。
 
 ## 14. rate limit、retry、error処理
 
@@ -328,7 +339,8 @@ Saxo公式の既定値ではsession/service groupあたり120 requests/minuteで
 - 401: `BLOCKED_TOKEN_EXPIRED`。新しいtokenをoperatorへ求め、tokenをlogへ出さない。
 - 403: `BLOCKED_PERMISSION_OR_NETWORK_REPUTATION`。HTML/bodyは秘密情報をredactし、Reference番号だけを記録できる。
 - 404: `BLOCKED_INSTRUMENT_DRIFT`。自動で別instrumentへ切り替えない。
-- 503/network timeout: current frozen ruleでは自動無限retryをせずrunをFAILさせる。retry対象へ加える場合は上限とidempotenceを仕様変更として再凍結する。
+- 503はretryせず`FAILED_SERVICE_UNAVAILABLE`でrunをFAILさせる。
+- timeout・接続切断等のnetwork例外は同一GETだけを1/2/4秒待機・最大4attemptで有限retryし、継続時は`FAILED_NETWORK`でrunをFAILさせる。
 
 retryはGETだけに限定する。本processには書込系Saxo APIを実装しない。
 
@@ -405,10 +417,14 @@ HTTP clientはSIM base URLをconstructor任せにせずallow-list検証する。
 - `UpTo`/`From`境界duplicateを決定論的に除去
 - cursor非前進を検出
 - 429で1/2/4秒retryし4回目で停止
+- network例外で1/2/4秒retryし4回目で`FAILED_NETWORK`
 - 401/403/404のsanitized gate変換
 - ETF native OHLC正規化
 - FX Bid/Ask保存とmid計算
 - FX Bid > Askを修正せずFAIL
+- full-refetch限定のFX High/Low隔離が最大10件・0.01%・最新sample禁止をすべて検査
+- Open/Close交差、閾値超過、受理/reject競合で全runをFAIL
+- 隔離rowの原値・raw path・SHA-256を解決済みWARNと`rejected_rows`へ記録
 - 最新barをincompleteにする
 - overlapがEtf 20本、FxSpot 72本
 - DataVersion変化をfull refetchへroute
@@ -450,6 +466,7 @@ HTTP clientはSIM base URLをconstructor任せにせずallow-list検証する。
 - 4H/1DがSaxo rawではなく受理済み60分足から生成される。
 - quality failureでcurated/watermarkが前進しない。
 - 429を無限retryせず、公式headerを考慮できる。
+- network例外をGET限定・最大4attemptでretryし、継続時は停止できる。
 - token、account情報、Authorization headerが永続化されていない。
 - order/precheck/API writeが0。
 - 実行結果、test、manifest、未解決blockerが`docs/db3_incremental_update_result.md`に記録されている。
@@ -469,8 +486,8 @@ HTTP clientはSIM base URLをconstructor任せにせずallow-list検証する。
 
 DB1・DB2完了後、別AIへ次のように依頼できる。
 
-> `README.md`、`docs/saxo_api_data_acquisition_handoff.md`、`specs/v13_phase_db0_database_spec.json`、`specs/source_collection/v12_intraday_collection.json`を全文読んでください。Phase DB3だけを実施し、SIM限定・13銘柄・canonical 60分足の増分取得を実装してください。tokenはprocess sessionだけで扱い、Saxo APIのwrite endpointを実装しないでください。raw JSONのatomic保存、SHA-256、overlap（Etf 20/FxSpot 72）、From paging、DataVersion full-refetch、quality transaction、revision、watermark、4H/1D再生成、429上限retry、security testを実装し、DB3 gateをPASS/FAIL/BLOCKEDで報告してください。DB4、戦略、PnL、WFO、Holdoutへは進まないでください。
+> `README.md`、`docs/saxo_api_data_acquisition_handoff.md`、`specs/v13_phase_db0_database_spec.json`、`specs/source_collection/v13_db3_incremental_collection.json`を全文読んでください。Phase DB3 live reconciliationだけを継続し、SIM限定・13銘柄・canonical 60分足の増分取得を完了してください。tokenはprocess sessionだけで扱い、Saxo APIのwrite endpointを実装しないでください。DataVersion full-refetchでは本書10.1の限定隔離を厳守し、raw JSON、SHA-256、quality event、`rejected_rows`を検証してください。最後に通常runを連続2回PASSさせ、DB3 validatorを実行してください。DB4、戦略、PnL、WFO、Holdoutへは進まないでください。
 
 ---
 
-現在の取得ゲート: `DOCUMENTED / DB3 IMPLEMENTATION LOCKED UNTIL DB1 AND DB2 PASS`
+現在の取得ゲート: `DB3 PASS / DB4 NEXT / RT0 LOCKED`

@@ -2,7 +2,7 @@
   "schema_version": 2,
   "project": "saxo_db",
   "spec_id": "saxo_db_import_bundle_20260716_v2",
-  "status": "BUNDLE_IMPORTED_DB1_DB2_PASS_DB3_OFFLINE_PASS_LIVE_BLOCKED",
+  "status": "BUNDLE_IMPORTED_DB1_DB2_DB3_PASS_DB4_NEXT",
   "origin_project": "../saxo_api",
   "inventory": "manifests/import_file_inventory.csv",
   "source_files_are_immutable": true,
@@ -125,13 +125,14 @@
   },
   "DB3_result": {
     "offline_status": "PASS",
-    "live_status": "BLOCKED_LIVE_SIM_TOKEN",
+    "live_status": "PASS",
     "canonical_watermarks": 13,
-    "derived_4h_rows": 107623,
-    "derived_1d_rows": 44292,
+    "derived_4h_rows": 128469,
+    "derived_1d_rows": 47784,
     "research_database_unchanged": true,
-    "next_allowed_work": "DB3_live_SIM_gate_only"
+    "normal_pass_run_ids": [104, 105],
+    "next_allowed_work": "DB4_read_API_backup_restore_retention_and_runbook_gate"
   },
-  "next_phase": "DB3_LIVE_GATE_ONLY",
+  "next_phase": "DB4",
   "RT0_status": "LOCKED_UNTIL_DB4_PASS"
 }

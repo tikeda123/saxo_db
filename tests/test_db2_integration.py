@@ -21,31 +21,47 @@ def _db2_ready():
         pytest.skip("set SAXO_DB_INTEGRATION=1 for DB2 integration tests")
     with connect("saxo_migrator", MARKET_DB) as conn:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT COUNT(*) FROM ops.source_file")
+            cursor.execute(
+                "SELECT COUNT(*) FROM ops.source_file sf "
+                "JOIN ops.ingestion_run r USING (ingestion_run_id) "
+                "WHERE r.trigger='DB2_LEGACY_IMPORT'"
+            )
             if int(cursor.fetchone()[0]) != 69:
                 pytest.skip("DB2 import has not completed")
 
 
 def test_db2_market_counts_and_source_lineage():
-    expected = {
-        "raw.market_bar_revision": 636_629,
-        "raw.reference_observation": 90_894,
-        "curated.market_bar": 394_992,
-        "curated.etf_total_return_daily": 54_285,
-    }
     with connect("saxo_migrator", MARKET_DB) as conn:
         with conn.cursor() as cursor:
-            for relation, count in expected.items():
-                cursor.execute(f"SELECT COUNT(*) FROM {relation}")
-                assert int(cursor.fetchone()[0]) == count
-            cursor.execute("SELECT COUNT(*), SUM(row_count) FROM ops.source_file")
+            cursor.execute(
+                "SELECT COUNT(*) FROM raw.market_bar_revision b "
+                "JOIN ops.ingestion_run r USING (ingestion_run_id) "
+                "WHERE r.trigger='DB2_LEGACY_IMPORT'"
+            )
+            assert int(cursor.fetchone()[0]) == 636_629
+            cursor.execute(
+                "SELECT COUNT(*) FROM raw.reference_observation o "
+                "JOIN ops.source_file sf USING (source_file_id) "
+                "JOIN ops.ingestion_run r USING (ingestion_run_id) "
+                "WHERE r.trigger='DB2_LEGACY_IMPORT'"
+            )
+            assert int(cursor.fetchone()[0]) == 90_894
+            cursor.execute("SELECT COUNT(*) FROM curated.etf_total_return_daily")
+            assert int(cursor.fetchone()[0]) == 54_285
+            cursor.execute(
+                "SELECT COUNT(*), SUM(sf.row_count) FROM ops.source_file sf "
+                "JOIN ops.ingestion_run r USING (ingestion_run_id) "
+                "WHERE r.trigger='DB2_LEGACY_IMPORT'"
+            )
             assert cursor.fetchone() == (69, 781_808)
             cursor.execute(
                 """
                 SELECT COUNT(*) FROM ops.source_file sf
+                JOIN ops.ingestion_run r USING (ingestion_run_id)
                 JOIN catalog.source_dataset ds USING (source_dataset_id)
                 JOIN analytics.v_data_lineage l USING (source_file_id)
-                WHERE CASE WHEN ds.dataset_kind='total_return'
+                WHERE r.trigger='DB2_LEGACY_IMPORT'
+                  AND CASE WHEN ds.dataset_kind='total_return'
                     THEN l.curated_rows <> sf.row_count OR l.raw_rows <> 0
                     ELSE l.raw_rows <> sf.row_count END
                 """
@@ -56,8 +72,14 @@ def test_db2_market_counts_and_source_lineage():
 def test_curated_and_quality_semantics():
     with connect("saxo_migrator", MARKET_DB) as conn:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT COUNT(*) FILTER (WHERE is_complete), COUNT(*) FILTER (WHERE NOT is_complete) FROM curated.market_bar")
-            assert cursor.fetchone() == (394_979, 13)
+            cursor.execute(
+                "SELECT COUNT(*), COUNT(*) FILTER (WHERE NOT is_complete), "
+                "COUNT(*) FILTER (WHERE quality_status='FAIL') FROM curated.market_bar"
+            )
+            total, incomplete, failed = cursor.fetchone()
+            assert total > 0
+            assert incomplete <= 13
+            assert failed == 0
             cursor.execute("SELECT quality_status, COUNT(*) FROM curated.etf_total_return_daily GROUP BY quality_status ORDER BY 1")
             assert cursor.fetchall() == [("PASS", 54_283), ("WARN", 2)]
             cursor.execute("SELECT COUNT(*) FROM quality.event WHERE status='OPEN' AND rule_id='source_series_quality_gate'")
@@ -75,8 +97,16 @@ def test_import_is_idempotent():
 
 def test_inspection_returns_real_inventory_and_lineage():
     assert fetch_rows(MARKET_DB, "inventory")
-    assert len(fetch_rows(MARKET_DB, "lineage")) == 69
+    assert fetch_rows(MARKET_DB, "lineage")
     assert fetch_rows(MARKET_DB, "quality")
+    with connect("saxo_migrator", MARKET_DB) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT COUNT(*) FROM analytics.v_data_lineage l "
+                "JOIN ops.ingestion_run r USING (ingestion_run_id) "
+                "WHERE r.trigger='DB2_LEGACY_IMPORT'"
+            )
+            assert int(cursor.fetchone()[0]) == 69
 
 
 def test_research_snapshot_is_cutoff_bounded_and_read_only():

@@ -3,7 +3,7 @@
 作成日: 2026-07-16
 対象研究線: `v13categoryintraday`
 仕様ID: `v13_database_prerequisite_20260716_v2`
-状態: **SPEC RE-FROZEN / DB1-DB2 PASS / DB3 OFFLINE PASS AND LIVE SIM TOKEN待ち / DB4 LOCKED**
+状態: **SPEC RE-FROZEN / DB1-DB3 PASS / DB4 NEXT**
 
 ## 1. 目的と現在のゲート
 
@@ -147,7 +147,7 @@ DB1で次を実装する。
 - `.env.example`には非機密のhost、port、database名だけを置く
 - password入り`DATABASE_URL`をcommitしない
 - Saxo 24時間token、AccountKey、ClientKey、account identifierをDBへ保存しない
-- Saxo tokenはFlask session memoryまたは取得process environmentだけで使用する
+- Saxo tokenはlocal operator request/job memoryまたは取得process environmentだけで使用する
 
 DB passwordはローカル永続secretとして管理できるが、Saxo 24時間tokenとは用途と寿命が異なる。両者を同じtableや環境ファイルへ置かない。
 
@@ -377,11 +377,13 @@ DB3ではSaxo Chart APIからcanonical 1Hだけを更新する。raw 4Hの増分
 
 分析viewは`is_complete = true AND quality_status = 'PASS'`だけを返す。最新未完成barはDBへ保存できるが、研究入力には出さない。
 
-HTTP 429は既存collectorと同じ有限回の指数backoffを使う。注文API、precheck、portfolio endpointは呼び出さない。
+HTTP 429とtimeout・接続切断等の一時的network例外は、GETだけを1/2/4秒待機・最大4attemptで有限retryする。4回失敗時はそれぞれ`BLOCKED_RATE_LIMIT`または`FAILED_NETWORK`で停止する。注文API、precheck、portfolio endpointは呼び出さない。
 
 DB3実装では上記をcanonical 13全体の単一transactionとして固定した。取得済みraw JSONはtransaction外で先にatomic保存し、DB失敗時にも監査原本として残すが、token、AccountKey、ClientKey、TradableOn、Authorizationは保存しない。通常runはEtf 20本・FxSpot 72本の実バーoverlapを使い、Saxoの境界包含を前提に重複排除する。
 
 `DataVersion`がwatermarkと異なる場合は対象instrumentを`STALE_DATA_VERSION`へ移し、通常run全体をrollbackする。復旧は対象1銘柄の`manual_db3_full_refetch`だけに限定する。`Mode=UpTo`で既存最古時刻以前まで取得できたことを確認し、`STALE_DATA_VERSION`・RUNNING・専用triggerを検査するsecurity-definer procedureだけがcurated置換を許可する。old raw revisionと削除observationsのquality auditは保持する。
+
+専用full-refetchに限り、過去FxSpotの`High`または`Low`極値にだけ`Bid > Ask`があるunique rowを、最大10件かつ全unique観測rowの0.01%以下で隔離できる。最新形成中sample、Open/Close交差、欠損、OHLC違反、受理rowとのtimestamp競合、重複page間の値矛盾は対象外とし、全runをFAILする。隔離時もswap・interpolate・clamp・上書きをせず、raw JSON、SHA-256、相対path、時刻、元Bid/Askを保持する。該当rowは`raw.market_bar_revision`、curated、derivedへ入れず、`ops.ingestion_run.rejected_rows`と`db3_fx_crossed_extrema_quarantine`の解決済みWARNへ監査記録する。いずれかの上限・scopeを外れた場合、DB barとwatermarkを変更しない。
 
 ## 10. データ管理・参照インターフェース
 
@@ -452,6 +454,8 @@ resolution noteは対話入力またはstdinから受け取り、shell history�
 procedureは状態遷移、対象存在、必須note、時刻を検査し、元のobserved valueとactionを変更しない。SECURITY DEFINER procedureは`saxo_db_owner`所有、`search_path=pg_catalog`固定、全object名をschema修飾し、PUBLICのEXECUTEをrevokeして`saxo_ops_operator`だけへgrantする。`saxo_ops_operator`の直接DML、任意function実行、raw/curated変更、forward接続は拒否する。DB1ではtransaction rollbackを使った権限・状態遷移testだけを行い、永続的なquality/backup実績は作らない。
 
 ### 10.4 Flask・分析インターフェース
+
+DB3 live gateでは、一般Flask read APIに先行せず、固定`market_db.incremental_update reconcile`だけを起動するlocalhost operator UIを許可する。これはDB管理UIではなくsession-only token bridgeである。ユーザーがpassword欄へtokenを入力し、AIは値を読まずにjob開始とsanitized statusを操作する。tokenをURL、argv、file、DB、log、cookie、browser storageへ保存せず、子process環境だけへ渡す。loopback bind、exact Origin/Host、CSRF、no-store、CSP、single job、`shell=False`を強制する。
 
 Flask request threadから直接DB更新しない。「最新データ取得」操作は単一ingest processへjobを登録し、画面はrun IDと状態だけをpollする。
 
@@ -550,7 +554,7 @@ raw CSV/JSONも監査原本として残るが、DB privilege、migration状態�
 
 実装では全69 CSV rowを損失なく追跡するため、`raw.reference_observation`とtotal-returnの`source_file_id`を`0009`で追加した。market DBの実測値はraw market bar 636,629行、reference 90,894行、curated 1H 394,992行、ETF total-return 54,285行で、source file単位lineage不一致は0件である。research DBはcutoff以前だけを物理copyしてdefault read-only化し、content/dump manifest、dump SHA-256、`pg_restore --list`を検証済みである。restore smoke testはDB4までLOCKEDとする。
 
-### DB3 — 最新データ増分更新（OFFLINE PASS / LIVE SIM TOKEN待ち）
+### DB3 — 最新データ増分更新（PASS）
 
 - overlap取得・idempotent upsert
 - historical revision保存
@@ -561,7 +565,7 @@ raw CSV/JSONも監査原本として残るが、DB privilege、migration状態�
 - 中断再開・429 retry・単一writer lock
 - token永続化ゼロ、注文APIゼロ
 
-実装・実DB検証では、canonical 13 watermark、ETF 11 verified calendar、FX 2 provisional calendarを登録し、既存の完成・PASS 1Hから4H 107,623行、1D 44,292行を生成した。coverageはETF 11 WARN・FX 2 NOT_EVALUATED・FAIL 0、freshnessはlive未更新のためETF 11 STALE・FX 2 NOT_EVALUATEDである。staging 0、research DBへの0010〜0012適用0、全test PASS、offline validator PASSを確認した。session-only tokenがprocessにないため、smoke・13 detail/schedule/chart・直後2回目runのlive gateだけを`BLOCKED_LIVE_SIM_TOKEN`とし、DB4は解放しない。
+実装・実DB検証では、canonical 13 watermark、ETF 11 verified calendar、FX 2 provisional calendarを登録し、完成・PASS 1Hから4H 128,469行、1D 47,784行を生成した。coverageはETF 11 WARN・FX 2 NOT_EVALUATED・FAIL 0、staging 0、research DBへの0010〜0012適用0を確認した。live smoke、canonical 13のDataVersion復旧、通常run 104・105連続PASS、総合validator PASSによりDB3を完了し、DB4を次工程として解放した。
 
 ### DB4 — 参照・運用ゲート
 
@@ -595,4 +599,4 @@ DB0では次を実行しない。
 - credential保存
 - strategy signal、PnL、WFO、Holdout、portfolio calculation
 
-以上をPhase DB0の凍結仕様とする。実装進捗はDB1・DB2 PASS、DB3 OFFLINE PASS / LIVE SIM TOKEN待ちであり、現在次に許可する作業はPhase DB3 live gateだけである。DB4とRT0は引き続きLOCKEDとする。
+以上をPhase DB0の凍結仕様とする。実装進捗はDB1・DB2・DB3 PASSであり、現在次に許可する作業はPhase DB4のread API、backup/restore、retention、runbook運用ゲートだけである。RT0はDB4 PASSまでLOCKEDとする。

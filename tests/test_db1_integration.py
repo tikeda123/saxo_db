@@ -81,6 +81,7 @@ def test_readers_can_read_only_allowlisted_views():
         command: fetch_rows(MARKET_DB, command)
         for command in ("inventory", "coverage", "freshness", "runs", "quality", "lineage")
     }
+    market_views["lineage"] = fetch_rows(MARKET_DB, "lineage", limit=10_000)
     assert all(isinstance(rows, list) for rows in market_views.values())
     with connect("saxo_migrator", MARKET_DB) as conn:
         with conn.cursor() as cursor:
@@ -89,7 +90,9 @@ def test_readers_can_read_only_allowlisted_views():
     if source_files == 0:
         assert all(rows == [] for rows in market_views.values())
     else:
-        assert source_files == 69
+        # DB2 contributes the immutable 69-file baseline. DB3 live acquisition
+        # appends auditable source files, so the operational total can grow.
+        assert source_files >= 69
         assert all(market_views[command] for command in market_views)
         assert len(market_views["lineage"]) == source_files
     assert isinstance(fetch_rows(MARKET_DB, "storage"), list)
@@ -269,5 +272,5 @@ def test_market_state_matches_the_active_database_phase():
             if source_files == 0:
                 assert payload_rows == 0
             else:
-                assert source_files == 69
+                assert source_files >= 69
                 assert payload_rows > 0

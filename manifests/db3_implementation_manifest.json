@@ -1,10 +1,11 @@
 {
   "schema_version": 1,
   "phase": "DB3",
-  "executed_at_utc": "2026-07-16T22:14:07Z",
-  "status": "BLOCKED_LIVE_SIM_TOKEN",
+  "executed_at_utc": "2026-07-17T02:25:47Z",
+  "evidence_scope": "offline_implementation_plus_live_reconciliation_and_consecutive_normal_passes",
+  "status": "PASS",
   "offline_status": "PASS",
-  "live_status": "BLOCKED_LIVE_SIM_TOKEN",
+  "live_status": "PASS",
   "environment": "SIM",
   "canonical_instruments": 13,
   "watermarks": {"ACTIVE": 13},
@@ -13,18 +14,18 @@
     "SBFX_24X5": {"verification_status": "PROVISIONAL", "instruments": 2, "intervals": 4696}
   },
   "derived": {
-    "market_bar_4h_rows": 107623,
-    "market_bar_4h_analysis_eligible_rows": 78232,
-    "market_bar_1d_rows": 44292,
-    "market_bar_1d_analysis_eligible_rows": 39336,
+    "market_bar_4h_rows": 128469,
+    "market_bar_4h_analysis_eligible_rows": 78254,
+    "market_bar_1d_rows": 47784,
+    "market_bar_1d_analysis_eligible_rows": 39347,
     "quality_fail_rows": 0
   },
   "coverage": {
     "WARN_instruments": 11,
     "NOT_EVALUATED_instruments": 2,
     "FAIL_instruments": 0,
-    "missing_rows": 1041,
-    "out_of_session_rows": 3639
+    "missing_rows": 1305,
+    "out_of_session_rows": 5607
   },
   "freshness": {"STALE_instruments": 11, "NOT_EVALUATED_instruments": 2},
   "staging_rows": 0,
@@ -44,7 +45,28 @@
     {"number": "0011", "sha256": "09d059660a4e493a33d8b372c3228f932662b2a76efd14c60d777e5440daa4e0"},
     {"number": "0012", "sha256": "ddf6ce3702ec7c7c9ceaf42e679f3bde77174beb916a2d2fa7a6ada8dc7c6b03"}
   ],
-  "tests": {"passed": 54, "failed": 0},
+  "tests": {"passed": 74, "failed": 0},
+  "live_reconciliation": {
+    "observed_at_utc": "2026-07-17T02:25:47Z",
+    "operator_job_id": "db3-20260717T021540Z-9cff90d1",
+    "watermarks": {"ACTIVE": 13},
+    "successful_full_refetch_instruments": ["spy", "iwm", "efa", "eem", "vnq", "shy", "ief", "tlt", "tip", "lqd", "gld", "eurusd", "usdjpy"],
+    "fx_full_refetch_runs": [
+      {"instrument_key": "eurusd", "database_ingestion_run_id": 100, "rejected_rows": 5, "status": "PASS"},
+      {"instrument_key": "usdjpy", "database_ingestion_run_id": 103, "rejected_rows": 9, "status": "PASS"}
+    ],
+    "recovered_network_failure": {
+      "database_ingestion_run_id": 102,
+      "instrument_key": "usdjpy",
+      "error_code": "FAILED_NETWORK",
+      "database_mutation": "ROLLED_BACK",
+      "recovery_run_id": 103
+    },
+    "normal_pass_run_ids": [104, 105],
+    "consecutive_normal_passes": 2,
+    "quarantine_implementation_status": "LIVE_PASS",
+    "current_validator_status": "PASS"
+  },
   "artifacts": [
     "docs/db3_implementation_plan.md",
     "docs/db3_implementation_result.md",
@@ -56,14 +78,17 @@
     "market_db/raw_artifacts.py",
     "market_db/instrument_registry.py",
     "market_db/normalize_bars.py",
+    "specs/source_collection/v13_db3_incremental_collection.json",
     "market_db/session_calendar.py",
     "market_db/incremental_update.py",
+    "market_db/operator_ui.py",
     "market_db/derive_bars.py",
     "market_db/validate.py",
     "tests/test_db3_unit.py",
-    "tests/test_db3_integration.py"
+    "tests/test_db3_integration.py",
+    "tests/test_operator_ui.py"
   ],
-  "next_allowed_work": "DB3_live_SIM_gate_only",
-  "DB4_status": "LOCKED",
+  "next_allowed_work": "DB4_read_API_backup_restore_retention_and_runbook_gate",
+  "DB4_status": "NEXT",
   "RT0_status": "LOCKED"
 }

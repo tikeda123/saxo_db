@@ -8,8 +8,9 @@ import json
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from psycopg.types.json import Jsonb
 
@@ -22,13 +23,23 @@ from .instrument_registry import (
     load_canonical_instruments,
     validate_detail,
 )
-from .normalize_bars import BarQualityError, NormalizedBar, merge_pages, normalize_chart_page
+from .normalize_bars import (
+    BarQualityError,
+    NormalizedBar,
+    RejectedBar,
+    merge_pages,
+    normalize_chart_page,
+    normalize_chart_page_quarantining_fx_extrema,
+)
 from .raw_artifacts import ArtifactRecord, RunArtifacts, utc_run_id
 from .saxo_client import SaxoAPIError, SaxoClient
 
 
 DATASET_ID = "v13_saxo_sim_chart_60m_incremental_v1"
-SPEC_RELATIVE_PATH = Path("specs/source_collection/v12_intraday_collection.json")
+SPEC_RELATIVE_PATH = Path("specs/source_collection/v13_db3_incremental_collection.json")
+MAX_QUARANTINED_FX_EXTREMA_ROWS = 10
+MAX_QUARANTINED_FX_EXTREMA_RATE = Decimal("0.0001")
+FX_EXTREMA_QUARANTINE_POLICY_ID = "db3_bounded_fx_extrema_quarantine_v1"
 
 
 @dataclass(frozen=True)
@@ -319,13 +330,77 @@ def _stage(cursor: Any, run_id: int, acquired: list[AcquiredInstrument], sources
     )
 
 
+def _validate_full_refetch_quarantine(
+    accepted_times: Iterable[datetime],
+    rejected_rows: Iterable[RejectedBar],
+) -> tuple[RejectedBar, ...]:
+    """Validate and deduplicate the narrowly scoped FX-extrema quarantine."""
+    accepted = set(accepted_times)
+    rejected_by_time: dict[datetime, RejectedBar] = {}
+    for rejected in rejected_rows:
+        if rejected.time_utc in accepted:
+            raise BarQualityError("FX_EXTREMA_QUARANTINE_ACCEPTED_REJECTED_CONFLICT")
+        previous = rejected_by_time.get(rejected.time_utc)
+        if previous is not None:
+            previous_values = (previous.error_code, previous.violations, previous.data_version)
+            current_values = (rejected.error_code, rejected.violations, rejected.data_version)
+            if previous_values != current_values:
+                raise BarQualityError("FX_EXTREMA_QUARANTINE_DUPLICATE_CONFLICT")
+        rejected_by_time[rejected.time_utc] = rejected
+
+    unique_rejected = tuple(rejected_by_time[key] for key in sorted(rejected_by_time))
+    if len(unique_rejected) > MAX_QUARANTINED_FX_EXTREMA_ROWS:
+        raise BarQualityError("FX_EXTREMA_QUARANTINE_ROW_LIMIT_EXCEEDED")
+    if not unique_rejected:
+        return ()
+
+    observed_times = accepted | set(rejected_by_time)
+    if any(rejected.time_utc == max(observed_times) for rejected in unique_rejected):
+        raise BarQualityError("FX_EXTREMA_QUARANTINE_LATEST_SAMPLE_INELIGIBLE")
+    rejected_rate = Decimal(len(unique_rejected)) / Decimal(len(observed_times))
+    if rejected_rate > MAX_QUARANTINED_FX_EXTREMA_RATE:
+        raise BarQualityError("FX_EXTREMA_QUARANTINE_RATE_LIMIT_EXCEEDED")
+    return unique_rejected
+
+
+def _quarantined_row_evidence(rejected: RejectedBar) -> dict[str, Any]:
+    return {
+        "policy_id": FX_EXTREMA_QUARANTINE_POLICY_ID,
+        "time_utc": rejected.time_utc.isoformat().replace("+00:00", "Z"),
+        "error_code": rejected.error_code,
+        "violations": [
+            {
+                "field": violation.field,
+                "bid": str(violation.bid),
+                "ask": str(violation.ask),
+            }
+            for violation in rejected.violations
+        ],
+        "data_version": rejected.data_version,
+        "artifact_relative_path": rejected.artifact_relative_path,
+        "payload_sha256": rejected.payload_sha256,
+    }
+
+
 def _commit_acquired(
     run_id: int,
     acquired: list[AcquiredInstrument],
     chart_artifacts: list[ArtifactRecord],
     *,
     full_replace_instrument_id: int | None = None,
+    quarantined_rows: tuple[RejectedBar, ...] = (),
 ) -> dict[str, Any]:
+    if quarantined_rows and (
+        full_replace_instrument_id is None
+        or len(acquired) != 1
+        or acquired[0].registry.asset_type != "FxSpot"
+        or acquired[0].state.instrument_id != full_replace_instrument_id
+    ):
+        raise BarQualityError("FX_EXTREMA_QUARANTINE_SCOPE_VIOLATION")
+    quarantined_rows = _validate_full_refetch_quarantine(
+        (bar.time_utc for item in acquired for bar in item.bars),
+        quarantined_rows,
+    )
     with connect("saxo_ingest", MARKET_DB, application_name="saxo_db_incremental_commit") as conn:
         with conn.transaction():
             with conn.cursor() as cursor:
@@ -333,6 +408,30 @@ def _commit_acquired(
                 cursor.execute("DELETE FROM staging.market_bar WHERE ingestion_run_id=%s", (run_id,))
                 sources = _register_sources(cursor, run_id, chart_artifacts)
                 _stage(cursor, run_id, acquired, sources)
+
+                for rejected in quarantined_rows:
+                    if rejected.artifact_relative_path not in sources:
+                        raise RuntimeError("FAILED_QUARANTINE_SOURCE_REGISTRATION")
+                    cursor.execute(
+                        """
+                        INSERT INTO quality.event (
+                            ingestion_run_id, instrument_id, horizon_minutes, time_utc,
+                            rule_id, severity, observed_value, action, status,
+                            resolved_at_utc, resolved_by, resolution_note
+                        ) VALUES (
+                            %s,%s,60,%s,'db3_fx_crossed_extrema_quarantine','WARN',%s,
+                            'raw source retained; row excluded without swapping, interpolation, clamping, or correction',
+                            'RESOLVED',clock_timestamp(),'db3_incremental_update',
+                            'bounded manual full-refetch quarantine accepted by frozen DB3 policy'
+                        )
+                        """,
+                        (
+                            run_id,
+                            full_replace_instrument_id,
+                            rejected.time_utc,
+                            Jsonb(_quarantined_row_evidence(rejected)),
+                        ),
+                    )
 
                 cursor.execute(
                     """
@@ -514,7 +613,7 @@ def _commit_acquired(
                     UPDATE ops.ingestion_run SET
                         finished_at_utc=clock_timestamp(), status='PASS',
                         successful_series=%s, inserted_rows=%s, updated_rows=%s,
-                        revision_rows=%s, rejected_rows=0,
+                        revision_rows=%s, rejected_rows=%s,
                         last_success_step='watermark_and_derived_committed',
                         metadata_json=metadata_json || %s
                     WHERE ingestion_run_id=%s AND status='RUNNING'
@@ -524,7 +623,16 @@ def _commit_acquired(
                         inserted_rows,
                         updated_rows,
                         revision_rows,
-                        Jsonb({"raw_rows": raw_rows, "derived": derived_counts}),
+                        len(quarantined_rows),
+                        Jsonb(
+                            {
+                                "raw_rows": raw_rows,
+                                "derived": derived_counts,
+                                "quarantine_policy_id": (
+                                    FX_EXTREMA_QUARANTINE_POLICY_ID if quarantined_rows else None
+                                ),
+                            }
+                        ),
                         run_id,
                     ),
                 )
@@ -534,6 +642,10 @@ def _commit_acquired(
         "derived": derived_counts,
         "inserted_rows": inserted_rows,
         "raw_rows": raw_rows,
+        "rejected_rows": len(quarantined_rows),
+        "quarantined_fx_extrema": [
+            _quarantined_row_evidence(rejected) for rejected in quarantined_rows
+        ],
         "removed_rows": removed_rows,
         "revision_rows": revision_rows,
         "updated_rows": updated_rows,
@@ -550,6 +662,12 @@ def _error_code(exc: Exception) -> str:
     if isinstance(exc, ValueError) and str(exc) == "SAXO_ACCESS_TOKEN is required":
         return "BLOCKED_LIVE_SIM_TOKEN"
     return f"FAILED_{type(exc).__name__.upper()}"
+
+
+def _failed_instrument_context(status: str, instrument_key: str | None) -> dict[str, str]:
+    if status == "PASS" or instrument_key is None:
+        return {}
+    return {"failed_instrument_key": instrument_key}
 
 
 def _record_failure(
@@ -607,6 +725,7 @@ def _write_run_manifest(
     client: SaxoClient | None,
     all_artifacts: list[ArtifactRecord],
     result: dict[str, Any],
+    failed_instrument_key: str | None = None,
 ) -> ArtifactRecord:
     manifest = artifacts.write_manifest(
         {
@@ -615,6 +734,7 @@ def _write_run_manifest(
             "environment": "SIM",
             "status": status,
             "error_code": error_code,
+            **_failed_instrument_context(status, failed_instrument_key),
             "smoke_test": smoke_result,
             "successful_series": successful_series,
             "request_count": 0 if client is None else client.request_count,
@@ -642,6 +762,7 @@ def run_incremental(client: SaxoClient | None = None) -> dict[str, Any]:
     all_artifacts: list[ArtifactRecord] = []
     acquired: list[AcquiredInstrument] = []
     failed_instrument_id: int | None = None
+    failed_instrument_key: str | None = None
     selected_client = client
     smoke_result: dict[str, Any] | None = None
     try:
@@ -652,6 +773,7 @@ def run_incremental(client: SaxoClient | None = None) -> dict[str, Any]:
             raise BarQualityError("BLOCKED_CANONICAL_WATERMARK_SET")
 
         for instrument in registry:
+            failed_instrument_key = instrument.key
             state = states[(instrument.uic, instrument.asset_type)]
             failed_instrument_id = state.instrument_id
             detail = selected_client.instrument_detail(instrument.uic, instrument.asset_type)
@@ -734,6 +856,7 @@ def run_incremental(client: SaxoClient | None = None) -> dict[str, Any]:
         client=selected_client,
         all_artifacts=all_artifacts,
         result=result,
+        failed_instrument_key=failed_instrument_key,
     )
     return {
         "acquisition_run_id": run_id,
@@ -742,6 +865,7 @@ def run_incremental(client: SaxoClient | None = None) -> dict[str, Any]:
         "manifest_relative_path": manifest.relative_path,
         "orders_or_prechecks_sent": 0,
         "status": status,
+        **_failed_instrument_context(status, failed_instrument_key),
         **result,
     }
 
@@ -780,6 +904,7 @@ def run_full_refetch(instrument_key: str, client: SaxoClient | None = None) -> d
             )
         )
         normalized_pages: list[list[NormalizedBar]] = []
+        rejected_pages: list[list[RejectedBar]] = []
 
         def save_page(page: ChartPage) -> None:
             record = artifacts.write_json(
@@ -789,15 +914,26 @@ def run_full_refetch(instrument_key: str, client: SaxoClient | None = None) -> d
             )
             chart_artifacts.append(record)
             all_artifacts.append(record)
-            normalized_pages.append(
-                normalize_chart_page(
+            if instrument.asset_type == "FxSpot":
+                normalized, rejected = normalize_chart_page_quarantining_fx_extrema(
                     instrument,
                     page.payload,
                     retrieved_at_utc=datetime.now(timezone.utc),
                     payload_sha256=record.sha256,
                     artifact_relative_path=record.relative_path,
                 )
-            )
+                normalized_pages.append(normalized)
+                rejected_pages.append(rejected)
+            else:
+                normalized_pages.append(
+                    normalize_chart_page(
+                        instrument,
+                        page.payload,
+                        retrieved_at_utc=datetime.now(timezone.utc),
+                        payload_sha256=record.sha256,
+                        artifact_relative_path=record.relative_path,
+                    )
+                )
 
         fetch_chart_pages(
             selected_client,
@@ -807,9 +943,22 @@ def run_full_refetch(instrument_key: str, client: SaxoClient | None = None) -> d
             on_page=save_page,
         )
         bars = tuple(merge_pages(normalized_pages))
-        if len(bars) < 2 or min(bar.time_utc for bar in bars) > existing_min_time:
+        quarantined_rows = _validate_full_refetch_quarantine(
+            (bar.time_utc for bar in bars),
+            (rejected for page in rejected_pages for rejected in page),
+        )
+        observed_times = [
+            *(bar.time_utc for bar in bars),
+            *(rejected.time_utc for rejected in quarantined_rows),
+        ]
+        if len(bars) < 2 or min(observed_times) > existing_min_time:
             raise BarQualityError("BLOCKED_FULL_REFETCH_HISTORY_TRUNCATED")
         versions = {bar.data_version for bar in bars if bar.data_version is not None}
+        versions.update(
+            rejected.data_version
+            for rejected in quarantined_rows
+            if rejected.data_version is not None
+        )
         if len(versions) != 1:
             raise BarQualityError("MULTIPLE_DATA_VERSIONS_IN_RUN")
         acquired = [AcquiredInstrument(instrument, state, bars)]
@@ -818,6 +967,7 @@ def run_full_refetch(instrument_key: str, client: SaxoClient | None = None) -> d
             acquired,
             chart_artifacts,
             full_replace_instrument_id=state.instrument_id,
+            quarantined_rows=quarantined_rows,
         )
         status = "PASS"
         error_code = None
@@ -851,7 +1001,9 @@ def run_full_refetch(instrument_key: str, client: SaxoClient | None = None) -> d
 
 
 def incremental_status() -> dict[str, Any]:
-    with connect("saxo_app_reader", MARKET_DB, application_name="saxo_db_incremental_status") as conn:
+    # This summary needs the trigger column, which the general reader view does
+    # not expose. Keep the bounded ingest connection explicitly read-only.
+    with connect("saxo_ingest", MARKET_DB, application_name="saxo_db_incremental_status") as conn:
         with conn.cursor() as cursor:
             cursor.execute("SET TRANSACTION READ ONLY")
             cursor.execute(
@@ -861,14 +1013,168 @@ def incremental_status() -> dict[str, Any]:
                 """
             )
             runs = {str(status): int(count) for status, count in cursor.fetchall()}
-            cursor.execute("SELECT data_status, COUNT(*) FROM analytics.v_data_freshness GROUP BY data_status")
+            cursor.execute("SELECT data_status, COUNT(*) FROM ops.watermark GROUP BY data_status")
             watermarks = {str(status): int(count) for status, count in cursor.fetchall()}
     return {"runs": runs, "watermarks": watermarks}
 
 
+def load_stale_instrument_keys() -> tuple[str, ...]:
+    registry_order = {item.key: index for index, item in enumerate(load_canonical_instruments())}
+    with connect("saxo_ingest", MARKET_DB, application_name="saxo_db_stale_watermarks") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SET TRANSACTION READ ONLY")
+            cursor.execute(
+                """
+                SELECT lower(i.market_key)
+                FROM ops.watermark w
+                JOIN catalog.instrument i USING (instrument_id)
+                WHERE i.provider='Saxo OpenAPI' AND i.environment='SIM'
+                  AND w.horizon_minutes=60
+                  AND w.data_status='STALE_DATA_VERSION'
+                """
+            )
+            keys = [str(row[0]) for row in cursor.fetchall()]
+    return tuple(sorted(keys, key=lambda key: registry_order.get(key, len(registry_order))))
+
+
+def _reconciliation_step(operation: str, result: dict[str, Any]) -> dict[str, Any]:
+    keys = (
+        "acquisition_run_id",
+        "database_ingestion_run_id",
+        "status",
+        "error_code",
+        "failed_instrument_key",
+        "instrument_key",
+        "successful_series",
+        "inserted_rows",
+        "updated_rows",
+        "revision_rows",
+        "rejected_rows",
+        "removed_rows",
+        "manifest_relative_path",
+    )
+    return {"operation": operation, **{key: result.get(key) for key in keys if key in result}}
+
+
+def reconcile_incremental(
+    *,
+    normal_runner: Callable[[], dict[str, Any]] | None = None,
+    full_refetch_runner: Callable[[str], dict[str, Any]] | None = None,
+    required_consecutive_passes: int = 2,
+    max_full_refetches: int | None = None,
+    stale_key_loader: Callable[[], tuple[str, ...]] | None = None,
+    on_step: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    """Recover DataVersion drift and finish with consecutive canonical PASS runs."""
+    if required_consecutive_passes < 1:
+        raise ValueError("required_consecutive_passes must be positive")
+    normal = normal_runner or run_incremental
+    full_refetch = full_refetch_runner or run_full_refetch
+    load_stale_keys = stale_key_loader or load_stale_instrument_keys
+    refetch_limit = len(load_canonical_instruments()) if max_full_refetches is None else max_full_refetches
+    if refetch_limit < 0:
+        raise ValueError("max_full_refetches must not be negative")
+
+    steps: list[dict[str, Any]] = []
+    refetched_keys: list[str] = []
+    consecutive_passes = 0
+    pass_run_ids: list[int] = []
+
+    def record(operation: str, result: dict[str, Any]) -> None:
+        step = _reconciliation_step(operation, result)
+        steps.append(step)
+        if on_step is not None:
+            on_step(step)
+
+    def terminal(result: dict[str, Any], *, error_code: str | None = None) -> dict[str, Any]:
+        selected_error = error_code or result.get("error_code")
+        return {
+            "status": result.get("status", "FAILED"),
+            "error_code": selected_error,
+            **_failed_instrument_context(
+                str(result.get("status", "FAILED")),
+                result.get("failed_instrument_key") or result.get("instrument_key"),
+            ),
+            "consecutive_normal_passes": consecutive_passes,
+            "normal_pass_run_ids": pass_run_ids,
+            "refetched_instruments": refetched_keys,
+            "orders_or_prechecks_sent": 0,
+            "steps": steps,
+        }
+
+    def recover(failed_key: str) -> dict[str, Any] | None:
+        if failed_key in refetched_keys:
+            return terminal(
+                {"status": "BLOCKED", "failed_instrument_key": failed_key},
+                error_code="BLOCKED_REPEATED_DATA_VERSION_CHANGE",
+            )
+        if len(refetched_keys) >= refetch_limit:
+            return terminal(
+                {"status": "BLOCKED", "failed_instrument_key": failed_key},
+                error_code="BLOCKED_RECONCILIATION_LIMIT",
+            )
+
+        refetch_result = full_refetch(failed_key)
+        record("full-refetch", refetch_result)
+        if refetch_result.get("status") != "PASS":
+            return terminal(refetch_result)
+        returned_key = refetch_result.get("instrument_key")
+        if returned_key is not None and returned_key != failed_key:
+            return terminal(refetch_result, error_code="FAILED_REFETCH_INSTRUMENT_MISMATCH")
+        refetched_keys.append(failed_key)
+        return None
+
+    for stale_key in load_stale_keys():
+        blocked = recover(stale_key)
+        if blocked is not None:
+            return blocked
+
+    while consecutive_passes < required_consecutive_passes:
+        normal_result = normal()
+        record("run", normal_result)
+        if normal_result.get("status") == "PASS":
+            consecutive_passes += 1
+            run_id = normal_result.get("database_ingestion_run_id")
+            if isinstance(run_id, int):
+                pass_run_ids.append(run_id)
+            continue
+
+        consecutive_passes = 0
+        pass_run_ids.clear()
+        if normal_result.get("error_code") == "BLOCKED_CANONICAL_WATERMARK_SET":
+            stale_keys = load_stale_keys()
+            if stale_keys:
+                for stale_key in stale_keys:
+                    blocked = recover(stale_key)
+                    if blocked is not None:
+                        return blocked
+                continue
+        if normal_result.get("error_code") != "BLOCKED_FULL_REFETCH_REQUIRED":
+            return terminal(normal_result)
+
+        failed_key = normal_result.get("failed_instrument_key")
+        if not isinstance(failed_key, str) or not failed_key:
+            return terminal(normal_result, error_code="BLOCKED_MISSING_FAILED_INSTRUMENT_KEY")
+        blocked = recover(failed_key)
+        if blocked is not None:
+            return blocked
+
+    return {
+        "status": "PASS",
+        "error_code": None,
+        "consecutive_normal_passes": consecutive_passes,
+        "normal_pass_run_ids": pass_run_ids,
+        "refetched_instruments": refetched_keys,
+        "orders_or_prechecks_sent": 0,
+        "steps": steps,
+    }
+
+
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Saxo SIM DB3 incremental updater")
-    parser.add_argument("command", choices=("initialize-watermarks", "run", "full-refetch", "status"))
+    parser.add_argument(
+        "command", choices=("initialize-watermarks", "run", "full-refetch", "reconcile", "status")
+    )
     parser.add_argument("--instrument-key")
     args = parser.parse_args(list(argv) if argv is not None else None)
     if args.command == "initialize-watermarks":
@@ -879,6 +1185,12 @@ def main(argv: Iterable[str] | None = None) -> int:
         if not args.instrument_key:
             parser.error("full-refetch requires --instrument-key")
         result = run_full_refetch(args.instrument_key)
+    elif args.command == "reconcile":
+        result = reconcile_incremental(
+            on_step=lambda step: print(
+                json.dumps({"reconcile_step": step}, sort_keys=True), flush=True
+            )
+        )
     else:
         result = incremental_status()
     print(json.dumps(result, sort_keys=True))

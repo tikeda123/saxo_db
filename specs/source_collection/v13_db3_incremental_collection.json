@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "dataset_id": "v13_saxo_sim_chart_60m_incremental_v1",
+  "environment": "SIMULATION_ONLY",
+  "generated_for": "Phase_DB3_incremental_acquisition_and_DataVersion_reconciliation",
+  "supersedes_collection_contract": "specs/source_collection/v12_intraday_collection.json",
+  "chart": {
+    "endpoint": "/chart/v3/charts",
+    "horizon_minutes": 60,
+    "count_per_page": 1200,
+    "field_groups": "Data,DisplayAndFormat,ChartInfo",
+    "normal_mode": "From",
+    "normal_overlap_bars": {"Etf": 20, "FxSpot": 72},
+    "full_refetch_mode": "UpTo",
+    "completed_bar_only_for_derived_data": true,
+    "latest_sample_is_forming": true
+  },
+  "data_version": {
+    "compare_with_watermark": true,
+    "normal_run_on_change": "atomic_rollback_and_STALE_DATA_VERSION",
+    "recovery_trigger": "manual_db3_full_refetch",
+    "recovery_scope": "one_stale_instrument",
+    "history_guard": "must_reach_existing_oldest_observation",
+    "curated_replacement_guard": "curated.prepare_full_refetch"
+  },
+  "transport_retry": {
+    "allowed_method": "GET",
+    "retryable_conditions": [
+      "HTTP_429",
+      "network_timeout",
+      "connection_error"
+    ],
+    "maximum_attempts": 4,
+    "backoff_seconds": [
+      1,
+      2,
+      4
+    ],
+    "HTTP_429_respects_rate_limit_reset_header": true,
+    "network_exhausted_error": "FAILED_NETWORK",
+    "infinite_retry": false
+  },
+  "normalization": {
+    "Etf_price_basis": "native_ohlc",
+    "FxSpot_price_basis": "bid_ask_mid",
+    "preserve_FxSpot_bid_ask_ohlc": true,
+    "decimal_arithmetic": true,
+    "automatic_quote_repair": false
+  },
+  "full_refetch_fx_extrema_quarantine": {
+    "policy_id": "db3_bounded_fx_extrema_quarantine_v1",
+    "enabled_only_for_trigger": "manual_db3_full_refetch",
+    "asset_type": "FxSpot",
+    "eligible_crossed_fields": ["High", "Low"],
+    "ineligible_crossed_fields": ["Open", "Close"],
+    "maximum_unique_rows": 10,
+    "maximum_fraction_of_unique_observed_rows": 0.0001,
+    "maximum_percent_of_unique_observed_rows": 0.01,
+    "latest_forming_sample_eligible": false,
+    "exclude_from_raw_market_bar_revision_curated_and_derived": true,
+    "raw_json_and_sha256_retained": true,
+    "quality_event": {
+      "rule_id": "db3_fx_crossed_extrema_quarantine",
+      "severity": "WARN",
+      "status": "RESOLVED",
+      "retain_original_field_bid_and_ask": true
+    },
+    "forbidden_repairs": ["swap", "interpolate", "clamp", "overwrite"],
+    "on_any_scope_or_limit_violation": "fail_whole_run_without_database_bar_mutation"
+  },
+  "security": {
+    "persist_access_token": false,
+    "persist_account_key": false,
+    "persist_account_identifiers": false,
+    "orders_or_prechecks": false,
+    "allowed_http_method": "GET",
+    "allowed_environment": "SIM",
+    "operator_ui": {
+      "bind": "127.0.0.1",
+      "fixed_job": "market_db.incremental_update.reconcile",
+      "token_transport": "POST_body_to_child_process_environment_only",
+      "token_persisted": false,
+      "browser_storage": false,
+      "cookie_storage": false,
+      "arbitrary_command": false,
+      "shell": false,
+      "single_active_job": true
+    }
+  },
+  "instruments": [
+    {"category": "equity_reit", "key": "spy", "symbol": "SPY:arcx", "uic": 36590, "asset_type": "Etf", "currency": "USD"},
+    {"category": "equity_reit", "key": "iwm", "symbol": "IWM:arcx", "uic": 31933, "asset_type": "Etf", "currency": "USD"},
+    {"category": "equity_reit", "key": "efa", "symbol": "EFA:arcx", "uic": 31874, "asset_type": "Etf", "currency": "USD"},
+    {"category": "equity_reit", "key": "eem", "symbol": "EEM:arcx", "uic": 31871, "asset_type": "Etf", "currency": "USD"},
+    {"category": "equity_reit", "key": "vnq", "symbol": "VNQ:arcx", "uic": 34910, "asset_type": "Etf", "currency": "USD"},
+    {"category": "bond_credit", "key": "shy", "symbol": "SHY:xnas", "uic": 7522053, "asset_type": "Etf", "currency": "USD"},
+    {"category": "bond_credit", "key": "ief", "symbol": "IEF:xnas", "uic": 7522010, "asset_type": "Etf", "currency": "USD"},
+    {"category": "bond_credit", "key": "tlt", "symbol": "TLT:xnas", "uic": 3441903, "asset_type": "Etf", "currency": "USD"},
+    {"category": "bond_credit", "key": "tip", "symbol": "TIP:arcx", "uic": 31996, "asset_type": "Etf", "currency": "USD"},
+    {"category": "bond_credit", "key": "lqd", "symbol": "LQD:arcx", "uic": 31923, "asset_type": "Etf", "currency": "USD"},
+    {"category": "gold", "key": "gld", "symbol": "GLD:arcx", "uic": 32664, "asset_type": "Etf", "currency": "USD"},
+    {"category": "fx", "key": "eurusd", "symbol": "EURUSD", "uic": 21, "asset_type": "FxSpot", "currency": "USD"},
+    {"category": "fx", "key": "usdjpy", "symbol": "USDJPY", "uic": 42, "asset_type": "FxSpot", "currency": "JPY"}
+  ],
+  "research_limitations": {
+    "ETF_intraday_is_total_return_adjusted": false,
+    "corporate_actions_and_cash_distributions_required_separately": true,
+    "FX_point_in_time_realized_swap_included": false,
+    "live_DB3_data_is_frozen_research_input": false
+  }
+}

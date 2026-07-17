@@ -7,6 +7,7 @@ import pytest
 
 from market_db.connection import MARKET_DB, RESEARCH_DB, connect
 from market_db.derive_bars import DERIVATION_VERSION, rebuild
+from market_db.incremental_update import incremental_status
 
 
 pytestmark = pytest.mark.integration
@@ -45,6 +46,20 @@ def test_canonical_calendars_and_watermarks_are_registered():
                 """
             )
             assert int(cursor.fetchone()[0]) == 13
+
+
+def test_incremental_status_reads_operational_state_without_mutation():
+    with connect("saxo_migrator", MARKET_DB) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT data_status,COUNT(*) FROM ops.watermark GROUP BY data_status")
+            before = {str(status): int(count) for status, count in cursor.fetchall()}
+    status = incremental_status()
+    with connect("saxo_migrator", MARKET_DB) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT data_status,COUNT(*) FROM ops.watermark GROUP BY data_status")
+            after = {str(value): int(count) for value, count in cursor.fetchall()}
+    assert status["watermarks"] == before == after
+    assert set(status["runs"]) <= {"PASS", "FAILED", "BLOCKED"}
 
 
 def test_derived_bars_use_only_completed_pass_1h_and_are_idempotent():

@@ -2,7 +2,7 @@
 
 更新日: 2026-07-17 JST
 対象: Phase DB1 infrastructure / DB2 legacy import / DB3 incremental market data
-状態: **DB1・DB2 PASS、DB3 OFFLINE PASS / LIVE SIM TOKEN待ち、DB4 LOCKED**
+状態: **DB1・DB2・DB3 PASS、DB4 NEXT**
 
 ## 1. 安全境界
 
@@ -67,7 +67,7 @@ python3 -m market_db.inspect inventory --database saxo_research_v13
 
 exit codeは正常`0`、接続・設定・query失敗`1`、`--fail-on-alert`で警告条件を検出した場合`2`。calendarや期待更新間隔が未登録ならcoverage/freshnessは`NOT_EVALUATED`となり、根拠なしにPASSへしない。DB3の`coverage`は`missing_rows`、`out_of_session_rows`、`calendar_aligned_rows`を分離し、`freshness`はwatermarkと次のcalendar slotを比較する。`saxo_forward_v13`のinspectは評価ゲートまで拒否される。
 
-DB2完了時点では、market inventoryは実データを返し、lineageは69 source fileを返す。`quality --fail-on-alert`は既知のERROR/OPEN event 5件によりexit 2となるのが正常である。これらはraw 240分FX 2系列とdaily ETF 3系列の既知品質FAILであり、根拠なくresolveまたはraw修正しない。
+DB2完了時点では、market inventoryは実データを返し、DB2 legacy importのlineageは69 source fileを返す。DB3開始後の`ops.source_file`とlineage全体はlive取得artifactを監査追記するため69件を超える。DB2 baselineの照合は`ops.ingestion_run.trigger='DB2_LEGACY_IMPORT'`に限定する。`quality --fail-on-alert`は既知のERROR/OPEN event 5件によりexit 2となるのが正常である。これらはraw 240分FX 2系列とdaily ETF 3系列の既知品質FAILであり、根拠なくresolveまたはraw修正しない。
 
 ## 5. Qualityとbackup状態の限定更新
 
@@ -155,7 +155,7 @@ python3 -m market_db.derive_bars
 
 ## 10. DB3 live SIM更新
 
-tokenは対話terminalのprocess環境だけへ入れ、file、`.env`、shell引数、DB、manifest、Codex chatへ貼らない。次は例であり、入力値は表示されない。
+tokenは対話terminalのprocess環境、またはlocalhost operator UIのrequest/job memoryだけへ入れ、file、`.env`、shell引数、DB、manifest、Codex chatへ貼らない。次はCLI例であり、入力値は表示されない。
 
 ```bash
 read -rs SAXO_ACCESS_TOKEN
@@ -167,6 +167,27 @@ python3 -m market_db.validate --phase db3
 unset SAXO_ACCESS_TOKEN
 ```
 
+### 10.1 AI運用用local operator UI
+
+AI側にtokenをchatやtool引数で渡さずlive gateを実行する場合は、localhost限定operator UIを使う。
+
+```bash
+.venv/bin/python -m market_db.operator_ui
+```
+
+`http://127.0.0.1:8765/`を開き、ユーザーがpassword欄へSaxo SIM tokenを入力する。以降はAIが画面の開始ボタン、進捗、完了状態を操作・監視できる。UIが起動するのは固定コマンド`.venv/bin/python -m market_db.incremental_update reconcile`相当だけで、任意command、instrument key、shell文字列を受け付けない。
+
+安全境界:
+
+- bindは`127.0.0.1`固定。remote bind optionを持たない。
+- tokenはPOST bodyから子process環境へ一度だけ渡し、URL、command argument、file、DB、log、cookie、`localStorage`、`sessionStorage`へ保存しない。
+- requestはexact loopback Origin/Host、CSRF token、JSON、16 KiB上限を検査する。
+- `shell=False`、stdin閉鎖、single active job、固定repository cwdを強制する。
+- responseは`Cache-Control: no-store`、CSP、frame拒否を設定し、Bearer/JWT形式と入力tokenの出力をredactする。
+- job完了後はtoken参照を破棄する。画面を閉じ、serverを`Ctrl-C`で停止する。
+
+token入力前の画面表示、空入力拒否、`/health`、`IDLE` statusは秘密情報なしでAIが検査できる。token値そのものをAI chat、terminal output、screen captureへ表示しない。
+
 通常runはcanonical 13すべてを単一transactionで処理する。Etfは最新完成実バーから20本、FxSpotは72本をoverlapし、境界を含む`Mode=From`結果を重複排除する。raw JSONは`data/acquisition/runs/<run-id>/`へatomic保存するがGit管理外で、AccountKey、ClientKey、TradableOn等は除去する。smoke response bodyは保存しない。
 
 正常時はraw revision、curated latest、watermark、4H/1D、run statusが同時にcommitされる。品質失敗時はこれらをrollbackし、取得済みraw artifact、sanitized error code、OPEN quality eventだけを残す。直後の2回目runは、新しい完成足がなければ新規行0、形成中sampleの変化は最大1行/銘柄までを許容する。
@@ -177,8 +198,9 @@ unset SAXO_ACCESS_TOKEN
 - `BLOCKED_TOKEN_EXPIRED`: token失効。新しいsession-only tokenで再実行する。
 - `BLOCKED_PERMISSION_OR_NETWORK_REPUTATION`: permissionまたはSaxo側network reputation制約を確認する。
 - `BLOCKED_RATE_LIMIT`: 有限retry後も429。runを連打せずreset後に再実行する。
+- `FAILED_NETWORK`: timeout・接続切断等がGET限定の1/2/4秒・最大4attempt retry後も継続した。Saxo疎通を確認し、同じsession-only tokenで`reconcile`を再実行する。
 - `BLOCKED_INSTRUMENT_DRIFT`: UIC、AssetType、Symbol、Currency不一致。自動代替しない。
-- `BLOCKED_FULL_REFETCH_REQUIRED`: DataVersion変化。通常runを続けず対象銘柄を確認する。
+- `BLOCKED_FULL_REFETCH_REQUIRED`: DataVersion変化。通常runを続けず、出力とrun manifestの`failed_instrument_key`で対象銘柄を確認する。
 
 DataVersion block後の対象1銘柄だけ、guard付きfull refetchを使える。`data_status=STALE_DATA_VERSION`でない場合、procedureは削除前に拒否する。取得履歴が既存最古時刻まで届かなければtransactionをrollbackする。
 
@@ -186,9 +208,27 @@ DataVersion block後の対象1銘柄だけ、guard付きfull refetchを使える
 python3 -m market_db.inspect freshness --format json
 python3 -m market_db.incremental_update full-refetch --instrument-key spy
 python3 -m market_db.incremental_update run
+python3 -m market_db.incremental_update reconcile
+python3 -m market_db.incremental_update status
 ```
 
 `full-refetch`は`Mode=UpTo`で全ページを取得し、old raw revisionを保持したままcuratedを再構築する。手動DELETE、watermarkの直接更新、DataVersion差の無視は禁止する。
+`status`はread-only transactionで通常runの状態別件数とwatermark状態別件数だけを返し、DBを変更しない。
+
+FxSpotのfull-refetchでは、過去のHigh/Low極値だけに交差があるrowを最大10件かつ全unique観測の0.01%以下に限って自動隔離する。これは値の修正ではない。raw JSONとSHA-256を保持し、rowをraw revision・curated・派生足から除外し、成功runの`rejected_rows`と`db3_fx_crossed_extrema_quarantine`の解決済みWARNへ記録する。最新sample、Open/Close交差、欠損、OHLC違反、件数・比率超過、重複矛盾は全runをFAILする。operatorはBid/Askのswap、補間、clamp、手動DELETEで回避してはならない。
+
+隔離結果は次で確認する。
+
+```bash
+python3 -m market_db.inspect runs --format json
+python3 -m market_db.inspect quality --format json
+```
+
+run JSONの`rejected_rows`、quality eventのtimestamp・元Bid/Ask・raw artifact相対path・payload SHA-256を照合する。WARNが解決済みのためopen event viewに出ない場合は、対象runのmanifestとDBの`ops.ingestion_run`を基準にし、任意SQLを一般readerへ許可しない。
+
+複数銘柄で`DataVersion`が変化している場合は、tokenを保持する同一terminalまたはlocal operator UIで`reconcile`を1回起動する。開始時点で既に`STALE_DATA_VERSION`のwatermarkがあれば先に復旧する。通常runが`BLOCKED_FULL_REFETCH_REQUIRED`を返した場合は、`failed_instrument_key`の1銘柄にguard付き`full-refetch`を実行する。競合runにより`BLOCKED_CANONICAL_WATERMARK_SET`となった場合もSTALE watermarkを再読込する。同一銘柄の再変化、別の停止code、refetch失敗では直ちに停止する。全銘柄の復旧後はcanonical 13の通常runを連続2回`PASS`させる。各内部runは独立したmanifestを保持し、進捗はtokenを含まないJSONとして表示する。処理は全履歴再構築を含むため長時間になり得るが、tokenをfileやDBへ保存しない。
+
+`manifests/db3_implementation_manifest.json`の派生足件数はoffline実装時点の固定証跡であり、live DBの恒久的な件数制約ではない。validatorはmanifestに非空・quality FAIL 0のbaselineが記録されていることを検査し、現在DBについては別途、派生足が非空・quality FAIL 0・canonical watermark整合であることを検査する。正常な増分取得やfull-refetchで行数が変化しても、固定baselineとの不一致だけを理由にoffline gateをFAILにしない。
 
 ## 11. DB2総合検証
 
@@ -249,8 +289,8 @@ research DB、content manifest、dump manifest、dump本体のいずれかが不
 ## 14. 後続PhaseのLOCK
 
 - DB2: CSV import、inventory/lineage登録、research snapshot。PASS。
-- DB3: Saxo増分更新、4H/1D派生、session calendar、freshness監視。OFFLINE PASS / LIVE SIM TOKEN待ち。
-- DB4: read API、実backup/restore、retention、runbook運用ゲート。DB3 PASSまでLOCKED。
+- DB3: Saxo増分更新、4H/1D派生、session calendar、freshness監視。PASS。
+- DB4: read API、実backup/restore、retention、runbook運用ゲート。DB3 PASSによりNEXT。
 - RT0: strategy PnL、WFO、Holdout、portfolio。DB4 PASSまでLOCKED。
 
 DB2 snapshot dumpはDB2証跡として作成済みだが、汎用backup/restore機能の完成を意味しない。Saxo API増分更新はDB3、read API・一般backup/restore・retentionはDB4、戦略研究はDB4 PASS後まで、それぞれの範囲を越えて実行しない。

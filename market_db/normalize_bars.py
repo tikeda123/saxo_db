@@ -15,6 +15,19 @@ class BarQualityError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class CrossedQuoteViolation:
+    field: str
+    bid: Decimal
+    ask: Decimal
+
+
+class FXBidAboveAskError(BarQualityError):
+    def __init__(self, violations: tuple[CrossedQuoteViolation, ...]):
+        super().__init__("FX_BID_ABOVE_ASK")
+        self.violations = violations
+
+
+@dataclass(frozen=True)
 class NormalizedBar:
     time_utc: datetime
     open: Decimal
@@ -36,6 +49,16 @@ class NormalizedBar:
     data_version: int | None
     delayed_by_minutes: int | None
     retrieved_at_utc: datetime
+    payload_sha256: str
+    artifact_relative_path: str
+
+
+@dataclass(frozen=True)
+class RejectedBar:
+    time_utc: datetime
+    error_code: str
+    violations: tuple[CrossedQuoteViolation, ...]
+    data_version: int | None
     payload_sha256: str
     artifact_relative_path: str
 
@@ -77,6 +100,7 @@ def _normalize_sample(
     delayed_by_minutes: int | None,
 ) -> NormalizedBar:
     time_utc = parse_utc(str(sample.get("Time", "")))
+    crossed: list[CrossedQuoteViolation] = []
     if instrument.asset_type == "FxSpot":
         pairs: dict[str, tuple[Decimal, Decimal]] = {}
         for name in ("Open", "High", "Low", "Close"):
@@ -84,7 +108,7 @@ def _normalize_sample(
             ask = decimal_value(sample.get(f"{name}Ask"), f"{name}Ask")
             assert bid is not None and ask is not None
             if bid > ask:
-                raise BarQualityError("FX_BID_ABOVE_ASK")
+                crossed.append(CrossedQuoteViolation(name, bid, ask))
             pairs[name] = (bid, ask)
         values = {name: (bid + ask) / Decimal(2) for name, (bid, ask) in pairs.items()}
         open_bid, open_ask = pairs["Open"]
@@ -106,12 +130,15 @@ def _normalize_sample(
     assert isinstance(open_, Decimal) and isinstance(high, Decimal)
     assert isinstance(low, Decimal) and isinstance(close, Decimal)
     _validate_ohlc(open_, high, low, close)
+    volume = decimal_value(sample.get("Volume"), "Volume", nullable=True)
+    if instrument.asset_type == "FxSpot" and crossed:
+        raise FXBidAboveAskError(tuple(crossed))
     return NormalizedBar(
         time_utc=time_utc,
         open=open_, high=high, low=low, close=close,
         open_bid=open_bid, high_bid=high_bid, low_bid=low_bid, close_bid=close_bid,
         open_ask=open_ask, high_ask=high_ask, low_ask=low_ask, close_ask=close_ask,
-        volume=decimal_value(sample.get("Volume"), "Volume", nullable=True),
+        volume=volume,
         market_trading_state=sample.get("MarketTradingState"),
         price_basis=instrument.price_basis,
         is_complete=True,
@@ -151,6 +178,60 @@ def normalize_chart_page(
         )
         for sample in data
     ]
+
+
+def normalize_chart_page_quarantining_fx_extrema(
+    instrument: CanonicalInstrument,
+    payload: dict[str, Any],
+    *,
+    retrieved_at_utc: datetime,
+    payload_sha256: str,
+    artifact_relative_path: str,
+) -> tuple[list[NormalizedBar], list[RejectedBar]]:
+    """Exclude crossed historical FX High/Low samples without modifying source values."""
+    if instrument.asset_type != "FxSpot":
+        raise ValueError("FX extrema quarantine is restricted to FxSpot")
+    chart_info = payload.get("ChartInfo") or {}
+    if int(chart_info.get("Horizon", -1)) != 60:
+        raise BarQualityError("WRONG_CHART_HORIZON")
+    data = payload.get("Data")
+    if not isinstance(data, list):
+        raise BarQualityError("MISSING_CHART_DATA")
+    data_version_value = payload.get("DataVersion")
+    data_version = None if data_version_value is None else int(data_version_value)
+    delayed_value = chart_info.get("DelayedByMinutes")
+    delayed = None if delayed_value is None else int(delayed_value)
+    accepted: list[NormalizedBar] = []
+    rejected: list[RejectedBar] = []
+    for sample in data:
+        try:
+            accepted.append(
+                _normalize_sample(
+                    instrument,
+                    sample,
+                    retrieved_at_utc=retrieved_at_utc,
+                    payload_sha256=payload_sha256,
+                    artifact_relative_path=artifact_relative_path,
+                    data_version=data_version,
+                    delayed_by_minutes=delayed,
+                )
+            )
+        except FXBidAboveAskError as exc:
+            # Open and Close represent contemporaneous quotes and remain fatal.
+            # Only historical interval extrema are eligible for quarantine.
+            if any(item.field not in {"High", "Low"} for item in exc.violations):
+                raise
+            rejected.append(
+                RejectedBar(
+                    time_utc=parse_utc(str(sample.get("Time", ""))),
+                    error_code=str(exc),
+                    violations=exc.violations,
+                    data_version=data_version,
+                    payload_sha256=payload_sha256,
+                    artifact_relative_path=artifact_relative_path,
+                )
+            )
+    return accepted, rejected
 
 
 def merge_pages(pages: Iterable[Iterable[NormalizedBar]]) -> list[NormalizedBar]:
