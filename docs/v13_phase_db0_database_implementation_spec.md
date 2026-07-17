@@ -3,7 +3,7 @@
 作成日: 2026-07-16
 対象研究線: `v13categoryintraday`
 仕様ID: `v13_database_prerequisite_20260716_v2`
-状態: **SPEC RE-FROZEN / DB1-DB3 PASS / DB4 NEXT**
+状態: **SPEC RE-FROZEN / DB1-DB4 PASS / RT0 NEXT**
 
 ## 1. 目的と現在のゲート
 
@@ -517,6 +517,7 @@ raw CSV/JSONも監査原本として残るが、DB privilege、migration状態�
 0010_db3_incremental_support.sql
 0011_db3_coverage_refinement.sql
 0012_db3_full_refetch_guard.sql
+0013_db4_read_api_and_restore_smoke.sql
 ```
 
 `ops.schema_migration`へfilename、SHA-256、適用時刻を記録する。適用済みSQLのchecksumが変わった場合はFAILする。実データに対する破壊的down migrationは実行せず、backupからrestoreする。
@@ -567,7 +568,7 @@ raw CSV/JSONも監査原本として残るが、DB privilege、migration状態�
 
 実装・実DB検証では、canonical 13 watermark、ETF 11 verified calendar、FX 2 provisional calendarを登録し、完成・PASS 1Hから4H 128,469行、1D 47,784行を生成した。coverageはETF 11 WARN・FX 2 NOT_EVALUATED・FAIL 0、staging 0、research DBへの0010〜0012適用0を確認した。live smoke、canonical 13のDataVersion復旧、通常run 104・105連続PASS、総合validator PASSによりDB3を完了し、DB4を次工程として解放した。
 
-### DB4 — 参照・運用ゲート
+### DB4 — 参照・運用ゲート（PASS）
 
 - Flask read-only query
 - 運用CLIとread APIのinventory/coverage/freshness/lineage一致
@@ -578,6 +579,8 @@ raw CSV/JSONも監査原本として残るが、DB privilege、migration状態�
 - 全DBテスト・既存全体回帰PASS
 
 DB4 PASS後だけRT0を再度unlockする。
+
+実装・実DB検証では、loopback Flask APIを`saxo_app_reader`・read-only transaction・最大5接続で起動し、8運用viewの安定列をCLIと一致させた。3 DBのcustom-format backup、SHA-256、`pg_restore --list`をPASSとし、market DBを一時DBへrestoreして主要件数・主キー重複・snapshot cutoffを照合後に削除した。retentionはDBごとにdaily 7・weekly 4、dry-run既定とし、IWM 1H 13行のParquetをDuckDBで再読込した。access token・account identifier保存、DB write route、Saxo write request、戦略計算はいずれも0である。
 
 ## 14. DB0成果物と禁止事項
 
@@ -599,4 +602,4 @@ DB0では次を実行しない。
 - credential保存
 - strategy signal、PnL、WFO、Holdout、portfolio calculation
 
-以上をPhase DB0の凍結仕様とする。実装進捗はDB1・DB2・DB3 PASSであり、現在次に許可する作業はPhase DB4のread API、backup/restore、retention、runbook運用ゲートだけである。RT0はDB4 PASSまでLOCKEDとする。
+以上をPhase DB0の凍結仕様とする。実装進捗はDB1〜DB4 PASSであり、現在次に許可する作業はPhase RT0のstrategy rule、cost、trial freezeだけである。PnL、WFO、Holdout、portfolioは後続の明示gateまで開始しない。

@@ -1,7 +1,7 @@
 # saxo_db 独立データ管理プロジェクト計画
 
 作成日: 2026-07-16
-状態: **DB1 PASS / DB2 PASS / DB3 PASS / DB4 NEXT**
+状態: **DB1 PASS / DB2 PASS / DB3 PASS / DB4 PASS / RT0 NEXT**
 
 ## 1. 目的
 
@@ -115,13 +115,15 @@ Saxo raw OHLCとはsource、price basis、tableを分ける。調整済み日次
 - offline/live test・総合validator PASS、token永続化ゼロ、注文APIゼロ
 - canonical 13 watermark `ACTIVE`、通常run 104・105連続PASS
 
-### DB4 — 分析・運用（NEXT）
+### DB4 — 分析・運用（PASS）
 
 - 運用CLIとread-only query APIの一致
 - inventory・coverage・freshness・lineage・quality・storage監視
 - backup/restore
 - backup実績台帳、retention、runbook drill
 - Parquet/DuckDB read-only export
+
+実装ではloopback read API、3 DB custom-format backup、market別名restore smoke、DB別daily 7/weekly 4 retention、Parquet/DuckDB再読込を完了した。実測と修正履歴は`docs/db4_implementation_result.md`、機械可読証跡は`manifests/db4_implementation_manifest.json`を正本とする。
 
 DB4がPASSするまで、元計画のRT0戦略検証は再開しない。
 
@@ -147,4 +149,4 @@ DB4がPASSするまで、元計画のRT0戦略検証は再開しない。
 - token・口座情報保存
 - strategy signal、PnL、WFO、portfolio計算
 
-Saxo APIはDB3のSIM限定GET allow-listだけを許可する。DB1・DB2・DB3は実環境でPASSした。次に許可する作業はDB4のread API、backup/restore、retention、runbook運用ゲートだけであり、RT0はDB4 PASSまでLOCKEDとする。
+Saxo APIはDB3のSIM限定GET allow-listだけを許可する。DB1〜DB4は実環境でPASSした。次に許可する作業はRT0のstrategy rule、cost、trial freezeだけであり、PnL、WFO、Holdout、portfolioは後続の明示gateまで開始しない。

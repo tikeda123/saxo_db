@@ -2,7 +2,7 @@
 
 作成日: 2026-07-16 JST  
 対象環境: Saxo OpenAPI Simulation（SIM）  
-状態: **DB3 PASS / DB4 NEXT**
+状態: **DB3 PASS / DB4 PASS / RT0 NEXT**
 
 ## 1. この文書の目的
 
@@ -490,4 +490,4 @@ DB1・DB2完了後、別AIへ次のように依頼できる。
 
 ---
 
-現在の取得ゲート: `DB3 PASS / DB4 NEXT / RT0 LOCKED`
+現在の取得ゲート: `DB3 PASS / DB4 PASS / RT0 NEXT`

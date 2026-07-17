@@ -12,8 +12,11 @@ import sys
 from pathlib import Path
 from typing import Any, Iterable
 
+import duckdb
+
 from .connection import FORWARD_DB, MARKET_DB, RESEARCH_DB, connect, project_root
 from .migrate import MIGRATION_TARGETS, list_migrations, migration_number, migration_sha256, validate_applied_checksums
+from .read_api import DatabaseReader, LOOPBACK_HOST, OPERATION_COMMANDS, operation_rows
 
 
 MARKET_TABLES = (
@@ -59,6 +62,41 @@ def db3_manifest_baseline_is_valid(payload: dict[str, Any]) -> bool:
         and positive_int(derived.get("market_bar_1d_rows"))
         and positive_int(derived.get("market_bar_1d_analysis_eligible_rows"))
         and derived.get("quality_fail_rows") == 0
+    )
+
+
+def db4_manifest_baseline_is_valid(payload: dict[str, Any]) -> bool:
+    """Check immutable DB4 drill evidence without freezing changing data counts."""
+    read_api = payload.get("read_api", {})
+    backups = payload.get("backups", {})
+    retention = payload.get("retention", {})
+    parquet = payload.get("parquet", {})
+    security = payload.get("security", {})
+    comparisons = read_api.get("api_cli_comparisons", {})
+    return (
+        payload.get("phase") == "DB4"
+        and payload.get("status") == "PASS"
+        and read_api.get("health_status") == "PASS"
+        and read_api.get("bind_host") == LOOPBACK_HOST
+        and read_api.get("role_name") == "saxo_app_reader"
+        and read_api.get("transaction_read_only") == "on"
+        and set(comparisons) == set(OPERATION_COMMANDS)
+        and all(value is True for value in comparisons.values())
+        and set(backups.get("verified_databases", [])) == {MARKET_DB, RESEARCH_DB, FORWARD_DB}
+        and backups.get("restore_smoke_database") == MARKET_DB
+        and backups.get("restore_smoke_status") == "PASS"
+        and retention.get("dry_run_status") == "PASS"
+        and retention.get("apply_status") == "PASS"
+        and retention.get("deleted") == []
+        and parquet.get("status") == "PASS"
+        and parquet.get("row_count") == parquet.get("readback_row_count")
+        and isinstance(parquet.get("row_count"), int)
+        and parquet.get("row_count", 0) > 0
+        and security.get("access_token_persisted") is False
+        and security.get("account_identifier_persisted") is False
+        and security.get("arbitrary_sql_enabled") is False
+        and security.get("database_write_routes") == 0
+        and security.get("saxo_write_requests") == 0
     )
 
 
@@ -560,6 +598,193 @@ def validate_db3_data() -> dict[str, Any]:
     return {"offline": offline, "live": live, "status": status}
 
 
+def validate_db4_data() -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    migration_path = project_root() / "db/migrations/0013_db4_read_api_and_restore_smoke.sql"
+    with connect("saxo_migrator", MARKET_DB, application_name="saxo_db_validate_db4") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT filename, sha256 FROM ops.schema_migration WHERE migration_number='0013'"
+            )
+            migration_row = cursor.fetchone()
+            result["migration"] = {
+                "applied": migration_row is not None,
+                "filename": None if migration_row is None else str(migration_row[0]),
+                "sha256_match": (
+                    migration_row is not None
+                    and str(migration_row[1]).strip() == _sha256(migration_path)
+                ),
+            }
+            cursor.execute(
+                """
+                SELECT
+                    has_table_privilege('saxo_app_reader','curated.market_bar','SELECT'),
+                    has_table_privilege('saxo_app_reader','curated.market_bar','INSERT'),
+                    has_table_privilege('saxo_app_reader','ops.backup_run','SELECT'),
+                    has_table_privilege('saxo_app_reader','ops.backup_run','UPDATE'),
+                    has_function_privilege(
+                        'saxo_ops_operator',
+                        'ops.record_restore_smoke(bigint,text,text)',
+                        'EXECUTE'
+                    )
+                """
+            )
+            privileges = cursor.fetchone()
+            result["privileges"] = {
+                "app_reader_bar_select": bool(privileges[0]),
+                "app_reader_bar_insert": bool(privileges[1]),
+                "app_reader_backup_table_select": bool(privileges[2]),
+                "app_reader_backup_table_update": bool(privileges[3]),
+                "ops_restore_procedure_execute": bool(privileges[4]),
+            }
+            cursor.execute(
+                """
+                SELECT DISTINCT ON (database_name)
+                       database_name, backup_run_id, relative_path, sha256, size_bytes,
+                       pg_restore_list_pass, restore_smoke_test_status
+                FROM ops.backup_run
+                WHERE status='PASS'
+                ORDER BY database_name, finished_at_utc DESC, backup_run_id DESC
+                """
+            )
+            backup_rows = cursor.fetchall()
+
+    backup_results: dict[str, Any] = {}
+    for database, backup_run_id, relative_path, sha256, size_bytes, list_pass, restore_status in backup_rows:
+        path = project_root() / str(relative_path)
+        manifest_path = path.with_suffix(".manifest.json")
+        entry: dict[str, Any] = {
+            "backup_run_id": int(backup_run_id),
+            "dump_exists": path.is_file(),
+            "manifest_exists": manifest_path.is_file(),
+            "pg_restore_list_pass": list_pass is True,
+            "restore_smoke_test_status": None if restore_status is None else str(restore_status),
+            "sha256_match": path.is_file() and _sha256(path) == str(sha256).strip(),
+            "size_match": path.is_file() and path.stat().st_size == int(size_bytes),
+        }
+        if manifest_path.is_file():
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            entry["manifest_match"] = (
+                manifest.get("status") == "PASS"
+                and manifest.get("backup_run_id") == int(backup_run_id)
+                and manifest.get("database_name") == str(database)
+                and manifest.get("dump_relative_path") == str(relative_path)
+                and manifest.get("dump_sha256") == str(sha256).strip()
+                and manifest.get("dump_size_bytes") == int(size_bytes)
+                and manifest.get("pg_restore_list_pass") is True
+            )
+        else:
+            entry["manifest_match"] = False
+        backup_results[str(database)] = entry
+    result["backups"] = backup_results
+
+    with connect("postgres", "postgres", application_name="saxo_db_validate_db4_temp") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) FROM pg_database WHERE datname LIKE 'saxo_db4_restore_%'")
+            result["temporary_restore_databases"] = int(cursor.fetchone()[0])
+
+    reader = DatabaseReader()
+    try:
+        health = reader.query(
+            """
+            SELECT current_database() AS database_name, current_user AS role_name,
+                   current_setting('transaction_read_only') AS transaction_read_only
+            """
+        )[0]
+        operation_counts = {
+            command: len(operation_rows(reader, command, 1)) for command in OPERATION_COMMANDS
+        }
+    finally:
+        reader.close()
+    result["read_api"] = {"health": health, "operation_sample_counts": operation_counts}
+
+    manifest_path = project_root() / "manifests/db4_implementation_manifest.json"
+    implementation: dict[str, Any] = {"exists": manifest_path.is_file()}
+    if manifest_path.is_file():
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        mismatches: list[str] = []
+        for relative_path, expected in payload.get("artifacts", {}).items():
+            path = project_root() / relative_path
+            if not path.is_file():
+                mismatches.append(f"missing:{relative_path}")
+                continue
+            if path.stat().st_size != int(expected["size_bytes"]):
+                mismatches.append(f"size:{relative_path}")
+            if _sha256(path) != expected["sha256"]:
+                mismatches.append(f"sha256:{relative_path}")
+        parquet_manifest_path = project_root() / str(
+            payload.get("parquet", {}).get("manifest_relative_path", "")
+        )
+        parquet_check = False
+        if parquet_manifest_path.is_file():
+            parquet_manifest = json.loads(parquet_manifest_path.read_text(encoding="utf-8"))
+            parquet_path = project_root() / str(parquet_manifest.get("parquet_relative_path", ""))
+            if parquet_path.is_file():
+                with duckdb.connect(":memory:") as duck:
+                    readback = int(
+                        duck.execute(
+                            "SELECT COUNT(*) FROM read_parquet(?)", [str(parquet_path)]
+                        ).fetchone()[0]
+                    )
+                parquet_check = (
+                    parquet_manifest.get("status") == "PASS"
+                    and _sha256(parquet_path) == parquet_manifest.get("parquet_sha256")
+                    and parquet_path.stat().st_size == parquet_manifest.get("parquet_size_bytes")
+                    and readback == parquet_manifest.get("row_count")
+                    and readback == parquet_manifest.get("readback_row_count")
+                )
+        implementation.update(
+            {
+                "artifact_mismatches": mismatches,
+                "baseline_valid": db4_manifest_baseline_is_valid(payload),
+                "parquet_verified": parquet_check,
+            }
+        )
+    result["implementation_manifest"] = implementation
+
+    backup_pass = (
+        set(backup_results) == {MARKET_DB, RESEARCH_DB, FORWARD_DB}
+        and all(
+            item["dump_exists"]
+            and item["manifest_exists"]
+            and item["pg_restore_list_pass"]
+            and item["sha256_match"]
+            and item["size_match"]
+            and item["manifest_match"]
+            for item in backup_results.values()
+        )
+        and backup_results.get(MARKET_DB, {}).get("restore_smoke_test_status") == "PASS"
+    )
+    privilege_pass = result["privileges"] == {
+        "app_reader_bar_select": True,
+        "app_reader_bar_insert": False,
+        "app_reader_backup_table_select": False,
+        "app_reader_backup_table_update": False,
+        "ops_restore_procedure_execute": True,
+    }
+    api_pass = (
+        health.get("database_name") == MARKET_DB
+        and health.get("role_name") == "saxo_app_reader"
+        and health.get("transaction_read_only") == "on"
+        and set(operation_counts) == set(OPERATION_COMMANDS)
+    )
+    implementation_pass = (
+        implementation.get("baseline_valid") is True
+        and implementation.get("artifact_mismatches") == []
+        and implementation.get("parquet_verified") is True
+    )
+    result["status"] = "PASS" if (
+        result["migration"]["applied"]
+        and result["migration"]["sha256_match"]
+        and privilege_pass
+        and backup_pass
+        and result["temporary_restore_databases"] == 0
+        and api_pass
+        and implementation_pass
+    ) else "FAIL"
+    return result
+
+
 def run_validation(phase: str = "db1") -> dict[str, Any]:
     result: dict[str, Any] = {"phase": phase.upper()}
     try:
@@ -574,6 +799,10 @@ def run_validation(phase: str = "db1") -> dict[str, Any]:
         if phase == "db3":
             result["db3"] = validate_db3_data()
             phase_gate = result["db3"]["status"] == "PASS"
+        if phase == "db4":
+            result["db3"] = validate_db3_data()
+            result["db4"] = validate_db4_data()
+            phase_gate = result["db3"]["status"] == "PASS" and result["db4"]["status"] == "PASS"
         foundation_pass = (
             result["source_inventory"]["status"] == "PASS"
             and phase_gate
@@ -581,7 +810,7 @@ def run_validation(phase: str = "db1") -> dict[str, Any]:
             and result["migrations"]["status"] == "PASS"
             and result["compose"]["status"] == "PASS"
         )
-        if phase == "db3" and result.get("db3", {}).get("status", "").startswith("BLOCKED"):
+        if phase in {"db3", "db4"} and result.get("db3", {}).get("status", "").startswith("BLOCKED"):
             result["status"] = result["db3"]["status"]
         else:
             result["status"] = "PASS" if foundation_pass else "FAIL"
@@ -593,7 +822,7 @@ def run_validation(phase: str = "db1") -> dict[str, Any]:
 
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--phase", choices=("db1", "db2", "db3"), default="db1")
+    parser.add_argument("--phase", choices=("db1", "db2", "db3", "db4"), default="db1")
     args = parser.parse_args(list(argv) if argv is not None else None)
     result = run_validation(args.phase)
     print(json.dumps(result, sort_keys=True))

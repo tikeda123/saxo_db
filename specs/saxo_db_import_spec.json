@@ -2,7 +2,7 @@
   "schema_version": 2,
   "project": "saxo_db",
   "spec_id": "saxo_db_import_bundle_20260716_v2",
-  "status": "BUNDLE_IMPORTED_DB1_DB2_DB3_PASS_DB4_NEXT",
+  "status": "BUNDLE_IMPORTED_DB1_DB2_DB3_DB4_PASS_RT0_NEXT",
   "origin_project": "../saxo_api",
   "inventory": "manifests/import_file_inventory.csv",
   "source_files_are_immutable": true,
@@ -133,6 +133,14 @@
     "normal_pass_run_ids": [104, 105],
     "next_allowed_work": "DB4_read_API_backup_restore_retention_and_runbook_gate"
   },
-  "next_phase": "DB4",
-  "RT0_status": "LOCKED_UNTIL_DB4_PASS"
+  "DB4_result": {
+    "status": "PASS",
+    "read_API": "PASS",
+    "verified_backup_databases": 3,
+    "market_restore_smoke": "PASS",
+    "retention": "per_database_daily_7_weekly_4",
+    "parquet_readback_rows": 13
+  },
+  "next_phase": "RT0",
+  "RT0_status": "NEXT_AFTER_DB4_PASS"
 }

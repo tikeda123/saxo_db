@@ -1,8 +1,8 @@
 # Saxo DB データ管理・運用ランブック
 
 更新日: 2026-07-17 JST
-対象: Phase DB1 infrastructure / DB2 legacy import / DB3 incremental market data
-状態: **DB1・DB2・DB3 PASS、DB4 NEXT**
+対象: Phase DB1 infrastructure / DB2 legacy import / DB3 incremental market data / DB4 read and operations
+状態: **DB1・DB2・DB3・DB4 PASS、RT0 NEXT**
 
 ## 1. 安全境界
 
@@ -80,7 +80,7 @@ python3 -m market_db.operate start-backup saxo_market backups/example.dump
 python3 -m market_db.operate finish-backup 1 FAILED --error-code MANUAL_CHECK
 ```
 
-CLIは`saxo_ops_operator`で固定済み4 procedureだけを実行する。table直接更新、任意procedure、任意SQL、市場データ変更は許可されない。DB2 snapshot dumpは`ops.research_snapshot`と外部manifestで検証し、一般backup台帳・restore運用はDB4までLOCKEDである。
+CLIは`saxo_ops_operator`で固定済みprocedureだけを実行する。table直接更新、任意procedure、任意SQL、市場データ変更は許可されない。DB4のbackup commandは内部で開始・完了procedureを使い、restore結果は`ops.record_restore_smoke`だけから記録する。
 
 ## 6. Migration運用
 
@@ -128,7 +128,7 @@ python3 -m market_db.research_snapshot status
 python3 -m market_db.research_snapshot create
 ```
 
-内容manifestは`manifests/db2_research_snapshot_content.json`、dump manifestは`manifests/db2_research_snapshot_dump.json`、Git管理外のcustom-format dumpは`backups/postgres/saxo_research_v13_db2.dump`にある。dump hashと`pg_restore --list`はDB2で検証済みである。別名DBへのrestore smoke test、一般backup、retentionはDB4まで実行しない。
+内容manifestは`manifests/db2_research_snapshot_content.json`、dump manifestは`manifests/db2_research_snapshot_dump.json`、Git管理外のcustom-format dumpは`backups/postgres/saxo_research_v13_db2.dump`にある。dump hashと`pg_restore --list`はDB2で検証済みである。このDB2固定証跡はDB4の一般retention命名規則の対象外である。
 
 ## 9. DB3 calendar・watermark・派生足
 
@@ -230,16 +230,58 @@ run JSONの`rejected_rows`、quality eventのtimestamp・元Bid/Ask・raw artifa
 
 `manifests/db3_implementation_manifest.json`の派生足件数はoffline実装時点の固定証跡であり、live DBの恒久的な件数制約ではない。validatorはmanifestに非空・quality FAIL 0のbaselineが記録されていることを検査し、現在DBについては別途、派生足が非空・quality FAIL 0・canonical watermark整合であることを検査する。正常な増分取得やfull-refetchで行数が変化しても、固定baselineとの不一致だけを理由にoffline gateをFAILにしない。
 
-## 11. DB2総合検証
+## 11. DB4 Read API・backup・export
+
+Read APIは一般DB管理画面ではなく、固定された参照endpointだけをlocalhostへ公開する。
 
 ```bash
-SAXO_DB_INTEGRATION=1 python3 -m pytest
-python3 -m market_db.validate --phase db2
+.venv/bin/python -m market_db.read_api --port 8766
+curl --fail http://127.0.0.1:8766/health
+curl --fail 'http://127.0.0.1:8766/api/v1/operations/inventory?limit=25'
+curl --fail 'http://127.0.0.1:8766/api/v1/bars?instrument_key=iwm&layer=1h&start=2026-07-15T00:00:00Z&end=2026-07-17T00:00:00Z&limit=100'
 ```
 
-統合testをskipした結果はDB2 PASSにしない。validatorは69 CSVのsize/hash、migration checksum、3 database、UTC、health、market実件数、lineage、quality、research cutoff/read-only、content/dump hash、`pg_restore --list`を確認する。DB2完了時の基準は`39 passed`で、DB3追加後の全suiteは`54 passed`である。
+barはinstrument、layer、UTC start/endが必須で最大10,000行である。APIは`saxo_app_reader`、read-only transaction、最大5接続、30秒statement timeoutを使う。write method、任意relation、任意SQL、token入力を追加しない。
 
-## 12. Secret rotation
+3 DBのbackupとmarket DBのrestore smoke:
+
+```bash
+.venv/bin/python -m market_db.backup create saxo_market --restore-smoke
+.venv/bin/python -m market_db.backup create saxo_research_v13
+.venv/bin/python -m market_db.backup create saxo_forward_v13
+.venv/bin/python -m market_db.inspect backups
+```
+
+dumpは`backups/postgres/<database>_<UTC>.dump`へatomicに作成し、対応する`.manifest.json`、SHA-256、size、`pg_restore --list`が揃った場合だけPASSとなる。restore smokeは`saxo_db4_restore_<random>`だけを作成し、元DBと主要件数・主キー重複・snapshot cutoffを比較後、必ず削除する。手動の任意DB名へのrestoreや既存DBへの上書きは禁止する。
+
+retentionはDBごとにdaily 7・weekly 4を保持する。必ずdry-runを先に確認し、想定外の候補が1件でもあればapplyしない。
+
+```bash
+.venv/bin/python -m market_db.backup retention
+.venv/bin/python -m market_db.backup retention --apply
+```
+
+ParquetはGit管理外の`exports/parquet/`だけへ作成する。
+
+```bash
+.venv/bin/python -m market_db.export_parquet \
+  --instrument-key iwm --layer 1h \
+  --start 2026-07-15T00:00:00Z --end 2026-07-17T00:00:00Z \
+  --output iwm_sample.parquet
+```
+
+最大100,000行で、SHA-256とDuckDB read-back件数が一致しなければFAILする。PostgreSQLが正本であり、ParquetをDBへ逆importしない。
+
+## 12. 総合検証
+
+```bash
+SAXO_DB_INTEGRATION=1 .venv/bin/python -m pytest
+.venv/bin/python -m market_db.validate --phase db4
+```
+
+統合testをskipした結果はPASSにしない。DB4 validatorはDB1〜DB3を回帰し、migration 0013、reader権限、3 DB backup、market restore smoke、一時DB削除、Parquet再読込、implementation manifestを検証する。
+
+## 13. Secret rotation
 
 自動rotation commandは提供しない。rotationが必要な場合はservice影響を評価し、対象roleごとに次を実施する。
 
@@ -251,7 +293,7 @@ python3 -m market_db.validate --phase db2
 
 bootstrap用`postgres_password`のfileだけを先に変更しても既存cluster passwordは変わらない。fileとdatabase roleを必ず同じmaintenance作業で同期する。
 
-## 13. 障害対応
+## 14. 障害対応
 
 ### Docker daemon停止
 
@@ -286,11 +328,16 @@ research DB、content manifest、dump manifest、dump本体のいずれかが不
 
 `market_db.inspect runs`と`market_db.inspect quality`でrun ID、last success step、sanitized codeを確認する。stagingは成功・rollback後に0件でなければ新規runを開始しない。raw artifactは削除せず、token/account情報がないことを確認する。curated、derived、watermarkを個別に手動修正しない。
 
-## 14. 後続PhaseのLOCK
+### DB4 backup・restore失敗
+
+`ops.v_backup_status`と対応manifestを確認し、FAILED/RUNNINGを手動でPASSへ変更しない。`.partial`、SHA-256不一致、`pg_restore --list`失敗は使用不可とする。一時restore DBが残った場合は、今回の`saxo_db4_restore_`名と作成runを確認してから削除し、既存3 DBをdropしない。
+
+## 15. 後続PhaseのLOCK
 
 - DB2: CSV import、inventory/lineage登録、research snapshot。PASS。
 - DB3: Saxo増分更新、4H/1D派生、session calendar、freshness監視。PASS。
-- DB4: read API、実backup/restore、retention、runbook運用ゲート。DB3 PASSによりNEXT。
-- RT0: strategy PnL、WFO、Holdout、portfolio。DB4 PASSまでLOCKED。
+- DB4: read API、実backup/restore、retention、Parquet、runbook運用ゲート。PASS。
+- RT0: strategy rule、cost、trial freeze。DB4 PASSによりNEXT。
+- PnL、WFO、Holdout、portfolioはRT0以後の各明示gateまで開始しない。
 
-DB2 snapshot dumpはDB2証跡として作成済みだが、汎用backup/restore機能の完成を意味しない。Saxo API増分更新はDB3、read API・一般backup/restore・retentionはDB4、戦略研究はDB4 PASS後まで、それぞれの範囲を越えて実行しない。
+DB2 snapshot dumpは固定証跡として保持し、DB4 retentionで削除しない。DB1〜DB4の完了はデータ基盤の品質証明であり、戦略優位性や収益性の証明ではない。

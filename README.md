@@ -6,7 +6,7 @@
 
 このプロジェクトの目的は、Saxo OpenAPIから取得した市場データを、再現可能・追記可能・監査可能なPostgreSQLデータベースで管理し、後続の市場分析と短期売買戦略研究に利用できる状態にすることです。
 
-現在は**Phase DB3 PASS / DB4 NEXT**です。DB2の移行・研究snapshotを保持したまま、増分取得、revision、calendar、watermark、4H/1D派生、coverage/freshness運用まで実装・実DB検証済みです。Saxo SIMのcanonical 13全銘柄を復旧し、通常run 104・105の連続PASSとDB3総合validator PASSを確認しました。
+現在は**Phase DB4 PASS / RT0 NEXT**です。DB3までの増分取得・revision・calendar・watermark・4H/1D派生に加え、loopback read API、3 DB backup、別名restore smoke、DB別retention、Parquet exportまで実装・実DB検証済みです。
 
 | 項目 | 現在の状態 |
 |---|---|
@@ -24,9 +24,12 @@
 | Calendar / watermark | canonical 13割当済み、`ACTIVE=13`。ETF verified、FX provisional |
 | 4H / 1D派生 | 現在4H 128,469行、1D 47,784行。完成・PASS 1Hだけから生成 |
 | 鮮度・coverage | CLI/view実装済み。現状STALE 11、NOT_EVALUATED 2、FAIL 0。calendar外/欠損は分離表示 |
+| Read API | `127.0.0.1:8766`、read-only role、固定endpoint、CLI安定列8 view一致 |
+| Backup / restore | 3 DB custom dump・SHA-256・`pg_restore --list` PASS、market別名restore PASS |
+| Retention / export | DB別daily 7・weekly 4、IWM 1H Parquet 13行のDuckDB再読込PASS |
 | 研究・バックテスト | 未実施 |
 
-次に許可されている工程は、**Phase DB4のread API・backup/restore・retention・runbook運用ゲート**です。DB3は完了しています。RT0と研究PhaseはDB4 PASSまで開始しません。
+次に許可されている工程は、**Phase RT0のstrategy rule・cost・trial freeze**です。DB4までのPASSはデータ基盤の品質証明であり、戦略の優位性や収益性を意味しません。PnL、WFO、Holdout、portfolioは後続の明示gateまで開始しません。
 
 AI側でlive gateを運用する場合は、`python3 -m market_db.operator_ui`を起動して`http://127.0.0.1:8765/`を開く。ユーザーはpassword欄へtokenを1回入力するだけで、その後の固定`reconcile` job開始・進捗監視・validatorはAIが行う。tokenはURL、コマンド引数、file、DB、log、cookie、browser storageへ保存せず、jobの子process環境だけへ渡す。
 
@@ -50,19 +53,22 @@ AI側でlive gateを運用する場合は、`python3 -m market_db.operator_ui`�
 2. `specs/saxo_db_import_spec.json` — この新プロジェクトでの正本ディレクトリ、ファイル数、移管ルール
 3. `docs/v13_phase_db0_database_implementation_spec.md` — 人間向けの凍結済みDB実装仕様
 4. `specs/v13_phase_db0_database_spec.json` — 機械可読なDB・role・schema・table・増分更新仕様
-5. `docs/db3_implementation_plan.md` — DB3取得・transaction・calendar・live gate計画
-6. `docs/db3_implementation_result.md` — DB3 offline実測、live blocker、未解放範囲
-7. `manifests/db3_implementation_manifest.json` — DB3 offline gateの機械可読証跡
-8. `docs/database_operations_runbook.md` — DB1〜DB3の実行可能な運用手順と後続lock
-9. `docs/db2_implementation_plan.md` — DB2の分類、import、snapshot、gateと実施結果
-10. `docs/db2_implementation_result.md` — DB2の実測件数、品質、snapshot、未実施範囲
-11. `manifests/db2_implementation_manifest.json` — DB2の機械可読証跡
-12. `docs/db1_implementation_plan.md` — DB1の実装順序、運用view/CLI/runbook、テスト、判定規則
-13. `manifests/db0_spec_amendment_v2_manifest.json` — 運用仕様を追加したv2再凍結の成果物hash
-14. `manifests/import_file_inventory.csv` — 69 CSVの相対パス、行数、サイズ、SHA-256
-15. `docs/saxo_api_data_acquisition_handoff.md` — token、instrument確認、full/incremental取得、DataVersion、品質・security gate
-16. `docs/saxo_db_project_plan.md` — DB0〜DB4と研究再開条件
-17. `docs/v13_category_specific_intraday_strategy_research_plan.md` — DB完成後の研究目的。DB構築中は実行しない
+5. `docs/db4_implementation_plan.md` — DB4 read API・backup・restore・retention計画
+6. `docs/db4_implementation_result.md` — DB4 runtime drillと実測結果
+7. `manifests/db4_implementation_manifest.json` — DB4 gateの機械可読証跡
+8. `docs/db3_implementation_plan.md` — DB3取得・transaction・calendar・live gate計画
+9. `docs/db3_implementation_result.md` — DB3 offline実測、live blocker、未解放範囲
+10. `manifests/db3_implementation_manifest.json` — DB3 offline gateの機械可読証跡
+11. `docs/database_operations_runbook.md` — DB1〜DB4の実行可能な運用手順と後続lock
+12. `docs/db2_implementation_plan.md` — DB2の分類、import、snapshot、gateと実施結果
+13. `docs/db2_implementation_result.md` — DB2の実測件数、品質、snapshot、未実施範囲
+14. `manifests/db2_implementation_manifest.json` — DB2の機械可読証跡
+15. `docs/db1_implementation_plan.md` — DB1の実装順序、運用view/CLI/runbook、テスト、判定規則
+16. `manifests/db0_spec_amendment_v2_manifest.json` — 運用仕様を追加したv2再凍結の成果物hash
+17. `manifests/import_file_inventory.csv` — 69 CSVの相対パス、行数、サイズ、SHA-256
+18. `docs/saxo_api_data_acquisition_handoff.md` — token、instrument確認、full/incremental取得、DataVersion、品質・security gate
+19. `docs/saxo_db_project_plan.md` — DB0〜DB4と研究再開条件
+20. `docs/v13_category_specific_intraday_strategy_research_plan.md` — DB完成後の研究目的
 
 相違がある場合の優先順位は、`README.md`の安全境界 → `specs/saxo_db_import_spec.json`の新プロジェクト相対パス → `specs/v13_phase_db0_database_spec.json`の技術仕様 → 人間向け文書です。仕様を変更する必要が出た場合は、黙って解釈変更せず、差分と理由を提示して再凍結してください。
 
@@ -243,9 +249,9 @@ docs/database_operations_runbook.md
 
 成果物が存在するだけではPASSにしません。実行時検証が失敗した場合は、`FAIL`または`BLOCKED`として原因、再現手順、次に必要な条件を記録してください。
 
-## 8. DB3の現在地と後続工程
+## 8. DB4の現在地と後続工程
 
-DB2 PASSによりDB3だけを解放しました。DB4とRT0は引き続きLOCKEDです。
+DB1〜DB4はすべてPASSした。次はRT0だけが解放されている。
 
 ### Phase DB2：既存CSVインポート（PASS）
 
@@ -271,17 +277,16 @@ DB2 PASSによりDB3だけを解放しました。DB4とRT0は引き続きLOCKED
 - EURUSDは過去High/Low交差5件、USDJPYは9件を上限内で無補正隔離し、raw原本と解決済みWARNを保持した。
 - 通常run 104・105が連続PASSし、DB3総合validatorもPASSした。分割実行した全test 74件はPASS。
 
-### Phase DB4：参照・運用ゲート
+### Phase DB4：参照・運用ゲート（PASS）
 
-- inventory、coverage、freshness、lineage、run、quality、storage、backup statusのread APIを作る。
-- quality eventのacknowledge/resolveとbackup実績更新を、監査可能なprocedure経由に限定する。
-- 運用CLIとread APIの件数・期間・状態が一致することを確認する。
-- `ops.backup_run`へbackup・検証・restore smoke test結果を記録する。
-- backup/restore smoke testを行う。
-- daily 7世代・weekly 4世代のretentionとdisk使用量を確認する。
-- runbookに沿った起動、restart、障害、secret rotation、restoreのdrillを行う。
+- inventory、coverage、freshness、lineage、run、quality、storage、backup statusを固定read APIで公開した。
+- APIはloopback、`saxo_app_reader`、read-only transaction、最大5接続、期間必須bar queryに限定した。
+- 運用CLIとAPIの8 viewは時計依存列を除く安定列が一致した。
+- 3 DB backupをSHA-256と`pg_restore --list`で検証し、market DBを別名一時DBへrestoreした。
+- retentionは各DBごとdaily 7・weekly 4とし、dry-run既定、root外・命名規則外を変更しない。
+- IWM 1H 13行のParquetを作成し、DuckDB read-back 13行とSHA-256を確認した。
 
-DB1〜DB4がすべてPASSして初めて、短期戦略研究のPhase RT0へ進めます。
+DB1〜DB4がすべてPASSしたため、短期戦略研究のPhase RT0へ進める。
 
 ## 9. 運用・バックアップの凍結方針
 
@@ -303,17 +308,19 @@ python3 -m json.tool specs/v13_phase_db0_database_spec.json >/dev/null
 git status --short
 ```
 
-DB3現在状態の確認例:
+DB4現在状態の確認例:
 
 ```bash
 docker compose -p saxo-market-data config
 docker compose -p saxo-market-data ps
 docker compose -p saxo-market-data exec postgres pg_isready -d saxo_market
 SAXO_DB_INTEGRATION=1 python3 -m pytest
-python3 -m market_db.validate --phase db3
+python3 -m market_db.validate --phase db4
 python3 -m market_db.session_calendar status
 python3 -m market_db.incremental_update status
 python3 -m market_db.operator_ui
+python3 -m market_db.read_api --port 8766
+python3 -m market_db.backup retention
 python3 -m market_db.import_legacy status
 python3 -m market_db.research_snapshot status
 python3 -m market_db.inspect inventory
@@ -326,15 +333,15 @@ python3 -m market_db.inspect storage
 
 ## 11. 別AIが最後に報告する形式
 
-DB3作業の完了報告には、最低限次を含めてください。
+DB4作業の完了報告には、最低限次を含めてください。
 
 1. 結論: `PASS` / `FAIL` / `BLOCKED`
 2. 作成・変更したファイル
 3. canonical 13、watermark、raw/curated/4H/1Dの実測件数
-4. revision、quality event、coverage、freshness状態
+4. read API、3 DB backup、restore smoke、retention、Parquetの結果
 5. 適用migration番号とSHA-256
 6. research DBが未変更・read-onlyであること
-7. 全testとDB3 validatorのoffline/live結果
+7. 全testとDB4 validatorの結果
 8. 移管69 CSVが未変更であること
 9. token/account情報保存0、注文/precheck 0、戦略計算0
 10. 残課題と、次に解放されたPhase
@@ -345,9 +352,9 @@ DB3作業の完了報告には、最低限次を含めてください。
 
 別のAIへは、次の依頼文で再開できます。
 
-> repository rootの`README.md`、DB3計画・結果、運用runbookを読んでください。DB3はcanonical 13の`ACTIVE`、通常run 104・105連続PASS、総合validator PASSで完了しています。次に許可されたPhase DB4のread API、backup/restore、retention、runbook drillだけを実装してください。RT0、特徴量、戦略、PnL、WFO、HoldoutはDB4 PASSまで開始しないでください。
+> repository rootの`README.md`、DB4計画・結果、機械可読manifest、運用runbookを読んでください。DB1〜DB4はPASSし、read API、3 DB backup、market restore smoke、DB別retention、Parquet再読込まで完了しています。次に許可されたPhase RT0のstrategy rule、cost、trial freezeだけを実施してください。PnL、WFO、Holdout、portfolioは後続の明示gateまで開始しないでください。
 
 ---
 
 最終更新: 2026-07-17 JST
-現在のゲート: `DB0 v2=RE-FROZEN / DB1=PASS / DB2=PASS / DB3=PASS / DB4=NEXT / RT0=LOCKED`
+現在のゲート: `DB0 v2=RE-FROZEN / DB1=PASS / DB2=PASS / DB3=PASS / DB4=PASS / RT0=NEXT`

@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "phase": "DB4",
+  "status": "PASS",
+  "created_at_utc": "2026-07-17T05:08:00Z",
+  "artifacts": {
+    "requirements.txt": {"sha256": "b1395b2ea784ee237c4938d54413bf3fb65eeaaa9ac14fdaca085b0efd8c8ac2", "size_bytes": 69},
+    "db/migrations/0013_db4_read_api_and_restore_smoke.sql": {"sha256": "5194c71c32b15dcb3ab09813cb5350e042b5078da9c13c14a0d7a7650f35e414", "size_bytes": 1950},
+    "market_db/read_api.py": {"sha256": "58851696a1193ec16548712d990077b83318fd8b461d9d85d0f6d802c836ec4d", "size_bytes": 13130},
+    "market_db/backup.py": {"sha256": "837bb82b246ae91b63628023949319bfefb562082cb134fa05c5e57386428f94", "size_bytes": 18885},
+    "market_db/export_parquet.py": {"sha256": "b6e835ff12b7baeeffbd5df8561bfb90cdb45cdbda3249a52b93d91f52d1e5ff", "size_bytes": 6489},
+    "market_db/validate.py": {"sha256": "065c7a13c21a472c8206c77129d8636b866d75eb75b74d471c1a3b464e34fb08", "size_bytes": 39945},
+    "tests/test_read_api.py": {"sha256": "df987f9af94bd36958a7e9dbc1e5cac4bd89a6d3d7ec579c3e40d431d803f8fc", "size_bytes": 6970},
+    "tests/test_backup.py": {"sha256": "2d9b0df0ff737a8b8580f8effdee20e159e5693ba5373aee6aa8ab652080d1cd", "size_bytes": 4258},
+    "tests/test_export_parquet.py": {"sha256": "098ee15035b1137c0c305cbee02610f1cabc8f48e0f4a32b3aacf4ef859ada90", "size_bytes": 2461},
+    "docs/db4_implementation_plan.md": {"sha256": "6a8adcb029c72a139c62dc99f1b0fd65dc9985a57228c0a905679cf2ce454e0d", "size_bytes": 3890},
+    "docs/db4_implementation_result.md": {"sha256": "cdf98ba78c67bb29d4de8152d0666038f14a74a7ee47d7f3f8625f3e61f24e4d", "size_bytes": 3116},
+    "docs/database_operations_runbook.md": {"sha256": "957fd5b871942333d50e570d2a22d4538fbc21e4e51d682fba7b5adb10016fb7", "size_bytes": 20608},
+    "specs/v13_phase_db0_database_spec.json": {"sha256": "eaa3ca4493fc36aa254b878cdbe71b3ca744a6c2fa2cf7837548714dad9c7ee6", "size_bytes": 27417},
+    "specs/saxo_db_import_spec.json": {"sha256": "7e1b04a3377252b6751827a34bbb603915157e25c1fbe6609baac6fbc608cb33", "size_bytes": 5125}
+  },
+  "migration": {
+    "number": "0013",
+    "target_database": "saxo_market",
+    "sha256": "5194c71c32b15dcb3ab09813cb5350e042b5078da9c13c14a0d7a7650f35e414"
+  },
+  "read_api": {
+    "bind_host": "127.0.0.1",
+    "port": 8766,
+    "health_status": "PASS",
+    "role_name": "saxo_app_reader",
+    "transaction_read_only": "on",
+    "pool_max_size": 5,
+    "api_cli_comparisons": {
+      "inventory": true,
+      "coverage": true,
+      "freshness": true,
+      "runs": true,
+      "quality": true,
+      "lineage": true,
+      "storage": true,
+      "backups": true
+    },
+    "comparison_note": "clock-dependent freshness_seconds and age_seconds excluded",
+    "datasets": 7,
+    "snapshots": 1,
+    "layer_counts": {"1h": 480355, "4h": 128469, "1d": 47784},
+    "sample_bar_rows": 13
+  },
+  "backups": {
+    "verified_databases": ["saxo_market", "saxo_research_v13", "saxo_forward_v13"],
+    "backup_run_ids": {"saxo_market": 26, "saxo_research_v13": 27, "saxo_forward_v13": 28},
+    "restore_smoke_database": "saxo_market",
+    "restore_smoke_status": "PASS",
+    "temporary_restore_databases_remaining": 0
+  },
+  "retention": {
+    "scope": "per_database",
+    "daily_keep": 7,
+    "weekly_keep": 4,
+    "dry_run_status": "PASS",
+    "apply_status": "PASS",
+    "delete_candidates": [],
+    "deleted": []
+  },
+  "parquet": {
+    "status": "PASS",
+    "manifest_relative_path": "exports/parquet/db4_iwm_1h_sample.manifest.json",
+    "row_count": 13,
+    "readback_row_count": 13,
+    "sha256": "20156f6daa87b01814e5be4e072265bc0e3b0e4f02785f65d8a427d48e00600b"
+  },
+  "dependencies": {"Flask": "3.1.3", "duckdb": "1.5.4"},
+  "security": {
+    "access_token_persisted": false,
+    "account_identifier_persisted": false,
+    "arbitrary_sql_enabled": false,
+    "database_write_routes": 0,
+    "saxo_write_requests": 0,
+    "orders_or_prechecks_sent": 0,
+    "strategy_calculations": 0
+  },
+  "next_phase": "RT0"
+}
