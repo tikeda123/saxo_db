@@ -272,6 +272,47 @@ def dmi3_manifest_baseline_is_valid(payload: dict[str, Any]) -> bool:
     )
 
 
+def dmi4_manifest_baseline_is_valid(payload: dict[str, Any]) -> bool:
+    """Validate cursor binding, pagination parity, and the v1 contract artifact."""
+    cursor = payload.get("cursor", {})
+    contract = payload.get("contract", {})
+    runtime = payload.get("runtime_evidence", {})
+    security = payload.get("security", {})
+    fail_closed = payload.get("fail_closed", {})
+    return (
+        payload.get("phase") == "DMI4"
+        and payload.get("status") == "PASS"
+        and payload.get("contract_revision") == "1.2"
+        and cursor.get("codec") == "HMAC-SHA256"
+        and cursor.get("query_bound") is True
+        and cursor.get("snapshot_bound") is True
+        and cursor.get("state_revision_bound") is True
+        and cursor.get("composite_key") == [
+            "time_utc", "instrument_id", "price_basis"
+        ]
+        and cursor.get("total_return_key") == ["session_date"]
+        and cursor.get("restart_expiry") is True
+        and contract.get("openapi_relative_path") == "specs/read_api_v1_openapi.yaml"
+        and contract.get("compatibility_status") == "PASS"
+        and runtime.get("snapshot_direct_parity") == "PASS"
+        and runtime.get("total_return_direct_parity") == "PASS"
+        and runtime.get("snapshot_missing_count") == 0
+        and runtime.get("snapshot_duplicate_count") == 0
+        and runtime.get("snapshot_order_reversal_count") == 0
+        and runtime.get("total_return_missing_count") == 0
+        and runtime.get("total_return_duplicate_count") == 0
+        and runtime.get("total_return_order_reversal_count") == 0
+        and fail_closed.get("tampered_cursor") == "CURSOR_INVALID"
+        and fail_closed.get("query_mismatch") == "CURSOR_QUERY_MISMATCH"
+        and fail_closed.get("state_revision_change") == "CURSOR_EXPIRED"
+        and security.get("access_token_saved") is False
+        and security.get("account_identifier_saved") is False
+        and security.get("arbitrary_sql_enabled") is False
+        and security.get("database_write_routes") == 0
+        and security.get("saxo_write_requests") == 0
+    )
+
+
 def validate_import_inventory() -> dict[str, Any]:
     root = project_root()
     inventory_path = root / "manifests" / "import_file_inventory.csv"
@@ -1166,6 +1207,54 @@ def validate_db4_data() -> dict[str, Any]:
             "status": "PASS" if dmi3_baseline_valid and not dmi3_mismatches else "FAIL",
         })
     implementation["dmi3_extension_manifest"] = dmi3_extension
+
+    dmi4_path = project_root() / "manifests/dmi4_implementation_manifest.json"
+    dmi4_extension: dict[str, Any] = {"exists": dmi4_path.is_file(), "status": "NOT_PRESENT"}
+    if dmi4_path.is_file():
+        dmi4_payload = json.loads(dmi4_path.read_text(encoding="utf-8"))
+        dmi4_mismatches, dmi4_valid_paths = manifest_artifact_state(dmi4_payload)
+        dmi4_parent = dmi4_payload.get("parent_evidence", {})
+        dmi4_baseline_valid = (
+            dmi4_manifest_baseline_is_valid(dmi4_payload)
+            and dmi4_parent.get("relative_path") == "manifests/dmi3_implementation_manifest.json"
+            and dmi4_parent.get("sha256") == _sha256(dmi3_path)
+            and dmi4_payload.get("migration", {}).get("status") == "NOT_REQUIRED"
+            and dmi4_payload.get("contract", {}).get("openapi_sha256")
+            == _sha256(project_root() / "specs/read_api_v1_openapi.yaml")
+        )
+
+        def remove_dmi4_superseded(items: list[str]) -> tuple[list[str], list[str]]:
+            superseded = sorted({
+                item.split(":", 1)[1]
+                for item in items
+                if ":" in item and item.split(":", 1)[1] in dmi4_valid_paths
+            })
+            remaining = [
+                item
+                for item in items
+                if ":" not in item or item.split(":", 1)[1] not in dmi4_valid_paths
+            ]
+            return remaining, superseded
+
+        for extension_manifest in (
+            implementation, extension, dmi1_extension, dmi2a_extension,
+            dmi2b_extension, dmi3_extension,
+        ):
+            extension_manifest["artifact_mismatches"], _ = remove_dmi4_superseded(
+                extension_manifest.get("artifact_mismatches", [])
+            )
+            if (
+                extension_manifest.get("baseline_valid") is True
+                and not extension_manifest["artifact_mismatches"]
+            ):
+                extension_manifest["status"] = "PASS"
+        dmi4_extension.update({
+            "artifact_mismatches": dmi4_mismatches,
+            "baseline_valid": dmi4_baseline_valid,
+            "gate_status": dmi4_payload.get("status"),
+            "status": "PASS" if dmi4_baseline_valid and not dmi4_mismatches else "FAIL",
+        })
+    implementation["dmi4_extension_manifest"] = dmi4_extension
     result["implementation_manifest"] = implementation
 
     backup_pass = (
@@ -1203,6 +1292,7 @@ def validate_db4_data() -> dict[str, Any]:
         and implementation.get("dmi2a_extension_manifest", {}).get("status") in {"PASS", "NOT_PRESENT"}
         and implementation.get("dmi2b_extension_manifest", {}).get("status") in {"PASS", "NOT_PRESENT"}
         and implementation.get("dmi3_extension_manifest", {}).get("status") in {"PASS", "NOT_PRESENT"}
+        and implementation.get("dmi4_extension_manifest", {}).get("status") in {"PASS", "NOT_PRESENT"}
     )
     result["status"] = "PASS" if (
         result["migration"]["applied"]

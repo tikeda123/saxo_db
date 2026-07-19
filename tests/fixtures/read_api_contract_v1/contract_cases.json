@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "api_version": 1,
+  "contract_revision": "1.2",
+  "cases": [
+    {
+      "id": "snapshot_bars_two_page_parity",
+      "endpoint": "/api/v1/snapshots/{snapshot_id}/bars",
+      "key_fields": ["time_utc", "instrument_id", "price_basis"],
+      "pages": [
+        {
+          "truncated": true,
+          "rows": [
+            {"time_utc": "2024-06-28T19:00:00Z", "instrument_id": 9, "price_basis": "native_ohlc"},
+            {"time_utc": "2024-06-28T20:00:00Z", "instrument_id": 9, "price_basis": "native_ohlc"}
+          ],
+          "next_cursor": "fixture.snapshot.cursor.page2"
+        },
+        {
+          "truncated": false,
+          "rows": [
+            {"time_utc": "2024-06-28T21:00:00Z", "instrument_id": 9, "price_basis": "native_ohlc"}
+          ],
+          "next_cursor": null
+        }
+      ],
+      "direct_rows": [
+        {"time_utc": "2024-06-28T19:00:00Z", "instrument_id": 9, "price_basis": "native_ohlc"},
+        {"time_utc": "2024-06-28T20:00:00Z", "instrument_id": 9, "price_basis": "native_ohlc"},
+        {"time_utc": "2024-06-28T21:00:00Z", "instrument_id": 9, "price_basis": "native_ohlc"}
+      ],
+      "expected": {"missing": 0, "duplicates": 0, "order_reversal": 0}
+    },
+    {
+      "id": "total_return_two_page_parity",
+      "endpoint": "/api/v1/total-return",
+      "key_fields": ["session_date", "source_dataset_id", "external_series_key"],
+      "pages": [
+        {
+          "truncated": true,
+          "rows": [
+            {"session_date": "2024-06-03", "source_dataset_id": "dataset-1", "external_series_key": "IWM"}
+          ],
+          "next_cursor": "fixture.total_return.cursor.page2"
+        },
+        {
+          "truncated": false,
+          "rows": [
+            {"session_date": "2024-06-04", "source_dataset_id": "dataset-1", "external_series_key": "IWM"}
+          ],
+          "next_cursor": null
+        }
+      ],
+      "direct_rows": [
+        {"session_date": "2024-06-03", "source_dataset_id": "dataset-1", "external_series_key": "IWM"},
+        {"session_date": "2024-06-04", "source_dataset_id": "dataset-1", "external_series_key": "IWM"}
+      ],
+      "expected": {"missing": 0, "duplicates": 0, "order_reversal": 0}
+    },
+    {
+      "id": "cursor_tampered",
+      "response": {"http_status": 400, "status": "FAILED", "error_code": "CURSOR_INVALID"}
+    },
+    {
+      "id": "cursor_query_mismatch",
+      "response": {"http_status": 409, "status": "FAILED", "error_code": "CURSOR_QUERY_MISMATCH"}
+    },
+    {
+      "id": "snapshot_revision_expired",
+      "response": {"http_status": 409, "status": "FAILED", "error_code": "CURSOR_EXPIRED"}
+    }
+  ]
+}

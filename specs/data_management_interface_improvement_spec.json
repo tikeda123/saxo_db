@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "spec_id": "DMI-20260719",
-  "status": "FROZEN_DMI0_DMI2B_CONTRACT",
+  "status": "FROZEN_DMI0_DMI4_CONTRACT",
   "scope": {
     "provider_repository": "saxo_db",
     "consumer_repository": "saxo_trading_strategy_analysis",
@@ -138,6 +138,14 @@
       "snapshot_manifest_relative_path", "cutoff_utc", "source_database",
       "snapshot_database", "query", "ordered_content_sha256"
     ],
+    "pagination": {
+      "cursor_parameter": "cursor",
+      "next_cursor_field": "next_cursor",
+      "query_bound": true,
+      "snapshot_bound": true,
+      "composite_key": ["time_utc", "instrument_id", "price_basis"],
+      "error_codes": ["CURSOR_INVALID", "CURSOR_QUERY_MISMATCH", "CURSOR_EXPIRED"]
+    },
     "ordered_content_digest": "sha256_canonical_json_rows",
     "current_database_fallback": false,
     "error_codes": {
@@ -170,6 +178,14 @@
       "ordered_content_sha256"
     ],
     "row_fields": ["session_date", "value", "volume", "quality_status", "price_basis"],
+    "pagination": {
+      "cursor_parameter": "cursor",
+      "next_cursor_field": "next_cursor",
+      "query_bound": true,
+      "state_revision_bound": true,
+      "composite_key": ["session_date"],
+      "error_codes": ["CURSOR_INVALID", "CURSOR_QUERY_MISMATCH", "CURSOR_EXPIRED"]
+    },
     "error_codes": {
       "mapping_not_found": "TOTAL_RETURN_MAPPING_NOT_FOUND",
       "ambiguous_source": "SOURCE_DATASET_REQUIRED",
@@ -184,10 +200,11 @@
     "DMI2A": "PASS",
     "DMI2B": "PASS",
     "DMI3": "PASS",
-    "DMI4": "NEXT"
+    "DMI4": "PASS"
   },
-  "locked_work": {
-    "DMI4": "cursor and contract maturity"
+  "contract_artifacts": {
+    "openapi": "specs/read_api_v1_openapi.yaml",
+    "compatibility": "PASS"
   },
   "security": {
     "bind_host": "127.0.0.1",

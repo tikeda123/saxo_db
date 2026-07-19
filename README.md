@@ -256,8 +256,7 @@ SAXO_DB_INTEGRATION=1 .venv/bin/python -m pytest
 - DMI2A: atomic series status — PASS
 - DMI2B: snapshot-bound 1H read — PASS
 - DMI3: stable total-return API — PASS
-- DMI4: cursor・consumer contract kit — NEXT
-- DMI4: cursor・consumer contract kit — LOCKED
+- DMI4: cursor・consumer contract kit — PASS
 
 これらはデータ基盤の実装・運用ゲートです。戦略の優位性や収益性を証明するものではありません。旧計画に含まれるRT0以降の戦略文書は履歴資料として保持しますが、このリポジトリの現行スコープには含めません。
 
@@ -268,6 +267,8 @@ SAXO_DB_INTEGRATION=1 .venv/bin/python -m pytest
 - [データ管理Web UI仕様](docs/data_management_web_ui_spec.md)
 - [データ管理Web UI実装結果](docs/data_management_web_ui_implementation_result.md)
 - [データ管理インターフェース改善計画](docs/data_management_interface_improvement_plan.md)
+- [DMI4 cursor・consumer contract実装結果](docs/dmi4_implementation_result.md)
+- [Read API OpenAPI契約](specs/read_api_v1_openapi.yaml)
 - [DMI0/DMI1実装結果](docs/dmi1_implementation_result.md)
 - [旧quality eventレビュー候補](docs/dmi1_legacy_event_review_candidates.md)
 - [DB4実装結果](docs/db4_implementation_result.md)

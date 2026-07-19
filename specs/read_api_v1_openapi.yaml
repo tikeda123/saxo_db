@@ -1,0 +1,214 @@
+openapi: 3.0.3
+info:
+  title: saxo_db read API
+  version: 1.2.0
+  description: >-
+    Loopback-only, read-only data-management API. All responses are bounded;
+    snapshot and total-return endpoints support signed, query-bound cursors.
+servers:
+  - url: http://127.0.0.1:8766
+paths:
+  /health:
+    get:
+      operationId: health
+      responses:
+        '200': {description: Healthy read-only service}
+        '503': {description: Failed preflight}
+  /api/v1/bars:
+    get:
+      operationId: bars
+      parameters:
+        - {$ref: '#/components/parameters/InstrumentKey'}
+        - {$ref: '#/components/parameters/Layer'}
+        - {$ref: '#/components/parameters/Start'}
+        - {$ref: '#/components/parameters/End'}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200': {$ref: '#/components/responses/BarPage'}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+  /api/v1/snapshots/{snapshot_id}/bars:
+    get:
+      operationId: snapshotBars
+      parameters:
+        - {$ref: '#/components/parameters/SnapshotId'}
+        - {$ref: '#/components/parameters/InstrumentKey'}
+        - {$ref: '#/components/parameters/Layer'}
+        - {$ref: '#/components/parameters/PriceBasis'}
+        - {$ref: '#/components/parameters/Start'}
+        - {$ref: '#/components/parameters/End'}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        '200': {$ref: '#/components/responses/SnapshotBarPage'}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '409': {$ref: '#/components/responses/CursorQueryMismatch'}
+        '503': {$ref: '#/components/responses/SnapshotIntegrityFailure'}
+  /api/v1/total-return:
+    get:
+      operationId: totalReturn
+      parameters:
+        - {$ref: '#/components/parameters/InstrumentKey'}
+        - {$ref: '#/components/parameters/Start'}
+        - {$ref: '#/components/parameters/End'}
+        - {$ref: '#/components/parameters/SourceDatasetId'}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Eligibility'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        '200': {$ref: '#/components/responses/TotalReturnPage'}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '409': {$ref: '#/components/responses/CursorQueryMismatch'}
+        '503': {$ref: '#/components/responses/TotalReturnIntegrityFailure'}
+  /api/v1/series-status:
+    get:
+      operationId: seriesStatus
+      responses:
+        '200': {description: Atomic series preflight result}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+  /api/v1/manifests:
+    get:
+      operationId: manifests
+      responses:
+        '200': {description: Dataset and snapshot identities}
+  /api/v1/layer-counts:
+    get:
+      operationId: layerCounts
+      responses:
+        '200': {description: Derived layer counts}
+  /api/v1/operations/{command}:
+    get:
+      operationId: operationRows
+      parameters:
+        - name: command
+          in: path
+          required: true
+          schema: {type: string}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200': {description: Bounded operational rows}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+components:
+  parameters:
+    InstrumentKey:
+      name: instrument_key
+      in: query
+      required: true
+      schema: {type: string, maxLength: 64}
+    Layer:
+      name: layer
+      in: query
+      required: true
+      schema: {type: string, enum: [1h, 4h, 1d]}
+    PriceBasis:
+      name: price_basis
+      in: query
+      required: true
+      schema: {type: string, maxLength: 64}
+    Start:
+      name: start
+      in: query
+      required: true
+      schema: {type: string, format: date-time}
+    End:
+      name: end
+      in: query
+      required: true
+      schema: {type: string, format: date-time}
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema: {type: integer, minimum: 1, maximum: 10000, default: 200}
+    SnapshotId:
+      name: snapshot_id
+      in: path
+      required: true
+      schema: {type: integer, minimum: 1}
+    SourceDatasetId:
+      name: source_dataset_id
+      in: query
+      required: false
+      schema: {type: string, maxLength: 128}
+    Eligibility:
+      name: eligibility
+      in: query
+      required: false
+      schema: {type: string, enum: [eligible, stored_complete], default: eligible}
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: Opaque HMAC-SHA256 cursor returned as next_cursor.
+      schema: {type: string, maxLength: 4096}
+  responses:
+    InvalidRequest:
+      description: Invalid bounded query or cursor encoding.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    CursorQueryMismatch:
+      description: Cursor does not match the current query or has expired.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    SnapshotIntegrityFailure:
+      description: Snapshot provenance or integrity check failed.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    TotalReturnIntegrityFailure:
+      description: Total-return mapping or state revision check failed.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    BarPage:
+      description: Bounded current-data bar page; cursor is not required.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/BarPage'}
+    SnapshotBarPage:
+      description: Snapshot-verified bar page.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/BarPage'}
+    TotalReturnPage:
+      description: Explicitly mapped total-return page.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/TotalReturnPage'}
+  schemas:
+    Error:
+      type: object
+      required: [status, error_code]
+      description: >-
+        Cursor failures are fail-closed: CURSOR_INVALID (400),
+        CURSOR_QUERY_MISMATCH or CURSOR_EXPIRED (409).
+      properties:
+        status: {type: string, enum: [FAILED]}
+        error_code: {type: string}
+    CursorPagination:
+      type: object
+      required: [row_count, truncated, next_cursor]
+      properties:
+        row_count: {type: integer, minimum: 0}
+        truncated: {type: boolean}
+        next_cursor: {type: string, nullable: true}
+    BarPage:
+      allOf:
+        - {$ref: '#/components/schemas/CursorPagination'}
+        - type: object
+          required: [api_version, contract_revision, rows]
+          properties:
+            api_version: {type: integer, enum: [1]}
+            contract_revision: {type: string, enum: ['1.2']}
+            rows: {type: array, items: {type: object}}
+    TotalReturnPage:
+      allOf:
+        - {$ref: '#/components/schemas/CursorPagination'}
+        - type: object
+          required: [api_version, contract_revision, rows, series]
+          properties:
+            api_version: {type: integer, enum: [1]}
+            contract_revision: {type: string, enum: ['1.2']}
+            rows: {type: array, items: {type: object}}
+            series: {type: object}

@@ -1,10 +1,12 @@
 # Saxo DB Read API インターフェース仕様
 
-更新日: 2026-07-19 JST
+更新日: 2026-07-20 JST
 
 対象API: `v1`
 
 契約revision: `1.2`
+
+機械可読契約: [`specs/read_api_v1_openapi.yaml`](../specs/read_api_v1_openapi.yaml)
 
 対象読者: `saxo_db`のデータを利用する外部の分析・戦略・可視化プロジェクト
 
@@ -86,6 +88,7 @@ Docker container内の`127.0.0.1`はcontainer自身を指すため、そのま�
 | GET | `/api/v1/operations/{command}` | inventory、品質、運用情報 |
 | GET | `/api/v1/bars` | PASS済みOHLCの期間取得 |
 | GET | `/api/v1/snapshots/{snapshot_id}/bars` | 固定研究snapshotの検証済み1H OHLC |
+| GET | `/api/v1/total-return` | 承認mapping済みETF total-return日次 |
 | GET | `/api/v1/manifests` | dataset、research snapshot識別 |
 | GET | `/api/v1/layer-counts` | 1H、4H、1Dの現在行数 |
 
@@ -299,6 +302,7 @@ GET /api/v1/bars
 | `start` | yes | timezone付きISO-8601 | inclusive lower bound |
 | `end` | yes | timezone付きISO-8601 | exclusive upper bound |
 | `limit` | no | default 200、最大10,000 | 最大返却行数 |
+| `cursor` | no | 前responseの`next_cursor` | 同じqueryの次page。opaque値を保存・分解しない |
 
 canonical 13の`instrument_key`:
 
@@ -460,6 +464,7 @@ metadata、全体件数・最大時刻、系列identity、返却barは1つの`RE
   },
   "row_count": 7,
   "truncated": false,
+  "next_cursor": null,
   "ordered_content_sha256": "0d5b1c9b...fb2594b",
   "rows": []
 }
@@ -479,6 +484,19 @@ metadata、全体件数・最大時刻、系列identity、返却barは1つの`RE
 | write method | 405 | `READ_ONLY_API` |
 
 これらの失敗時にcurrent `/api/v1/bars`へfallbackしないでください。固定4H/1Dが必要な場合はsnapshot 1を変更せず、別snapshot IDとmanifestを作る計画が必要です。
+
+### 7.4 Cursor pagination（DMI4）
+
+`truncated=true`の場合だけ`next_cursor`が返ります。次pageは元の`instrument_key`、`layer`、`price_basis`、`start`、`end`、`limit`を同一にして、`cursor`だけを追加してください。cursorはHMAC-SHA256署名済みのopaque値で、snapshot SHA、query条件、`time_utc + instrument_id + price_basis`の複合順序を含みます。`cursor`をURL decode後に改変したりqueryを変更したりした場合は、それぞれ`CURSOR_INVALID`（400）、`CURSOR_QUERY_MISMATCH`（409）になります。snapshotのSHAが変わった場合は`CURSOR_EXPIRED`（409）として途中結果を継続しません。
+
+```bash
+page1=$(curl --fail --get 'http://127.0.0.1:8766/api/v1/snapshots/1/bars' \
+  --data-urlencode 'instrument_key=spy' --data-urlencode 'layer=1h' \
+  --data-urlencode 'price_basis=native_ohlc' --data-urlencode 'start=2024-06-28T13:00:00Z' \
+  --data-urlencode 'end=2024-06-29T00:00:00Z' --data-urlencode 'limit=100')
+```
+
+page連結後に`time_utc + instrument_id + price_basis`の重複0、昇順をconsumer側でも確認します。current `/api/v1/bars`は従来どおりbounded time-window取得であり、cursorを必須にしません。
 
 ## 8. dataset・snapshot・件数
 
@@ -552,6 +570,8 @@ curl --fail --get 'http://127.0.0.1:8766/api/v1/total-return' \
 このendpointは`catalog.series_instrument_mapping`の承認済みmappingだけを使用します。symbol文字列の暗黙joinは行いません。複数datasetが候補になる場合、`source_dataset_id`を明示しないrequestは`SOURCE_DATASET_REQUIRED`で拒否します。
 
 responseのseriesは`price_basis=etf_total_return`、各rowの`value`はtotal-return indexです。native OHLCのopen/high/low/closeとして扱ってはいけません。`ordered_content_sha256`、`row_count`、`truncated`、`source.parity_status`をconsumer runへ保存してください。
+
+`truncated=true`のときは`next_cursor`を返します。次pageでは同じ`instrument_key`、`start`、`end`、`limit`、`eligibility`を維持してください。cursorは承認mappingの`source_dataset_id`、source manifest SHA-256（state revision）、`session_date`をbindします。source datasetまたはstate revisionが変わった場合は`CURSOR_EXPIRED`（409）、query変更は`CURSOR_QUERY_MISMATCH`（409）、改変値は`CURSOR_INVALID`（400）です。source_dataset_idは初pageで明示した場合も、cursor付き次pageでは省略できます。
 
 `eligibility=eligible`は`quality_status=PASS`だけを返します。`eligibility=stored_complete`はWARN/NOT_EVALUATEDを含む可能性があり、`NON_ELIGIBLE_STORED_COMPLETE_DATA_MAY_BE_INCLUDED`を返します。
 

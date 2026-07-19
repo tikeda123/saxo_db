@@ -21,6 +21,7 @@ from market_db.validate import (
     dmi2a_manifest_baseline_is_valid,
     dmi2b_manifest_baseline_is_valid,
     dmi3_manifest_baseline_is_valid,
+    dmi4_manifest_baseline_is_valid,
 )
 
 
@@ -677,6 +678,52 @@ def test_dmi3_manifest_requires_explicit_mapping_and_parity_contract():
     assert dmi3_manifest_baseline_is_valid(payload)
     payload["mapping"]["unapproved_mapping_count"] = 1
     assert not dmi3_manifest_baseline_is_valid(payload)
+
+
+def test_dmi4_manifest_requires_cursor_binding_parity_and_contract_evidence():
+    payload = {
+        "phase": "DMI4",
+        "status": "PASS",
+        "contract_revision": "1.2",
+        "cursor": {
+            "codec": "HMAC-SHA256",
+            "query_bound": True,
+            "snapshot_bound": True,
+            "state_revision_bound": True,
+            "composite_key": ["time_utc", "instrument_id", "price_basis"],
+            "total_return_key": ["session_date"],
+            "restart_expiry": True,
+        },
+        "contract": {
+            "openapi_relative_path": "specs/read_api_v1_openapi.yaml",
+            "compatibility_status": "PASS",
+        },
+        "runtime_evidence": {
+            "snapshot_direct_parity": "PASS",
+            "total_return_direct_parity": "PASS",
+            "snapshot_missing_count": 0,
+            "snapshot_duplicate_count": 0,
+            "snapshot_order_reversal_count": 0,
+            "total_return_missing_count": 0,
+            "total_return_duplicate_count": 0,
+            "total_return_order_reversal_count": 0,
+        },
+        "fail_closed": {
+            "tampered_cursor": "CURSOR_INVALID",
+            "query_mismatch": "CURSOR_QUERY_MISMATCH",
+            "state_revision_change": "CURSOR_EXPIRED",
+        },
+        "security": {
+            "access_token_saved": False,
+            "account_identifier_saved": False,
+            "arbitrary_sql_enabled": False,
+            "database_write_routes": 0,
+            "saxo_write_requests": 0,
+        },
+    }
+    assert dmi4_manifest_baseline_is_valid(payload)
+    payload["cursor"]["query_bound"] = False
+    assert not dmi4_manifest_baseline_is_valid(payload)
 
 
 def test_dmi2b_manifest_requires_verified_immutable_snapshot_read_contract():

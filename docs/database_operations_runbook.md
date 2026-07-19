@@ -291,6 +291,17 @@ curl --fail --get 'http://127.0.0.1:8766/api/v1/total-return' \
 
 `eligibility=eligible`はPASS行だけ、`stored_complete`はWARN/NOT_EVALUATEDを含む可能性がある。複数source dataset候補で`source_dataset_id`を省略した場合は`SOURCE_DATASET_REQUIRED`となり、native OHLC endpointへfallbackしない。
 
+DMI4 cursorの受入確認とconsumer fixtureは次で実行する。fixtureは署名secretやSaxo credentialを含まず、Read APIを再起動しても安全に再実行できる。
+
+```bash
+PYTHONPATH=. .venv/bin/pytest -q \
+  tests/test_dmi4_fixture_contract.py \
+  tests/test_dmi4_pagination.py \
+  tests/test_dmi4_contract.py
+```
+
+複数pageの連結結果はdirect queryと一致し、missing、duplicate、order reversalが0であることを確認する。`CURSOR_INVALID`、`CURSOR_QUERY_MISMATCH`、`CURSOR_EXPIRED`はデータ取得成功として扱わず、queryを固定して最初のpageから再開する。
+
 ### 11.1 データ管理Web UI
 
 Read APIを起動した同じprocessで、データ管理UIも利用できる。
@@ -426,8 +437,9 @@ research DB、content manifest、dump manifest、dump本体のいずれかが不
 - DB4: read API、実backup/restore、retention、Parquet、runbook運用ゲート。PASS。
 - DMUI4: データ在庫、期間、品質、lineage、OHLC/total-return表示。PASS。
 - DMI0/DMI1A: consumer fail-closed、安定identity、quality review contract。PASS。
-- DMI1B: 旧eventの根拠付きreview。BLOCKED_DATA_RECONCILIATION。
-- DMI2〜DMI4: DMI1B PASSまでLOCKED。
+- DMI1B: 旧eventの根拠付きreview。PASS。
+- DMI2A/DMI2B/DMI3: atomic status、snapshot-bound read、stable total-return。PASS。
+- DMI4: cursor・consumer contract kit。PASS。
 - 今後の作業はデータ取得、品質・鮮度、API契約、backup、運用性の改善に限定する。
 - 旧計画のRT0以降にあるstrategy rule、cost、PnL、WFO、Holdout、portfolioは履歴資料として残すが、別の戦略プロジェクトで実施する。
 

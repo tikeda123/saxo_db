@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import base64
 import hashlib
+import hmac
 import json
+import secrets
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -153,6 +156,49 @@ class TotalReturnReadError(RuntimeError):
         super().__init__(code)
         self.code = code
         self.http_status = http_status
+
+
+class CursorError(RuntimeError):
+    def __init__(self, code: str, http_status: int) -> None:
+        super().__init__(code)
+        self.code = code
+        self.http_status = http_status
+
+
+@dataclass(frozen=True)
+class CursorCodec:
+    secret: bytes
+
+    def encode(self, payload: Mapping[str, Any]) -> str:
+        body = json.dumps(
+            payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+        ).encode("utf-8")
+        signature = hmac.new(self.secret, body, hashlib.sha256).digest()
+        return ".".join(
+            (
+                base64.urlsafe_b64encode(body).decode("ascii").rstrip("="),
+                base64.urlsafe_b64encode(signature).decode("ascii").rstrip("="),
+            )
+        )
+
+    def decode(self, token: str) -> dict[str, Any]:
+        if not token or len(token) > 4096 or token.count(".") != 1:
+            raise CursorError("CURSOR_INVALID", 400)
+        encoded_body, encoded_signature = token.split(".", 1)
+        try:
+            body = base64.urlsafe_b64decode(encoded_body + "=" * (-len(encoded_body) % 4))
+            signature = base64.urlsafe_b64decode(
+                encoded_signature + "=" * (-len(encoded_signature) % 4)
+            )
+            payload = json.loads(body.decode("utf-8"))
+        except (ValueError, UnicodeError, json.JSONDecodeError) as exc:
+            raise CursorError("CURSOR_INVALID", 400) from exc
+        expected = hmac.new(self.secret, body, hashlib.sha256).digest()
+        if not hmac.compare_digest(signature, expected):
+            raise CursorError("CURSOR_INVALID", 400)
+        if not isinstance(payload, dict) or payload.get("version") != 1:
+            raise CursorError("CURSOR_INVALID", 400)
+        return payload
 
 
 @dataclass(frozen=True)
@@ -344,6 +390,12 @@ WHERE i.market_key=%s
   AND b.time_utc <= (
       SELECT cutoff_utc FROM ops.research_snapshot WHERE snapshot_id=%s
   )
+  AND (
+      %s::TIMESTAMPTZ IS NULL
+      OR (b.time_utc, b.instrument_id, b.price_basis) > (
+          %s::TIMESTAMPTZ, %s::BIGINT, %s::TEXT
+      )
+  )
   AND b.is_complete AND b.quality_status='PASS'
 ORDER BY b.time_utc, b.instrument_id, b.price_basis
 LIMIT %s
@@ -363,7 +415,7 @@ WITH candidates AS (
            m.mapping_kind, m.mapping_reason, m.approved_at_utc, m.approved_by,
            i.market_key AS instrument_key, i.symbol, i.category,
            ds.dataset_name, ds.provider, ds.price_basis,
-           ds.research_eligibility,
+           ds.research_eligibility, ds.source_manifest_sha256 AS state_revision,
            COUNT(*) OVER ()::BIGINT AS mapping_count
     FROM catalog.series_instrument_mapping m
     JOIN catalog.instrument i ON i.instrument_id=m.instrument_id
@@ -379,7 +431,7 @@ WITH candidates AS (
 SELECT c.source_dataset_id, c.external_series_key, c.instrument_id,
        c.mapping_kind, c.mapping_reason, c.approved_at_utc, c.approved_by,
        c.instrument_key, c.symbol, c.category, c.dataset_name, c.provider,
-       c.price_basis, c.research_eligibility, c.mapping_count,
+       c.price_basis, c.research_eligibility, c.state_revision, c.mapping_count,
        d.date AS session_date, d.total_return_index AS value,
        d.volume, d.quality_status,
        'etf_total_return'::TEXT AS row_price_basis
@@ -394,6 +446,7 @@ LEFT JOIN LATERAL (
           (%s='eligible' AND d.quality_status='PASS')
           OR (%s='stored_complete' AND d.quality_status IN ('PASS','WARN','NOT_EVALUATED'))
       )
+      AND (%s::DATE IS NULL OR d.date > %s::DATE)
     ORDER BY d.date
     LIMIT %s
 ) d ON TRUE
@@ -619,6 +672,8 @@ def snapshot_bars_payload(
     end: datetime,
     limit: int,
     manifest_loader: SnapshotManifestLoader = load_snapshot_manifest,
+    cursor_payload: Mapping[str, Any] | None = None,
+    cursor_codec: CursorCodec | None = None,
 ) -> dict[str, Any]:
     if snapshot_id < 1:
         raise ValueError("snapshot_id must be positive")
@@ -633,6 +688,34 @@ def snapshot_bars_payload(
     if start >= end:
         raise ValueError("start must be earlier than end")
 
+    after_time: datetime | None = None
+    after_instrument_id: int | None = None
+    after_price_basis: str | None = None
+    if cursor_payload is not None:
+        expected_query = {
+            "snapshot_id": snapshot_id,
+            "instrument_key": instrument_key,
+            "layer": layer,
+            "price_basis": price_basis,
+            "start": json_value(start),
+            "end": json_value(end),
+            "limit": limit,
+        }
+        if (
+            cursor_payload.get("kind") != "snapshot-bars"
+            or cursor_payload.get("query") != expected_query
+        ):
+            raise CursorError("CURSOR_QUERY_MISMATCH", 409)
+        last = cursor_payload.get("last")
+        if not isinstance(last, dict):
+            raise CursorError("CURSOR_INVALID", 400)
+        try:
+            after_time = parse_utc(str(last["time_utc"]), "cursor.time_utc")
+            after_instrument_id = int(last["instrument_id"])
+            after_price_basis = str(last["price_basis"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise CursorError("CURSOR_INVALID", 400) from exc
+
     result_sets = reader.query_atomic(
         (
             (SNAPSHOT_CONTEXT_QUERY, ()),
@@ -644,7 +727,11 @@ def snapshot_bars_payload(
             (SNAPSHOT_INTEGRITY_QUERY, (snapshot_id,)),
             (
                 SNAPSHOT_BARS_QUERY,
-                (instrument_key, price_basis, start, end, snapshot_id, limit + 1),
+                (
+                    instrument_key, price_basis, start, end, snapshot_id,
+                    after_time, after_time, after_instrument_id,
+                    after_price_basis, limit + 1,
+                ),
             ),
         )
     )
@@ -708,9 +795,35 @@ def snapshot_bars_payload(
     )
     if not integrity_pass:
         raise SnapshotReadError("SNAPSHOT_INTEGRITY_FAILED", 503)
+    if cursor_payload is not None and cursor_payload.get("snapshot_sha256") != snapshot_sha256:
+        raise CursorError("CURSOR_EXPIRED", 409)
 
     truncated = len(rows) > limit
     selected = rows[:limit]
+    next_cursor = None
+    if truncated and selected and cursor_codec is not None:
+        last_row = selected[-1]
+        next_cursor = cursor_codec.encode(
+            {
+                "version": 1,
+                "kind": "snapshot-bars",
+                "query": {
+                    "snapshot_id": snapshot_id,
+                    "instrument_key": instrument_key,
+                    "layer": layer,
+                    "price_basis": price_basis,
+                    "start": json_value(start),
+                    "end": json_value(end),
+                    "limit": limit,
+                },
+                "snapshot_sha256": snapshot_sha256,
+                "last": {
+                    "time_utc": json_value(last_row["time_utc"]),
+                    "instrument_id": last_row["instrument_id"],
+                    "price_basis": last_row["price_basis"],
+                },
+            }
+        )
     return {
         "api_version": API_VERSION,
         "contract_revision": CONTRACT_REVISION,
@@ -746,6 +859,7 @@ def snapshot_bars_payload(
         },
         "row_count": len(selected),
         "truncated": truncated,
+        "next_cursor": next_cursor,
         "ordered_content_sha256": ordered_content_sha256(selected),
         "rows": selected,
     }
@@ -760,6 +874,8 @@ def total_return_payload(
     source_dataset_id: str | None,
     limit: int,
     eligibility: str,
+    cursor_payload: Mapping[str, Any] | None = None,
+    cursor_codec: CursorCodec | None = None,
 ) -> dict[str, Any]:
     if not instrument_key or len(instrument_key) > 64:
         raise ValueError("instrument_key is required")
@@ -769,6 +885,31 @@ def total_return_payload(
         raise ValueError("source_dataset_id is too long")
     if eligibility not in {"eligible", "stored_complete"}:
         raise ValueError("eligibility must be eligible or stored_complete")
+
+    if cursor_payload is not None:
+        cursor_source_dataset_id = cursor_payload.get("source_dataset_id")
+        if source_dataset_id is not None and source_dataset_id != cursor_source_dataset_id:
+            raise CursorError("CURSOR_QUERY_MISMATCH", 409)
+        source_dataset_id = cursor_source_dataset_id
+        expected_query = {
+            "instrument_key": instrument_key,
+            "start": json_value(start),
+            "end": json_value(end),
+            "source_dataset_id": source_dataset_id,
+            "limit": limit,
+            "eligibility": eligibility,
+        }
+        if (
+            cursor_payload.get("kind") != "total-return"
+            or cursor_payload.get("query") != expected_query
+        ):
+            raise CursorError("CURSOR_QUERY_MISMATCH", 409)
+        try:
+            after_date = date.fromisoformat(str(cursor_payload["last_session_date"]))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise CursorError("CURSOR_INVALID", 400) from exc
+    else:
+        after_date = None
 
     result_sets = reader.query_atomic(
         (
@@ -783,6 +924,8 @@ def total_return_payload(
                     end.date(),
                     eligibility,
                     eligibility,
+                    after_date,
+                    after_date,
                     limit + 1,
                 ),
             ),
@@ -805,6 +948,14 @@ def total_return_payload(
     if mapping_count != 1:
         raise TotalReturnReadError("TOTAL_RETURN_MAPPING_NOT_FOUND", 404)
     mapping = rows[0]
+    state_revision = str(mapping.get("state_revision") or "").strip()
+    if state_revision and len(state_revision) != 64:
+        raise TotalReturnReadError("TOTAL_RETURN_INTEGRITY_FAILED", 503)
+    if cursor_payload is not None and (
+        len(state_revision) != 64
+        or cursor_payload.get("state_revision") != state_revision
+    ):
+        raise CursorError("CURSOR_EXPIRED", 409)
     row_values = [row for row in rows if row.get("session_date") is not None]
     truncated = len(row_values) > limit
     selected_rows = row_values[:limit]
@@ -825,6 +976,25 @@ def total_return_payload(
         if eligibility == "stored_complete"
         else []
     )
+    next_cursor = None
+    if truncated and selected_rows and cursor_codec is not None and len(state_revision) == 64:
+        next_cursor = cursor_codec.encode(
+            {
+                "version": 1,
+                "kind": "total-return",
+                "query": {
+                    "instrument_key": instrument_key,
+                    "start": json_value(start),
+                    "end": json_value(end),
+                    "source_dataset_id": mapping["source_dataset_id"],
+                    "limit": limit,
+                    "eligibility": eligibility,
+                },
+                "source_dataset_id": mapping["source_dataset_id"],
+                "state_revision": state_revision,
+                "last_session_date": json_value(selected_rows[-1]["session_date"]),
+            }
+        )
     return {
         "api_version": API_VERSION,
         "contract_revision": CONTRACT_REVISION,
@@ -833,6 +1003,7 @@ def total_return_payload(
             "read_at_utc": context["read_at_utc"],
             "snapshot_marker": context["snapshot_marker"],
             "mapping_count": mapping_count,
+            "state_revision": state_revision,
         },
         "series": {
             "instrument_id": mapping["instrument_id"],
@@ -866,6 +1037,7 @@ def total_return_payload(
         "warnings": warning_codes,
         "row_count": len(response_rows),
         "truncated": truncated,
+        "next_cursor": next_cursor,
         "ordered_content_sha256": ordered_content_sha256(response_rows),
         "rows": response_rows,
     }
@@ -875,12 +1047,14 @@ def create_app(
     reader: QueryReader | None = None,
     snapshot_reader: QueryReader | None = None,
     snapshot_manifest_loader: SnapshotManifestLoader = load_snapshot_manifest,
+    cursor_secret: bytes | None = None,
 ) -> Flask:
     use_default_readers = reader is None
     selected_reader = reader or DatabaseReader()
     selected_snapshot_reader = snapshot_reader
     if selected_snapshot_reader is None and use_default_readers:
         selected_snapshot_reader = SnapshotDatabaseReader()
+    cursor_codec = CursorCodec(cursor_secret or secrets.token_bytes(32))
     app = Flask(__name__)
     app.config.update(JSON_SORT_KEYS=True, MAX_CONTENT_LENGTH=16_384)
 
@@ -1030,6 +1204,8 @@ def create_app(
                 {"status": "FAILED", "error_code": "SNAPSHOT_DATABASE_UNAVAILABLE"}
             ), 503
         try:
+            cursor_token = request.args.get("cursor", "").strip()
+            cursor_payload = cursor_codec.decode(cursor_token) if cursor_token else None
             payload = snapshot_bars_payload(
                 selected_snapshot_reader,
                 snapshot_id=snapshot_id,
@@ -1040,7 +1216,11 @@ def create_app(
                 end=parse_utc(request.args.get("end", ""), "end"),
                 limit=parse_limit(request.args.get("limit"), MAX_BAR_ROWS),
                 manifest_loader=snapshot_manifest_loader,
+                cursor_payload=cursor_payload,
+                cursor_codec=cursor_codec,
             )
+        except CursorError as exc:
+            return jsonify({"status": "FAILED", "error_code": exc.code}), exc.http_status
         except SnapshotReadError as exc:
             return jsonify({"status": "FAILED", "error_code": exc.code}), exc.http_status
         except ValueError:
@@ -1050,6 +1230,8 @@ def create_app(
     @app.get("/api/v1/total-return")
     def total_return():
         try:
+            cursor_token = request.args.get("cursor", "").strip()
+            cursor_payload = cursor_codec.decode(cursor_token) if cursor_token else None
             payload = total_return_payload(
                 selected_reader,
                 instrument_key=request.args.get("instrument_key", "").strip().lower(),
@@ -1060,7 +1242,11 @@ def create_app(
                 ),
                 limit=parse_limit(request.args.get("limit"), MAX_TOTAL_RETURN_ROWS),
                 eligibility=request.args.get("eligibility", "eligible").strip().lower(),
+                cursor_payload=cursor_payload,
+                cursor_codec=cursor_codec,
             )
+        except CursorError as exc:
+            return jsonify({"status": "FAILED", "error_code": exc.code}), exc.http_status
         except TotalReturnReadError as exc:
             return jsonify({"status": "FAILED", "error_code": exc.code}), exc.http_status
         except ValueError:
