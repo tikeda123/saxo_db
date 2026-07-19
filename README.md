@@ -1,363 +1,259 @@
-# saxo_db — AI引き継ぎ書
+# saxo_db
 
-このREADMEは、前の会話を参照できない別のAIが、このリポジトリだけを読んで安全にデータベース構築を再開するためのハンドオフです。
+Saxo OpenAPIと移管済みCSVから取得した市場データを、再現可能・追記可能・監査可能なPostgreSQLデータベースとして管理するローカルデータ基盤です。
 
-## 1. 最初に把握すること
+このリポジトリの責務は、データの取得、原本保持、正規化、品質判定、派生足生成、履歴・由来管理、バックアップ、および読み取り専用での提供です。売買戦略、特徴量、シグナル、バックテスト、損益、WFO、Holdout評価、ポートフォリオ配分、発注は別プロジェクトの責務とします。
 
-このプロジェクトの目的は、Saxo OpenAPIから取得した市場データを、再現可能・追記可能・監査可能なPostgreSQLデータベースで管理し、後続の市場分析と短期売買戦略研究に利用できる状態にすることです。
+## 主な機能
 
-現在は**Phase DB4 PASS / DMUI4 PASS / RT0 NEXT**です。DB3までの増分取得・revision・calendar・watermark・4H/1D派生、DB4の参照・backupに加え、管理データの在庫・期間・品質・由来・OHLCを確認する読み取り専用Web UIまで実装・実DB検証済みです。
+- PostgreSQL 18上でraw、curated、derived、quality、operationsを分離管理
+- 69個の移管CSVをimmutableな監査原本として登録・検証
+- Saxo SIM OpenAPIから13銘柄の1Hデータを安全に増分取得
+- raw revisionを保持しながらcanonical 1Hを更新
+- 完成済み・品質PASSの1Hから4Hとリスク日足を生成
+- ETF total-return日次系列をnative OHLCと区別して管理
+- inventory、期間、鮮度、coverage、品質、lineage、取込run、容量、backupを参照
+- TradingView Lightweight Chartsを用いた読み取り専用Web UI
+- 外部プロジェクト向けのlocalhost限定Read APIとParquet export
+- 3データベースのbackup、restore smoke、retention運用
 
-| 項目 | 現在の状態 |
-|---|---|
-| プロジェクト分離 | 完了 |
-| DB0（仕様凍結） | 完了 |
-| DB0 v2（データ管理・運用仕様の再凍結） | 完了 |
-| CSV移管 | 完了、69ファイル、全件SHA-256一致 |
-| Docker Compose | 完了、`postgres:18.4-bookworm`、localhost限定 |
-| PostgreSQLコンテナ | 稼働中、healthcheck・restart persistence PASS |
-| DB・role・schema・table | 完了、3 DB、用途別role、checksum付きmigration |
-| 運用確認 | `market_db.inspect`、`market_db.operate`、runbook実装済み |
-| CSVインポート | 完了、69ファイル・781,808 source row、再実行は全件skip |
-| Research snapshot | 完了、cutoff `2024-06-28T23:59:59Z`、default read-only、dump検証PASS |
-| Saxo API増分更新 | 実装済み、smoke・13銘柄refetch・通常run連続2回・DB3 validator PASS、local operator UI実装済み |
-| Calendar / watermark | canonical 13割当済み、`ACTIVE=13`。ETF verified、FX provisional |
-| 4H / 1D派生 | 現在4H 128,469行、1D 47,784行。完成・PASS 1Hだけから生成 |
-| 鮮度・coverage | CLI/view実装済み。現状STALE 11、NOT_EVALUATED 2、FAIL 0。calendar外/欠損は分離表示 |
-| Read API | `127.0.0.1:8766`、read-only role、固定endpoint、CLI安定列8 view一致 |
-| データ管理Web UI | `127.0.0.1:8766/ui/overview`、6画面、TradingView Lightweight Charts 5.2.0、1H/4H/1D OHLCとtotal return折れ線、DMUI4 PASS |
-| Backup / restore | 3 DB custom dump・SHA-256・`pg_restore --list` PASS、market別名restore PASS |
-| Retention / export | DB別daily 7・weekly 4、IWM 1H Parquet 13行のDuckDB再読込PASS |
-| 研究・バックテスト | 未実施 |
+## プロジェクト境界
 
-次に許可されている工程は、**Phase RT0のstrategy rule・cost・trial freeze**です。DB4までのPASSはデータ基盤の品質証明であり、戦略の優位性や収益性を意味しません。PnL、WFO、Holdout、portfolioは後続の明示gateまで開始しません。
+### このリポジトリで行うこと
 
-AI側でlive gateを運用する場合は、`python3 -m market_db.operator_ui`を起動して`http://127.0.0.1:8765/`を開く。ユーザーはpassword欄へtokenを1回入力するだけで、その後の固定`reconcile` job開始・進捗監視・validatorはAIが行う。tokenはURL、コマンド引数、file、DB、log、cookie、browser storageへ保存せず、jobの子process環境だけへ渡す。
+1. 市場データと参照データを取得・保管する。
+2. 原本、revision、canonical、派生データの関係を追跡する。
+3. coverage、freshness、qualityをデータ利用可否とは分けて可視化する。
+4. 読み取り専用API、Web UI、検証済みParquetで他プロジェクトへ提供する。
+5. backup、restore、retention、migrationを監査可能に運用する。
 
-## 2. 絶対に守る境界
+### このリポジトリで行わないこと
 
-1. `data/import/` と `manifests/` の移管済みファイルは、インポート元の証跡です。上書き・整形・削除しません。
-2. 24時間Access Token、AccountKey、ClientKey、口座識別子をファイル、DB、ログ、ブラウザ保存領域へ永続化しません。
-3. 秘密情報はGit管理外の `.secrets/` に置き、ファイル権限を0600にします。値を標準出力へ表示しません。
-4. Saxoの未調整OHLCと、分配金再投資を含むETF total-return系列は別テーブル・別`price_basis`として管理します。混ぜません。
-5. 4時間足と日次リスク系列は、受理済み1時間足から決定論的に生成します。Saxo APIから取得済みの生4時間足は検算用アーカイブであり、正本にしません。
-6. DB2ではAPI取得・4H/1D派生を行わず、DB3で初めて実施しました。特徴量、シグナル、損益、WFO、Holdout評価は引き続き行いません。
-7. `2024-06-28T23:59:59Z`以前の研究スナップショットと、それ以後のforwardデータは物理DBで分離します。FDW・dblink・cross-database linkは禁止です。
-8. `docker compose down -v`、volume削除、CSV削除、DB初期化などの破壊操作は、ユーザーの明示承認なしに実行しません。
-9. 実装が動いたことと、研究戦略に優位性があることを混同しません。DB1〜DB4はデータ基盤の品質ゲートです。
+- 売買ルール、特徴量、シグナル、予測モデルの実装
+- PnL、コスト評価、WFO、Holdout、ポートフォリオ最適化
+- Saxoへの注文、precheck、口座・ポジション操作
+- 品質FAILを隠す補間、価格修正、手動DELETE
+- 外部ネットワークへのDBまたはRead APIの直接公開
 
-## 3. 読む順序
+戦略プロジェクトは本DBを変更せず、Read APIまたは検証済みParquetを入力として利用します。PostgreSQLへの直接接続は運用・保守用途に限定し、通常のデータ連携インターフェースにはしません。
 
-別のAIは、作業開始前に次をこの順序で読んでください。
+## 管理しているデータ
 
-1. `README.md` — 現在地、禁止事項、次工程
-2. `docs/data_management_web_ui_spec.md` / `specs/data_management_web_ui_spec.json` — DMUIの画面、指標、API、安全境界
-3. `docs/data_management_web_ui_implementation_result.md` / `manifests/data_management_web_ui_implementation_manifest.json` — DMUI4実測結果と現行成果物hash
-4. `specs/saxo_db_import_spec.json` — この新プロジェクトでの正本ディレクトリ、ファイル数、移管ルール
-5. `docs/v13_phase_db0_database_implementation_spec.md` — 人間向けの凍結済みDB実装仕様
-6. `specs/v13_phase_db0_database_spec.json` — 機械可読なDB・role・schema・table・増分更新仕様
-7. `docs/db4_implementation_plan.md` — DB4 read API・backup・restore・retention計画
-8. `docs/db4_implementation_result.md` — DB4 runtime drillと実測結果
-9. `manifests/db4_implementation_manifest.json` — DB4 gateの機械可読証跡
-10. `docs/db3_implementation_plan.md` — DB3取得・transaction・calendar・live gate計画
-11. `docs/db3_implementation_result.md` — DB3 offline実測、live blocker、未解放範囲
-12. `manifests/db3_implementation_manifest.json` — DB3 offline gateの機械可読証跡
-13. `docs/database_operations_runbook.md` — DB1〜DB4・DMUIの実行可能な運用手順と後続lock
-14. `docs/db2_implementation_plan.md` — DB2の分類、import、snapshot、gateと実施結果
-15. `docs/db2_implementation_result.md` — DB2の実測件数、品質、snapshot、未実施範囲
-16. `manifests/db2_implementation_manifest.json` — DB2の機械可読証跡
-17. `docs/db1_implementation_plan.md` — DB1の実装順序、運用view/CLI/runbook、テスト、判定規則
-18. `manifests/db0_spec_amendment_v2_manifest.json` — 運用仕様を追加したv2再凍結の成果物hash
-19. `manifests/import_file_inventory.csv` — 69 CSVの相対パス、行数、サイズ、SHA-256
-20. `docs/saxo_api_data_acquisition_handoff.md` — token、instrument確認、full/incremental取得、DataVersion、品質・security gate
-21. `docs/saxo_db_project_plan.md` — DB0〜DB4と研究再開条件
-22. `docs/v13_category_specific_intraday_strategy_research_plan.md` — DB完成後の研究目的
-
-相違がある場合の優先順位は、`README.md`の安全境界 → `specs/saxo_db_import_spec.json`の新プロジェクト相対パス → `specs/v13_phase_db0_database_spec.json`の技術仕様 → 人間向け文書です。仕様を変更する必要が出た場合は、黙って解釈変更せず、差分と理由を提示して再凍結してください。
-
-## 4. 移管済みデータ
-
-| 区分 | 保存先 | CSV数 | データ行数 | 用途 |
-|---|---:|---:|---:|---|
-| 正規化済みintraday | `data/import/intraday/normalized/` | 26 | 525,381 | 1H、取得済み4H、1Dの主要入力 |
-| 取得サマリー | `data/import/intraday/collection_summary.csv` | 1 | 26 | 取得結果メタデータ |
-| Saxo複数資産日足 | `data/import/daily/saxo_multi_asset/` | 8 | 52,692 | 旧日足資産系列 |
-| Saxo ETF raw日足 | `data/import/daily/saxo_etf_raw/` | 14 | 58,592 | Saxo由来の未調整日足 |
-| ETF11ソース | `data/import/daily/etf11_sources/` | 14 | 90,727 | 既存ETFソース入力 |
-| ETF total-return | `data/import/daily/curated_etf_total_return/` | 1 | 54,285 | 調整済み日次系列。Saxo rawと分離 |
-| 分析ベースライン | `data/import/analysis_baseline/` | 5 | 105 | 既存の分析サマリー・比較用 |
-| **合計** | `data/import/` | **69** | **781,808** | メタデータ・派生系列を含む |
-
-CSV合計サイズは160,403,659 bytesです。全69ファイルはコピー元とSHA-256が一致しており、credential/token文字列の検査結果は0件でした。以後の完全性確認は、コピー元の絶対パスではなく`manifests/import_file_inventory.csv`を使用してください。
-
-## 5. 凍結済みターゲット構成
-
-### Docker/PostgreSQL
-
-- Composeファイル: `compose.yaml`
-- Compose project name: `saxo-market-data`
-- service名: `postgres`
-- image: `postgres:18.4-bookworm`
-- host bind: `127.0.0.1:54329`
-- container port: `5432`
-- timezone: UTC
-- restart policy: `unless-stopped`
-- healthcheck: `pg_isready`、対象DB `saxo_market`
-- named volume: `saxo_pg18_data`
-- mount先: `/var/lib/postgresql`
-- 外部公開、管理GUI、`platform`固定: なし
-- Python driver: `psycopg[binary,pool]==3.3.4`
-- TimescaleDB・初期partitioning: 使用しない
-
-partitioningの再検討条件は、curated barが1,000万行以上、DBが8GB以上、または主要クエリのp95が2秒超のいずれかです。
-
-### 物理データベース
-
-| DB | 目的 | 書込 | 接続境界 |
+| データ層 | 主な内容 | 時間軸 | 用途 |
 |---|---|---|---|
-| `saxo_market` | 更新可能な市場データ正本 | `saxo_ingest` | app/analyst readerを用途分離 |
-| `saxo_research_v13` | cutoff以前の不変研究スナップショット | 原則なし | `v13_research_reader`のみ、default read-only |
-| `saxo_forward_v13` | RF0以後のappend-only forwardデータ | `v13_forward_writer`経由 | gate通過までreaderを与えない |
+| raw | Saxo response、移管CSV由来のrevision、参照観測 | 原本依存 | 監査・再構築 |
+| curated | canonical market bar、ETF total-return | 1H、1D | 標準の利用入口 |
+| derived | canonical 1Hから再生成したbar | 4H、1D risk | 統一ルールの派生足 |
+| catalog | dataset、instrument、session calendar | メタデータ | 識別・取引時間判定 |
+| quality | 品質event、状態、根拠 | メタデータ | guardrail・監査 |
+| ops | ingestion run、watermark、source file、snapshot、backup | メタデータ | 運用・lineage |
 
-### Role
+native OHLCとETF total-returnは意味が異なるため、同一系列として扱いません。保存期間、行数、最新時刻、品質状態は固定値をREADMEへ転記せず、現在のDBから次で確認します。
 
-- `saxo_db_owner`: NOLOGIN、object owner
-- `saxo_migrator`: DDL/migration専用
-- `saxo_ingest`: ingestion DMLと許可済みprocedure
-- `saxo_app_reader`: curated/opsのアプリ読取
-- `saxo_analyst_reader`: analytics用途の読取
-- `saxo_ops_operator`: 許可済みquality/backup procedureの実行専用
-- `v13_research_reader`: research snapshot専用
-- `v13_forward_writer`: forward append専用
-- `postgres`: bootstrap/emergency専用。通常利用しない
+```bash
+.venv/bin/python -m market_db.inspect inventory
+.venv/bin/python -m market_db.inspect coverage
+.venv/bin/python -m market_db.inspect freshness
+.venv/bin/python -m market_db.inspect quality --fail-on-alert
+.venv/bin/python -m market_db.inspect lineage
+```
 
-reader roleには`statement_timeout`、`default_transaction_read_only=on`、`temp_file_limit`を設定します。PUBLICの不要な`CREATE`権限と、不要なschema権限を剥奪します。
+`NOT_EVALUATED`はPASSではありません。calendarや鮮度判定の根拠が不足している状態を、そのまま保持します。
 
-### Schemaと主要テーブル
-
-schemaは `catalog`、`ops`、`raw`、`staging`、`curated`、`derived`、`quality`、`analytics` です。
-
-主要テーブルは次のとおりです。厳密な列・型・制約は機械仕様を正本としてください。
-
-- `catalog.source_dataset`
-- `catalog.session_calendar`
-- `catalog.session_interval`
-- `catalog.instrument`
-- `ops.ingestion_run`
-- `ops.source_file`
-- `ops.watermark`
-- `raw.market_bar_revision`
-- `raw.reference_observation`
-- `curated.market_bar`
-- `curated.etf_total_return_daily`
-- `derived.market_bar_4h`
-- `derived.market_bar_1d_risk`
-- `quality.event`
-- `ops.research_snapshot`
-- `ops.backup_run`
-- `ops.schema_migration`
-
-運用者はtableを直接探索するのではなく、read-only viewと`python3 -m market_db.inspect`を標準入口として、dataset inventory、coverage、freshness、lineage、ingestion run、品質event、storage、backup状態を確認します。品質eventとbackup実績の状態更新は、`saxo_ops_operator`を使う`market_db.operate`の許可済みprocedureだけに限定します。DB2では実データの件数・期間・品質をgate化済みです。session calendar未登録のcoverage/freshnessはDB3まで`NOT_EVALUATED`です。
-
-固定viewは`analytics.v_data_inventory`、`analytics.v_data_coverage`、`analytics.v_data_lineage`、`ops.v_ingestion_status`、`quality.v_open_event`、`ops.v_storage_usage`、`ops.v_backup_status`です。research DBにはinventory/coverage/lineage/storageだけを公開し、forward DBは評価ゲート前の参照対象にしません。
-
-時刻は`TIMESTAMPTZ`のUTC、日付は`DATE`、価格は`NUMERIC(24,12)`、volumeは`NUMERIC(30,8)`、SHA-256は`CHAR(64)`、構造化メタデータは`JSONB`を使います。
-
-## 6. 実施済みPhase DB1
-
-DB1は、データを投入せず、Docker/PostgreSQL基盤、migration、role境界を再現可能な形で構築し、2026-07-16にruntime gateを含めてPASSしました。詳細は`docs/db1_implementation_result.md`と`manifests/db1_implementation_manifest.json`を参照してください。
-
-### DB1で作成済みの成果物
-
-DB1では最低限、次を作成済みです。
+## 構成
 
 ```text
-compose.yaml
-.env.example
-.dockerignore
-requirements.txt
-scripts/create_local_db_secrets.py
-db/migrations/0001_bootstrap.sql
-db/migrations/0002_market_schema.sql
-db/migrations/0003_research_schema.sql
-db/migrations/0004_forward_schema.sql
-db/migrations/0005_grants_and_forward_append.sql
-db/migrations/0006_operational_views.sql
-db/migrations/0007_operational_procedures.sql
-db/migrations/0008_quality_privilege_hardening.sql
-market_db/__init__.py
-market_db/connection.py
-market_db/migrate.py
-market_db/validate.py
-market_db/inspect.py
-market_db/operate.py
-tests/
-tests/test_inspect_cli.py
-tests/test_operate_cli.py
-manifests/db1_implementation_manifest.json
-docs/db1_implementation_result.md
-docs/database_operations_runbook.md
+Saxo SIM OpenAPI / immutable CSV
+                |
+                v
+       raw revision + lineage
+                |
+                v
+        canonical 1H market bar
+                |
+          +-----+-----+
+          |           |
+          v           v
+     derived 4H   derived 1D risk
+                |
+                v
+  Read API / Web UI / verified Parquet
+                |
+                v
+    external analysis or strategy projects
 ```
 
-必要ならmigration SQLを責務単位で追加して構いません。ただし番号、適用順、SHA-256、適用時刻を`ops.schema_migration`へ記録し、同一番号の内容変更を拒否する仕組みにしてください。destructive down migrationは作りません。
+物理データベースは次の3つです。
 
-### DB1の実行順序
+| DB | 役割 | 境界 |
+|---|---|---|
+| `saxo_market` | 更新可能な市場データ正本 | ingestとreaderをrole分離 |
+| `saxo_research_v13` | cutoff以前の不変snapshot | default read-only |
+| `saxo_forward_v13` | 既存v13計画用のappend-only領域 | gate前は一般readerへ非公開 |
 
-1. 移管manifestと69 CSVの相対パス・サイズ・SHA-256を再検証する。
-2. Git状態を確認し、ユーザーの既存変更を保護する。
-3. `.gitignore`を確認し、`.secrets/`、`.env`、backup、DB dump、Python cacheを除外する。
-4. `create_local_db_secrets.py`で高強度passwordを生成し、`.secrets/`へ0600で保存する。値は表示しない。
-5. 凍結仕様どおりに`compose.yaml`を作り、`docker compose config`で検証する。
-6. imageをpullし、実際のdigestをDB1 manifestへ記録する。
-7. named volumeを使ってPostgreSQLを起動し、healthcheckがhealthyになることを確認する。
-8. bootstrap/migrationを実行して3 DB、role、schema、最低限のtable・constraint・運用viewを作る。
-9. `market_db.inspect`の全subcommandが空DBで0件または`NOT_EVALUATED`を安全に返すことを確認する。
-10. writer/reader/owner/migrator/operatorの権限分離、運用view/inspect CLIのread-only性、operate CLIのprocedure-only更新を自動テストする。
-11. コンテナ再起動後もschema、view、migration履歴が残ることを確認する。
-12. 起動・確認・障害対応・secret rotation・backup/restoreのrunbookを作成する。
-13. 実行コマンド、digest、migration checksum、テスト結果、未実施事項を結果文書とmanifestに記録する。
+## 利用インターフェース
 
-### DB1では行わないこと
+| 目的 | 推奨インターフェース | 備考 |
+|---|---|---|
+| 別のローカルプロセスからOHLCを取得 | `GET /api/v1/bars` | 安定した外部利用契約、1H/4H/1D |
+| データの在庫・品質・鮮度を確認 | `GET /api/v1/operations/*` | allow-list済みの8種類 |
+| datasetとsnapshotを識別 | `GET /api/v1/manifests` | 再現性・lineage確認 |
+| 人が期間・OHLC・品質を確認 | Web UI | localhost限定、完全read-only |
+| 大量データを受け渡す | `market_db.export_parquet` | SHA-256とread-backを検証 |
+| DB運用者がterminalで確認 | `market_db.inspect` | 任意SQLを受け付けない |
 
-- CSVをraw/curatedへ投入しない
-- Saxo APIへ接続しない
-- 24時間tokenを求めない・保存しない
-- watermark増分更新を実行しない
-- 4H/1Dを生成しない
-- research snapshotをデータで満たさない
-- 分析、特徴量、シグナル、PnL、WFO、Holdoutを計算しない
+外部プロジェクトとの正式な契約、response schema、Python例、エラー処理、ページ分割、total-return取得、Docker/ブラウザ制約は[Read APIインターフェース仕様](docs/read_api_interface.md)を参照してください。
 
-## 7. DB1品質ゲート
+## クイックスタート
 
-次の全項目が確認できたときだけDB1をPASSとします。
-
-- `docker compose config`が成功する。
-- PostgreSQLは`127.0.0.1:54329`からのみ接続でき、外部interfaceへ公開されない。
-- serviceがhealthyで、再起動後もnamed volume上の状態が維持される。
-- image tagと取得digestがmanifestに記録される。
-- 3つの物理DBと定義済みroleが存在する。
-- `saxo_db_owner`はNOLOGINで、通常接続に使われない。
-- readerはDDL/DMLできず、writerは許可外schemaへ書き込めない。
-- `v13_research_reader`は`saxo_market`へ接続できない。
-- `v13_forward_writer`は許可済みappend経路以外で変更できない。
-- migrationは初回適用、再実行、checksum不一致拒否をテスト済みである。
-- `catalog.source_dataset`、`ops.backup_run`、品質event lifecycle列、定義済み運用viewが存在する。
-- `market_db.inspect`のinventory、coverage、freshness、runs、quality、lineage、storage、backupsが空DBで安全に動作する。
-- 運用view/CLIはread-onlyで、任意SQLやcredentialを受け付けない。
-- `saxo_ops_operator`は許可済みquality/backup procedureだけを実行でき、tableの直接DMLと市場データ変更ができない。
-- repositoryとログにpassword/token/account IDが残っていない。
-- 移管済み69 CSVのSHA-256が変化していない。
-- DB1で市場データが投入されていない。
-- `docs/db1_implementation_result.md`と`manifests/db1_implementation_manifest.json`が作成されている。
-
-成果物が存在するだけではPASSにしません。実行時検証が失敗した場合は、`FAIL`または`BLOCKED`として原因、再現手順、次に必要な条件を記録してください。
-
-## 8. DB4の現在地と後続工程
-
-DB1〜DB4はすべてPASSした。次はRT0だけが解放されている。
-
-### Phase DB2：既存CSVインポート（PASS）
-
-- 69 source file、781,808 source rowをimmutableな入力として登録した。
-- raw market bar 636,629行、reference 90,894行、curated 1H 394,992行、ETF total-return 54,285行を分類保存した。
-- 既知品質FAIL 5件はrawを改変せずOPEN eventとして保持した。
-- source file単位のlineage不一致0件、coverageは`NOT_EVALUATED`を確認した。
-- cutoff以前だけを`saxo_research_v13`へ物理copyし、default read-only化した。
-- snapshot content/dump manifest、dump SHA-256、`pg_restore --list`を検証した。restore smoke testはDB4までLOCKEDである。
-
-### Phase DB3：増分更新（PASS）
-
-- SIM限定GET allow-list、token redaction、429および一時的network例外の1/2/4秒・最大4attempt有限retryを実装した。
-- Etf 20本、FxSpot 72本の実bar overlapと`Mode=From` forward pagingを実装した。
-- raw JSON atomic保存、SHA-256、source file、raw revision、curated latest、watermarkをrun IDで追跡する。
-- stage → validate → raw append → curated upsert → watermark → 4H/1Dを単一transactionでcommitする。失敗時はDB変更をrollbackし、raw artifactとsanitized run metadataだけを残す。
-- `DataVersion`変化時は`STALE_DATA_VERSION`で停止する。対象1銘柄だけを`Mode=UpTo`で全取得し、guard付きprocedureで置換する`full-refetch`経路を実装した。
-- full-refetch限定で、過去FxSpot High/Low交差を最大10 unique rowかつ全観測の0.01%以下だけ無補正隔離する。raw JSON・SHA-256・元Bid/Askを保持し、`rejected_rows`と解決済みWARNへ記録する。通常run、Open/Close、最新sample、閾値超過は全runをFAILする。
-- localhost限定operator UIは、任意commandを受け付けず、固定`market_db.incremental_update reconcile`をsingle jobとして起動する。CSRF、same-origin、no-store、CSP、token出力redactionを強制する。
-- ETF calendarはholiday、短縮取引、DST、例外休場をUTC化した。FXはSaxo live trading schedule照合前なのでprovisional・`NOT_EVALUATED`である。
-- coverageはmissingとout-of-sessionを分ける。既存ETFは11銘柄ともWARN、FX 2銘柄はNOT_EVALUATEDで、FAILは0。
-- 現在のwatermarkは`ACTIVE=13`であり、freshnessはSTALE 11、NOT_EVALUATED 2、FAIL 0である。
-- EURUSDは過去High/Low交差5件、USDJPYは9件を上限内で無補正隔離し、raw原本と解決済みWARNを保持した。
-- 通常run 104・105が連続PASSし、DB3総合validatorもPASSした。分割実行した全test 74件はPASS。
-
-### Phase DB4：参照・運用ゲート（PASS）
-
-- inventory、coverage、freshness、lineage、run、quality、storage、backup statusを固定read APIで公開した。
-- APIはloopback、`saxo_app_reader`、read-only transaction、最大5接続、期間必須bar queryに限定した。
-- 運用CLIとAPIの8 viewは時計依存列を除く安定列が一致した。
-- 3 DB backupをSHA-256と`pg_restore --list`で検証し、market DBを別名一時DBへrestoreした。
-- retentionは各DBごとdaily 7・weekly 4とし、dry-run既定、root外・命名規則外を変更しない。
-- IWM 1H 13行のParquetを作成し、DuckDB read-back 13行とSHA-256を確認した。
-
-DB1〜DB4がすべてPASSしたため、短期戦略研究のPhase RT0へ進める。
-
-## 9. 運用・バックアップの凍結方針
-
-- backup形式: `pg_dump` custom format
-- 保存先: `backups/postgres/`
-- 実施時点: 初回import後、schema migration前後、成功した増分更新後は最大日次1回
-- retention: daily 7世代、weekly 4世代
-- 各dumpはSHA-256と`pg_restore --list`で検証する。
-- 月次で別名DBへのrestore smoke testを実施する。
-- backup、dump、秘密情報はGitへ追加しない。
-
-## 10. 作業中の確認コマンド
-
-仕様・移管bundleの確認:
+### 初回セットアップ
 
 ```bash
-python3 -m json.tool specs/saxo_db_import_spec.json >/dev/null
-python3 -m json.tool specs/v13_phase_db0_database_spec.json >/dev/null
-git status --short
-```
-
-DB4現在状態の確認例:
-
-```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python scripts/create_local_db_secrets.py
 docker compose -p saxo-market-data config
-docker compose -p saxo-market-data ps
-docker compose -p saxo-market-data exec postgres pg_isready -d saxo_market
-SAXO_DB_INTEGRATION=1 python3 -m pytest
-python3 -m market_db.validate --phase db4
-python3 -m market_db.session_calendar status
-python3 -m market_db.incremental_update status
-python3 -m market_db.operator_ui
-python3 -m market_db.read_api --port 8766
-python3 -m market_db.backup retention
-python3 -m market_db.import_legacy status
-python3 -m market_db.research_snapshot status
-python3 -m market_db.inspect inventory
-python3 -m market_db.inspect lineage
-python3 -m market_db.inspect quality
-python3 -m market_db.inspect storage
+docker compose -p saxo-market-data up -d postgres
+.venv/bin/python -m market_db.migrate all
 ```
 
-実際の接続情報は`.secrets/`からプロセス環境へ注入し、コマンドライン引数、shell history、ログへpasswordを露出させないでください。
+secretは`.secrets/`にだけ保存し、Git、`.env`、terminal引数、ログへ出力しません。より詳しい初回構築、migration、障害対応は[データ管理・運用ランブック](docs/database_operations_runbook.md)を参照してください。
 
-## 11. 別AIが最後に報告する形式
+### PostgreSQLの起動と確認
 
-DB4作業の完了報告には、最低限次を含めてください。
+```bash
+docker compose -p saxo-market-data up -d postgres
+docker compose -p saxo-market-data ps
+.venv/bin/python -m market_db.migrate validate
+```
 
-1. 結論: `PASS` / `FAIL` / `BLOCKED`
-2. 作成・変更したファイル
-3. canonical 13、watermark、raw/curated/4H/1Dの実測件数
-4. read API、3 DB backup、restore smoke、retention、Parquetの結果
-5. 適用migration番号とSHA-256
-6. research DBが未変更・read-onlyであること
-7. 全testとDB4 validatorの結果
-8. 移管69 CSVが未変更であること
-9. token/account情報保存0、注文/precheck 0、戦略計算0
-10. 残課題と、次に解放されたPhase
+PostgreSQLはhostの`127.0.0.1:54329`だけにbindされます。
 
-「コードを書いた」「テストファイルを作った」だけでPASSと報告しないでください。Docker daemonが利用できない等で実行確認できない場合は、実装ゲートと実行ゲートを分け、実行ゲートを`BLOCKED`としてください。
+### Read APIとWeb UI
 
-## 12. 再開用プロンプト
+```bash
+.venv/bin/python -m market_db.read_api --port 8766
+```
 
-別のAIへは、次の依頼文で再開できます。
+- health: <http://127.0.0.1:8766/health>
+- データ概要: <http://127.0.0.1:8766/ui/overview>
+- データ在庫: <http://127.0.0.1:8766/ui/inventory>
+- 系列チャート: データ在庫から対象系列の「チャート」を選択
+- 品質・鮮度: <http://127.0.0.1:8766/ui/quality>
 
-> repository rootの`README.md`、DB4計画・結果、機械可読manifest、運用runbookを読んでください。DB1〜DB4はPASSし、read API、3 DB backup、market restore smoke、DB別retention、Parquet再読込まで完了しています。次に許可されたPhase RT0のstrategy rule、cost、trial freezeだけを実施してください。PnL、WFO、Holdout、portfolioは後続の明示gateまで開始しないでください。
+品質画面はCURRENT/HISTORICAL/UNKNOWNを分離し、eventのlayer・足・price basisをcanonical 1Hと照合します。raw archiveに残る既知異常はCURRENTの監査証跡として保持されますが、scopeが異なるcanonical 1HをFAILにしません。UNKNOWNは常にfail-closedです。
 
----
+Read APIは`saxo_app_reader`、read-only transaction、最大5接続、30秒statement timeoutで動作します。Saxo tokenは不要です。停止は起動したterminalで`Ctrl-C`を使います。
 
-最終更新: 2026-07-17 JST
-現在のゲート: `DB0 v2=RE-FROZEN / DB1=PASS / DB2=PASS / DB3=PASS / DB4=PASS / RT0=NEXT`
+OHLC取得例:
+
+```bash
+curl --fail --get 'http://127.0.0.1:8766/api/v1/bars' \
+  --data-urlencode 'instrument_key=iwm' \
+  --data-urlencode 'layer=1h' \
+  --data-urlencode 'start=2026-07-15T00:00:00Z' \
+  --data-urlencode 'end=2026-07-16T00:00:00Z' \
+  --data-urlencode 'limit=1000'
+```
+
+外部projectが取得前に系列の利用可否を確認する場合は、複数のoperations endpointをclient側で結合せず、atomic status endpointを使用します。
+
+```bash
+curl --fail --get 'http://127.0.0.1:8766/api/v1/series-status' \
+  --data-urlencode 'instrument_key=iwm' \
+  --data-urlencode 'layer=1h' \
+  --data-urlencode 'price_basis=native_ohlc'
+```
+
+identity、coverage、freshness、quality、watermark、latest runは同じread-only repeatable-read snapshotから返されます。初期契約はcanonical 1Hだけを対象とし、`UNKNOWN` ERROR/CRITICALは必ず`BLOCKED`です。
+
+### Parquet export
+
+```bash
+.venv/bin/python -m market_db.export_parquet \
+  --instrument-key iwm \
+  --layer 1h \
+  --start 2026-07-15T00:00:00Z \
+  --end 2026-07-17T00:00:00Z \
+  --output iwm_sample.parquet
+```
+
+出力先はGit管理外の`exports/parquet/`だけです。最大100,000行で、SHA-256とDuckDB read-back件数が一致した場合だけ成功します。Parquetは配布用snapshotであり、PostgreSQLの正本へ逆importしません。
+
+## Saxoデータ更新
+
+Saxo SIM tokenは24時間程度で失効するsession credentialです。file、shell startup、`.env`、DB、manifest、ブラウザstorageへ保存しません。取得操作はlocalhost限定operator UIから行えます。
+
+```bash
+.venv/bin/python -m market_db.operator_ui
+```
+
+<http://127.0.0.1:8765/>でtokenを一度だけ入力し、Reconcileを開始します。tokenは子processの環境へ渡され、job完了後に破棄されます。Read API/Web UIの`8766`とは別processです。
+
+更新処理はSIMのGET allow-listだけを使用し、注文・precheckは送信しません。DataVersion変更時は通常更新を止め、guard付きfull refetchでraw revisionを保持したまま対象銘柄を再構築します。
+
+## 安全境界
+
+- `data/import/`の69 CSVはimmutable。上書き、整形、削除をしない。
+- 適用済みmigrationを変更せず、新しい番号のmigrationで修正する。
+- `docker compose down -v`、volume削除、DB dropは明示承認なしに行わない。
+- token、password、AccountKey、ClientKey、口座識別子を保存・表示しない。
+- rawの異常値を補間、swap、clamp、手動DELETEで隠さない。
+- Read APIとWeb UIはloopback限定のまま利用する。
+- strategy projectにはDB writer権限を与えない。
+
+## ディレクトリ
+
+```text
+compose.yaml              PostgreSQLサービス定義
+db/migrations/            checksum付きforward migration
+market_db/                取得・取込・派生・運用・API実装
+tests/                    unit / database integration test
+docs/                     仕様、運用、実装結果、interface文書
+specs/                    機械可読な凍結仕様
+manifests/                成果物hashとruntime evidence
+data/import/              immutableな移管入力
+data/acquisition/         Git管理外の取得artifact
+backups/postgres/         Git管理外のbackup
+exports/parquet/          Git管理外の外部受渡し用export
+```
+
+## 検証
+
+```bash
+.venv/bin/python -m pytest
+SAXO_DB_INTEGRATION=1 .venv/bin/python -m pytest
+.venv/bin/python -m market_db.validate --phase db4
+```
+
+統合testをskipした実行は、実DB gateのPASSを意味しません。固定manifestのbaselineと現在DBの可変件数は区別して検証します。
+
+## 現在の状態
+
+- DB1: PostgreSQL、role、migration、運用view — PASS
+- DB2: legacy import、lineage、research snapshot — PASS
+- DB3: SIM増分取得、revision、calendar、watermark、4H/1D派生 — PASS
+- DB4: Read API、backup/restore、retention、Parquet — PASS
+- DMUI4: データ管理Web UI、TradingView Lightweight Charts — PASS
+- DMI0: 外部consumerのquality event fail-closed判定 — PASS
+- DMI1A: 安定identity、event scope/applicability、API contract 1.1 — PASS
+- DMI1B: 旧22 eventの運用review — BLOCKED_DATA_RECONCILIATION
+- DMI2〜DMI4: DMI1B完了までLOCKED
+
+これらはデータ基盤の実装・運用ゲートです。戦略の優位性や収益性を証明するものではありません。旧計画に含まれるRT0以降の戦略文書は履歴資料として保持しますが、このリポジトリの現行スコープには含めません。
+
+## 主要ドキュメント
+
+- [外部プロジェクト向けRead APIインターフェース](docs/read_api_interface.md)
+- [データ管理・運用ランブック](docs/database_operations_runbook.md)
+- [データ管理Web UI仕様](docs/data_management_web_ui_spec.md)
+- [データ管理Web UI実装結果](docs/data_management_web_ui_implementation_result.md)
+- [データ管理インターフェース改善計画](docs/data_management_interface_improvement_plan.md)
+- [DMI0/DMI1実装結果](docs/dmi1_implementation_result.md)
+- [旧quality eventレビュー候補](docs/dmi1_legacy_event_review_candidates.md)
+- [DB4実装結果](docs/db4_implementation_result.md)
+- [データ取得ハンドオフ](docs/saxo_api_data_acquisition_handoff.md)
+- [DB機械仕様](specs/v13_phase_db0_database_spec.json)
+- [移管仕様](specs/saxo_db_import_spec.json)
+
+フェーズ別の実装計画・結果・manifestは監査証跡として`docs/`、`specs/`、`manifests/`に保持します。日常利用ではREADME、Read APIインターフェース仕様、運用ランブックの順に参照してください。

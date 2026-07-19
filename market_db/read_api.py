@@ -33,6 +33,8 @@ LOOPBACK_HOST = "127.0.0.1"
 DEFAULT_PORT = 8766
 MAX_OPERATION_ROWS = 1_000
 MAX_BAR_ROWS = 10_000
+API_VERSION = 1
+CONTRACT_REVISION = "1.1"
 OPERATION_COMMANDS = (
     "inventory",
     "coverage",
@@ -47,6 +49,10 @@ OPERATION_COMMANDS = (
 
 class QueryReader(Protocol):
     def query(self, statement: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]: ...
+
+    def query_atomic(
+        self, queries: Sequence[tuple[str, Sequence[Any]]]
+    ) -> list[list[dict[str, Any]]]: ...
 
 
 class DatabaseReader:
@@ -83,6 +89,22 @@ class DatabaseReader:
                     cursor.execute(statement, tuple(params))
                     return [dict(row) for row in cursor.fetchall()]
 
+    def query_atomic(
+        self, queries: Sequence[tuple[str, Sequence[Any]]]
+    ) -> list[list[dict[str, Any]]]:
+        """Run fixed component reads under one repeatable read-only snapshot."""
+        results: list[list[dict[str, Any]]] = []
+        with self.pool.connection() as conn:
+            with conn.transaction():
+                with conn.cursor(row_factory=dict_row) as cursor:
+                    cursor.execute(
+                        "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"
+                    )
+                    for statement, params in queries:
+                        cursor.execute(statement, tuple(params))
+                        results.append([dict(row) for row in cursor.fetchall()])
+        return results
+
     def close(self) -> None:
         if self._owns_pool:
             self.pool.close()
@@ -97,7 +119,8 @@ class BarQuery:
 BAR_QUERIES: Mapping[str, BarQuery] = {
     "1h": BarQuery(
         """
-        SELECT i.market_key AS instrument_key, i.symbol, '1h'::TEXT AS layer,
+        SELECT i.market_key AS instrument_key, i.instrument_id, i.symbol, i.category,
+               '1h'::TEXT AS layer,
                b.time_utc, NULL::DATE AS session_date, b.price_basis,
                b.open, b.high, b.low, b.close, b.volume,
                b.is_complete, b.quality_status
@@ -112,7 +135,8 @@ BAR_QUERIES: Mapping[str, BarQuery] = {
     ),
     "4h": BarQuery(
         """
-        SELECT i.market_key AS instrument_key, i.symbol, '4h'::TEXT AS layer,
+        SELECT i.market_key AS instrument_key, i.instrument_id, i.symbol, i.category,
+               '4h'::TEXT AS layer,
                b.time_utc, NULL::DATE AS session_date, b.price_basis,
                b.open, b.high, b.low, b.close, b.volume,
                b.is_complete, b.quality_status
@@ -127,7 +151,8 @@ BAR_QUERIES: Mapping[str, BarQuery] = {
     ),
     "1d": BarQuery(
         """
-        SELECT i.market_key AS instrument_key, i.symbol, '1d'::TEXT AS layer,
+        SELECT i.market_key AS instrument_key, i.instrument_id, i.symbol, i.category,
+               '1d'::TEXT AS layer,
                NULL::TIMESTAMPTZ AS time_utc, b.session_date, b.price_basis,
                b.open, b.high, b.low, b.close, b.volume,
                b.is_complete, b.quality_status
@@ -143,6 +168,79 @@ BAR_QUERIES: Mapping[str, BarQuery] = {
         date_bounds=True,
     ),
 }
+
+
+SERIES_STATUS_QUERIES = (
+    (
+        "SELECT transaction_timestamp() AS read_at_utc, "
+        "txid_current_snapshot()::TEXT AS snapshot_marker",
+        (),
+    ),
+    (
+        """
+        SELECT i.instrument_id, i.market_key AS instrument_key, i.symbol, i.category,
+               '1h'::TEXT AS layer, 60::SMALLINT AS horizon_minutes, %s::TEXT AS price_basis
+        FROM catalog.instrument i
+        WHERE i.market_key=%s AND i.active_to_utc IS NULL
+          AND EXISTS (
+              SELECT 1 FROM analytics.v_data_freshness f
+              WHERE f.instrument_id=i.instrument_id AND f.horizon_minutes=60
+                AND f.price_basis=%s
+          )
+        """,
+        ("price_basis", "instrument_key", "price_basis"),
+    ),
+    (
+        """
+        SELECT c.*
+        FROM analytics.v_data_coverage c
+        WHERE c.instrument_key=%s AND c.horizon_minutes=60 AND c.price_basis=%s
+        """,
+        ("instrument_key", "price_basis"),
+    ),
+    (
+        """
+        SELECT f.*
+        FROM analytics.v_data_freshness f
+        WHERE f.instrument_key=%s AND f.horizon_minutes=60 AND f.price_basis=%s
+        """,
+        ("instrument_key", "price_basis"),
+    ),
+    (
+        """
+        SELECT e.*
+        FROM quality.v_open_event e
+        WHERE e.severity IN ('ERROR','CRITICAL')
+          AND (e.instrument_key=%s OR e.instrument_id IS NULL)
+          AND (
+              e.scope_kind='UNKNOWN'
+              OR (
+                  (e.affected_layer IS NULL OR e.affected_layer='curated')
+                  AND (e.horizon_minutes IS NULL OR e.horizon_minutes=60)
+                  AND (e.price_basis IS NULL OR e.price_basis=%s)
+              )
+          )
+        ORDER BY e.quality_event_id
+        """,
+        ("instrument_key", "price_basis"),
+    ),
+    (
+        """
+        SELECT r.*
+        FROM ops.v_ingestion_status r
+        WHERE r.ingestion_run_id = (
+            SELECT f.last_ingestion_run_id
+            FROM analytics.v_data_freshness f
+            WHERE f.instrument_key=%s AND f.horizon_minutes=60 AND f.price_basis=%s
+        )
+        """,
+        ("instrument_key", "price_basis"),
+    ),
+    (
+        "SELECT quality_event_high_watermark FROM quality.v_event_high_watermark",
+        (),
+    ),
+)
 
 
 def parse_utc(value: str, field: str) -> datetime:
@@ -210,6 +308,113 @@ def bar_rows(
     return reader.query(query.statement, (instrument_key, lower, upper, limit + 1))
 
 
+def series_status_payload(
+    reader: QueryReader, *, instrument_key: str, layer: str, price_basis: str
+) -> dict[str, Any] | None:
+    if not instrument_key or len(instrument_key) > 64:
+        raise ValueError("instrument_key is required")
+    if layer != "1h":
+        raise ValueError("layer must be 1h")
+    if not price_basis or len(price_basis) > 64:
+        raise ValueError("price_basis is required")
+    values = {"instrument_key": instrument_key, "price_basis": price_basis}
+    queries = [
+        (
+            statement,
+            tuple(values[name] for name in parameter_names),
+        )
+        for statement, parameter_names in SERIES_STATUS_QUERIES
+    ]
+    result_sets = reader.query_atomic(queries)
+    if len(result_sets) != len(SERIES_STATUS_QUERIES):
+        raise RuntimeError("atomic series status result count mismatch")
+    context_rows, identity_rows, coverage_rows, freshness_rows, events, run_rows, high_rows = result_sets
+    if not identity_rows:
+        return None
+    if len(identity_rows) != 1:
+        raise RuntimeError("series identity is ambiguous")
+
+    context = context_rows[0]
+    series = identity_rows[0]
+    coverage = coverage_rows[0] if coverage_rows else None
+    freshness = freshness_rows[0] if freshness_rows else None
+    latest_run = run_rows[0] if run_rows else None
+    current_blockers = [
+        row for row in events
+        if str(row.get("applicability") or "UNKNOWN").upper() in {"CURRENT", "UNKNOWN"}
+        and bool(row.get("current_blocker", True))
+    ]
+    historical = [
+        row for row in events
+        if str(row.get("applicability") or "UNKNOWN").upper() == "HISTORICAL"
+    ]
+    unknown_count = sum(
+        str(row.get("applicability") or "UNKNOWN").upper() == "UNKNOWN"
+        for row in current_blockers
+    )
+    quality_status = "FAIL" if current_blockers else "PASS"
+    reasons: list[str] = []
+    warnings: list[str] = []
+    if coverage is None:
+        reasons.append("COVERAGE_COMPONENT_MISSING")
+    else:
+        coverage_status = str(coverage.get("coverage_status") or "UNKNOWN")
+        if coverage_status == "WARN":
+            warnings.append("COVERAGE_WARN")
+        elif coverage_status != "PASS":
+            reasons.append(f"COVERAGE_{coverage_status}")
+    if freshness is None:
+        reasons.append("FRESHNESS_COMPONENT_MISSING")
+    else:
+        if str(freshness.get("data_status")) != "ACTIVE":
+            reasons.append(f"DATA_{freshness.get('data_status') or 'UNKNOWN'}")
+        if str(freshness.get("freshness_status")) != "PASS":
+            reasons.append(f"FRESHNESS_{freshness.get('freshness_status') or 'UNKNOWN'}")
+    if current_blockers:
+        reasons.append("QUALITY_CURRENT_OR_UNKNOWN_BLOCKER")
+    if latest_run is None or str(latest_run.get("status")) != "PASS":
+        reasons.append("LATEST_INGESTION_RUN_NOT_PASS")
+
+    high_watermark = (
+        int(high_rows[0].get("quality_event_high_watermark") or 0) if high_rows else 0
+    )
+    return {
+        "api_version": API_VERSION,
+        "contract_revision": CONTRACT_REVISION,
+        "generated_at_utc": context.get("read_at_utc"),
+        "series": series,
+        "consistency": {
+            "read_at_utc": context.get("read_at_utc"),
+            "snapshot_marker": context.get("snapshot_marker"),
+            "watermark_data_version": freshness.get("data_version") if freshness else None,
+            "latest_ingestion_run_id": (
+                freshness.get("last_ingestion_run_id") if freshness else None
+            ),
+            "quality_event_high_watermark": high_watermark,
+        },
+        "state": {
+            "coverage_status": coverage.get("coverage_status") if coverage else "NOT_EVALUATED",
+            "freshness_status": freshness.get("freshness_status") if freshness else "NOT_EVALUATED",
+            "quality_status": quality_status,
+            "eligibility_status": (
+                "BLOCKED" if reasons
+                else "ELIGIBLE_WITH_WARNINGS" if warnings
+                else "ELIGIBLE"
+            ),
+            "eligibility_reasons": reasons,
+            "eligibility_warnings": warnings,
+            "current_blockers": current_blockers,
+            "unknown_blocker_count": unknown_count,
+            "historical_unresolved_event_count": len(historical),
+        },
+        "components": {
+            "coverage": coverage,
+            "freshness": freshness,
+            "latest_ingestion_run": latest_run,
+        },
+    }
+
+
 def create_app(reader: QueryReader | None = None) -> Flask:
     selected_reader = reader or DatabaseReader()
     app = Flask(__name__)
@@ -252,7 +457,8 @@ def create_app(reader: QueryReader | None = None) -> Flask:
                 "service": "saxo_db_read_api",
                 "status": "PASS",
                 "read_only": True,
-                "api_version": 1,
+                "api_version": API_VERSION,
+                "contract_revision": CONTRACT_REVISION,
             }
         )
 
@@ -288,7 +494,33 @@ def create_app(reader: QueryReader | None = None) -> Flask:
             rows = operation_rows(selected_reader, command, limit)
         except ValueError:
             return jsonify({"status": "FAILED", "error_code": "INVALID_REQUEST"}), 400
-        return jsonify(json_value({"command": command, "row_count": len(rows), "rows": rows}))
+        return jsonify(
+            json_value(
+                {
+                    "api_version": API_VERSION,
+                    "contract_revision": CONTRACT_REVISION,
+                    "generated_at_utc": datetime.now(timezone.utc),
+                    "command": command,
+                    "row_count": len(rows),
+                    "rows": rows,
+                }
+            )
+        )
+
+    @app.get("/api/v1/series-status")
+    def series_status():
+        try:
+            payload = series_status_payload(
+                selected_reader,
+                instrument_key=request.args.get("instrument_key", "").strip().lower(),
+                layer=request.args.get("layer", "").strip().lower(),
+                price_basis=request.args.get("price_basis", "").strip().lower(),
+            )
+        except ValueError:
+            return jsonify({"status": "FAILED", "error_code": "INVALID_REQUEST"}), 400
+        if payload is None:
+            return jsonify({"status": "FAILED", "error_code": "SERIES_NOT_FOUND"}), 404
+        return jsonify(json_value(payload))
 
     @app.get("/api/v1/bars")
     def bars():
@@ -313,6 +545,9 @@ def create_app(reader: QueryReader | None = None) -> Flask:
         return jsonify(
             json_value(
                 {
+                    "api_version": API_VERSION,
+                    "contract_revision": CONTRACT_REVISION,
+                    "generated_at_utc": datetime.now(timezone.utc),
                     "instrument_key": instrument_key,
                     "layer": layer,
                     "start": start,

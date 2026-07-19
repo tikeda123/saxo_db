@@ -1,0 +1,132 @@
+{
+  "schema_version": 1,
+  "spec_id": "DMI-20260719",
+  "status": "FROZEN_DMI0_DMI2A",
+  "scope": {
+    "provider_repository": "saxo_db",
+    "consumer_repository": "saxo_trading_strategy_analysis",
+    "strategy_logic_in_provider": false,
+    "database_write_routes": 0
+  },
+  "consumer_gate": {
+    "phase": "DMI0",
+    "status": "PASS",
+    "universe_identity_order": [
+      "instrument_key",
+      "instrument_id mapped by inventory/coverage/freshness",
+      "symbol"
+    ],
+    "blocking_severities": ["ERROR", "CRITICAL"],
+    "blocking_applicability": ["CURRENT", "UNKNOWN"],
+    "missing_applicability": "UNKNOWN",
+    "contract_inconsistency": "BLOCK",
+    "blocked_status": "BLOCKED_DATA_RECONCILIATION"
+  },
+  "read_api_contract": {
+    "api_version": 1,
+    "contract_revision": "1.1",
+    "compatibility": "additive_fields_only_within_v1",
+    "common_envelope_fields": ["api_version", "contract_revision", "generated_at_utc"],
+    "stable_identity_fields": [
+      "instrument_id", "instrument_key", "symbol", "category", "source_dataset_id",
+      "layer", "price_basis", "horizon_minutes"
+    ],
+    "operations_quality_fields": [
+      "quality_event_id", "status", "severity", "rule_id", "ingestion_run_id",
+      "instrument_id", "instrument_key", "symbol", "category", "scope_kind",
+      "applicability", "current_blocker"
+    ]
+  },
+  "quality_event_contract": {
+    "phase": "DMI1",
+    "scope_kinds": [
+      "INSTRUMENT", "SERIES", "DATASET", "RUN", "LAYER", "GLOBAL", "UNKNOWN"
+    ],
+    "applicability_values": ["CURRENT", "HISTORICAL", "UNKNOWN"],
+    "default_scope_kind": "UNKNOWN",
+    "default_applicability": "UNKNOWN",
+    "current_blocker_rule": {
+      "status": ["OPEN", "ACKNOWLEDGED"],
+      "severity": ["ERROR", "CRITICAL"],
+      "applicability": ["CURRENT", "UNKNOWN"]
+    },
+    "storage": {
+      "scope_table": "quality.event_scope",
+      "review_table": "quality.event_applicability_review",
+      "append_only": true,
+      "derived_view": "quality.v_event_status",
+      "open_view": "quality.v_open_event"
+    },
+    "operator_procedures": [
+      "quality.record_event_scope", "quality.review_event_applicability"
+    ],
+    "operator_cli_commands": ["record-quality-scope", "review-quality"],
+    "direct_table_dml_allowed": false
+    ,
+    "future_lifecycle": {
+      "rule_policy_table": "quality.event_rule_policy",
+      "new_event_default_trigger": "quality_event_lifecycle_defaults",
+      "unknown_rule_default": {"scope_kind": "UNKNOWN", "applicability": "UNKNOWN"},
+      "atomic_run_supersession": {
+        "automatic_review_allowed": true,
+        "conditions": [
+          "same-instrument manual_db3_full_refetch PASS",
+          "manual_db3 all-13-series PASS"
+        ],
+        "append_only": true
+      }
+    }
+  },
+  "web_ui_contract": {
+    "quality_screen": "/ui/quality",
+    "sections": [
+      "current_series_status", "current_or_unknown_events", "reviewed_historical_events"
+    ],
+    "unknown_is_blocking": true,
+    "global_blockers_are_separate": true,
+    "all_open_events_are_historical": false
+  },
+  "series_status_contract": {
+    "phase": "DMI2A",
+    "endpoint": "GET /api/v1/series-status",
+    "supported_layer": "1h",
+    "required_parameters": ["instrument_key", "layer", "price_basis"],
+    "transaction": {
+      "read_only": true,
+      "isolation": "REPEATABLE READ",
+      "single_snapshot_for_all_components": true
+    },
+    "components": [
+      "identity", "coverage", "freshness", "quality", "watermark", "latest_ingestion_run"
+    ],
+    "consistency_fields": [
+      "read_at_utc", "snapshot_marker", "watermark_data_version",
+      "latest_ingestion_run_id", "quality_event_high_watermark"
+    ],
+    "eligibility_values": ["ELIGIBLE", "ELIGIBLE_WITH_WARNINGS", "BLOCKED"],
+    "unknown_error_critical": "BLOCKED",
+    "client_side_multi_request_join_is_preflight": false
+  },
+  "gate_state": {
+    "DMI0": "PASS",
+    "DMI1A": "PASS",
+    "DMI1B": "PASS",
+    "DMI2A": "PASS",
+    "DMI2B": "NEXT",
+    "DMI3": "LOCKED",
+    "DMI4": "LOCKED"
+  },
+  "locked_work": {
+    "DMI3": "stable total-return endpoint with explicit catalog mapping",
+    "DMI4": "cursor and contract maturity"
+  },
+  "security": {
+    "bind_host": "127.0.0.1",
+    "read_api_role": "saxo_app_reader",
+    "operator_role": "saxo_ops_operator",
+    "access_token_saved": false,
+    "account_identifier_saved": false,
+    "arbitrary_sql_enabled": false,
+    "saxo_write_requests": 0
+  }
+}

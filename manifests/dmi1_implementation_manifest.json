@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "phase": "DMI1",
+  "status": "PASS",
+  "contract_status": "PASS",
+  "implemented_at_jst": "2026-07-20",
+  "parent_evidence": {
+    "relative_path": "manifests/data_management_web_ui_implementation_manifest.json",
+    "sha256": "f013b0cc777b6e0a9676f16fb7d3996cc4ce796d972c24faba8d18199df70d03",
+    "policy": "immutable_parent_with_explicit_hash_attested_supersession"
+  },
+  "migration": {
+    "number": "0017",
+    "filename": "0017_quality_event_price_basis_derivation.sql",
+    "sha256": "8a22128c1a995a5bcf7e57d2d4d516bbb0e7137df58709bbcc16a22e283f22fa",
+    "database": "saxo_market",
+    "status": "APPLIED",
+    "checksum_validation": "PASS"
+  },
+  "migration_chain": [
+    {"number": "0015", "filename": "0015_read_api_contract_hardening.sql", "status": "APPLIED", "checksum_validation": "PASS"},
+    {"number": "0016", "filename": "0016_quality_event_lifecycle.sql", "status": "APPLIED", "checksum_validation": "PASS"},
+    {"number": "0017", "filename": "0017_quality_event_price_basis_derivation.sql", "status": "APPLIED", "checksum_validation": "PASS"}
+  ],
+  "consumer_gate": {
+    "phase": "DMI0",
+    "status": "PASS",
+    "runtime_status": "PASS",
+    "relevant_event_count": 7,
+    "blocking_event_count": 0,
+    "unknown_event_count": 0,
+    "scope_excluded_event_count": 2,
+    "blocked_status": null
+  },
+  "reconciliation": {
+    "phase": "DMI1B",
+    "status": "PASS",
+    "open_event_count": 22,
+    "unknown_event_count": 0,
+    "current_event_count": 5,
+    "current_blocker_count": 5,
+    "canonical_blocker_count": 0,
+    "historical_event_count": 17,
+    "operator_review_required": false,
+    "operator_label": "codex-dmi1b-20260720",
+    "automatic_classification_performed": false,
+    "scope_rows_appended": 24,
+    "review_rows_appended": 22,
+    "base_event_count": 395032,
+    "base_event_sha256_before": "bc1d72a5ba8890ffc62e908b098d101134e84261c2376fe52e376d4ad36507e3",
+    "base_event_sha256_after": "bc1d72a5ba8890ffc62e908b098d101134e84261c2376fe52e376d4ad36507e3",
+    "base_event_unchanged": true
+  },
+  "runtime_evidence": {
+    "api_version": 1,
+    "contract_revision": "1.1",
+    "browser_quality_screen": "PASS",
+    "browser_unknown_event_count": 0,
+    "browser_current_blocker_count": 5,
+    "browser_canonical_blocker_count": 0,
+    "browser_historical_event_count": 17,
+    "migration_validation": "PASS",
+    "reader_status_view_select": true,
+    "reader_scope_base_table_select": false,
+    "reader_review_base_table_select": false
+  },
+  "test_evidence": {
+    "unit_passed": 84,
+    "integration_skipped_in_unit_run": 29,
+    "consumer_unit_passed": 9,
+    "full_database_integration_passed": 29,
+    "full_database_integration_failed": 0,
+    "full_database_integration_seconds": 574.68,
+    "db4_validator": "PASS"
+  },
+  "security": {
+    "access_token_saved": false,
+    "account_identifier_saved": false,
+    "arbitrary_sql_enabled": false,
+    "database_write_routes": 0,
+    "saxo_write_requests": 0,
+    "orders_or_prechecks_sent": 0
+  },
+  "next_phase": "DMI2A",
+  "locked_phases": ["DMI2B", "DMI3", "DMI4"],
+  "consumer_evidence": {
+    "repository": "saxo_trading_strategy_analysis",
+    "source": {
+      "relative_path": "src/equity_reit_analysis.py",
+      "size_bytes": 40768,
+      "sha256": "c68b54db89c7cf8112b6951b231f273f66e596176bf3bed4683fe9caee88e8df"
+    },
+    "test": {
+      "relative_path": "tests/test_equity_reit_analysis.py",
+      "size_bytes": 7048,
+      "sha256": "8a6f3ee5a798c8580fb659e2956c8749a8ce61817c961227b861805c92a77515"
+    }
+  },
+  "artifacts": {
+    "README.md": {"size_bytes": 12411, "sha256": "485bb75263ac9266f2d5640585ac2e1275c80c18aafa748e0592dfba8a64446b"},
+    "db/migrations/0015_read_api_contract_hardening.sql": {"size_bytes": 13526, "sha256": "f3dbe77e1540b0e440ecbdaa9126982b2bed2404c3bf316ddd2fd1b81c772522"},
+    "db/migrations/0016_quality_event_lifecycle.sql": {"size_bytes": 7319, "sha256": "235bdae46e39b94e3a3f5822b1d4c6b51f63cc3485c8ccf9e166170aebea5a56"},
+    "db/migrations/0017_quality_event_price_basis_derivation.sql": {"size_bytes": 3092, "sha256": "8a22128c1a995a5bcf7e57d2d4d516bbb0e7137df58709bbcc16a22e283f22fa"},
+    "market_db/migrate.py": {"size_bytes": 12516, "sha256": "8d8f233b5e3647cfb169b0c76395bd15aa30c189f848232dea325ce2e742f591"},
+    "market_db/read_api.py": {"size_bytes": 19991, "sha256": "3d442cab7c44524af94623f0f70351c478b127e48c9e85d827c970aebfeaed40"},
+    "market_db/data_ui.py": {"size_bytes": 20935, "sha256": "4d25cde4e88ee3518950afb350d951ce8b096cae51ede543a4531e70210fa29d"},
+    "market_db/validate.py": {"size_bytes": 46798, "sha256": "d7596db84eb060636207715877ad4a29457bba8cf64f38afeaca3c9cce1ed4e9"},
+    "market_db/operate.py": {"size_bytes": 15589, "sha256": "07f164c6706d7ce7216f623361ef7ddf8d13f9d6907caffa11fadcbc8284a52b"},
+    "market_db/inspect.py": {"size_bytes": 6939, "sha256": "7f9b0516f0ba1233739a96dc5eca8636d9c66fcb65bdd702fa108f8873d9d3ad"},
+    "market_db/static/data-ui/data-ui.js": {"size_bytes": 40182, "sha256": "a5ce2dbd4596e865fd131041e6889446aa438403d6763663cbd4868a30555c3b"},
+    "tests/test_data_ui.py": {"size_bytes": 14398, "sha256": "29b07886e9dadc28ad4c4d13a9c6b122934431e85357adc809059cd7b25fe803"},
+    "tests/test_read_api.py": {"size_bytes": 9654, "sha256": "379fa40e9d023683f4af2ba92e3d1e4bc3438dbf4d7eaa0d336a490ef7a0b495"},
+    "tests/test_migration_runner.py": {"size_bytes": 946, "sha256": "0ea2795e97f13a3995ddb2ab75a1bfcf06a11249e3b9ef1839c08c291c6c57e4"},
+    "tests/test_db1_integration.py": {"size_bytes": 13574, "sha256": "d14ca5e5f4a4e3265fed2cfd19458182c5fbf5f90e56ba9fbb83179bab64642e"},
+    "tests/test_dmi1_integration.py": {"size_bytes": 7729, "sha256": "efd53439346bc0a0fae7e4f50a85303286a78b3b09ab950aae87c3248974b4a0"},
+    "tests/test_operate_cli.py": {"size_bytes": 2206, "sha256": "1e3513f5b8c750c1ba30c62187a7206fe164966465809f1d03fc1064218d9858"},
+    "tests/test_inspect_cli.py": {"size_bytes": 1583, "sha256": "bc62e5be630c73f09c362258c6def5e74818a06a84c89a56a8b64d58f4b43df0"},
+    "docs/data_management_interface_improvement_plan.md": {"size_bytes": 25583, "sha256": "966451110eaa9de3f582ff4111ce9ca1f5e0db2ef13df1e8fb0c6496299d70d5"},
+    "docs/dmi1_implementation_result.md": {"size_bytes": 2983, "sha256": "3a477f6b40948c46fc89b72476650c24bdccae37aadde3fd8210245f9e96210b"},
+    "docs/dmi1_legacy_event_review_candidates.md": {"size_bytes": 2892, "sha256": "fb3f025e9b4ff70614cfb486d25f4cd2e779897c0d27cd1ae164b69eed2552ab"},
+    "docs/read_api_interface.md": {"size_bytes": 20284, "sha256": "0d44f69330e7108e6a8b82e95df9db79173da3ec5088a774f990c55fc08d009a"},
+    "docs/database_operations_runbook.md": {"size_bytes": 24902, "sha256": "710e772c456f0e73215c22c8cebfa12193d890959f4a8776df407ba925efc347"},
+    "specs/data_management_interface_improvement_spec.json": {"size_bytes": 3711, "sha256": "393967fa7fa19044feef04932381b51e7e8edae22505bffc9ce18e2daa5f7475"}
+  }
+}

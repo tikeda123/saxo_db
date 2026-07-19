@@ -53,8 +53,8 @@ QUERY_SPECS: dict[tuple[str, str], QuerySpec] = {
         "saxo_app_reader",
         "quality.v_open_event",
         "created_at_utc DESC, quality_event_id DESC",
-        "severity",
-        frozenset({"ERROR", "CRITICAL"}),
+        "current_blocker",
+        frozenset({"True"}),
     ),
     (MARKET_DB, "lineage"): QuerySpec(
         "saxo_analyst_reader", "analytics.v_data_lineage", "source_dataset_id, source_file_id"

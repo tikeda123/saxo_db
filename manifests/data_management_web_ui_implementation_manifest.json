@@ -41,7 +41,7 @@
   "access_token_saved": false,
   "account_identifier_saved": false,
   "artifacts": {
-    "README.md": {"size_bytes": 24163, "sha256": "bb3a0ec988a6553b8f0b27c740f24b2fe37a45f72d038ab0b0189bf9520e6b5f"},
+    "README.md": {"size_bytes": 11597, "sha256": "b64f3c6c12a53fcdea5154cad99b8c89d35e8ea7238429b5845628fd4ece8c19"},
     "db/migrations/0014_data_management_ui_reader.sql": {"size_bytes": 294, "sha256": "5294c4dd4585cebbf960cfe1c2b88e532a5ad3bf5f6ceb08f9a8a38527983999"},
     "market_db/migrate.py": {"size_bytes": 12438, "sha256": "6802cb76082066cddbb17b4c3bd2fc91ff39ebd10b4f73d5702f701c63824a24"},
     "market_db/read_api.py": {"size_bytes": 19268, "sha256": "d2ba55540fa5441874f4e2b32219714bac5923840997df1d929a90115718d423"},
@@ -58,7 +58,8 @@
     "tests/test_db1_integration.py": {"size_bytes": 13574, "sha256": "447f15c708fa92bd736492264d29bba740d3d2c2652878c2627e3556048aefd7"},
     "docs/data_management_web_ui_spec.md": {"size_bytes": 20956, "sha256": "0abbbfbdc2e27b994e1c8e24009189fb38e1f0ea10c1f9bf954b4274f98b244e"},
     "docs/data_management_web_ui_implementation_result.md": {"size_bytes": 4365, "sha256": "e7ad427ea6f23871f8713a638cfbbb5eeffb3e3b6c697e2ea198a69eb433149c"},
-    "docs/database_operations_runbook.md": {"size_bytes": 22373, "sha256": "65e2c7131ec38ff5b527128e88cfbd8c503ba7b4ec7aad464b56435c14072710"},
+    "docs/database_operations_runbook.md": {"size_bytes": 22858, "sha256": "4ad6162625e722252338bb6bd36b9c38656711a07794a4b675fed92bc46af3ed"},
+    "docs/read_api_interface.md": {"size_bytes": 18249, "sha256": "7eb908e31923c31901761e77a2c932c108544695db4006430000afbc2ff9c3c1"},
     "specs/data_management_web_ui_spec.json": {"size_bytes": 10475, "sha256": "09d3d6d6010465c68af714f65e39009079812a7ad94cb1d14b3c604c192adf0e"}
   }
 }

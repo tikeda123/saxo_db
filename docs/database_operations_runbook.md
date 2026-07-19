@@ -1,8 +1,8 @@
 # Saxo DB データ管理・運用ランブック
 
-更新日: 2026-07-17 JST
+更新日: 2026-07-19 JST
 対象: Phase DB1 infrastructure / DB2 legacy import / DB3 incremental market data / DB4 read and operations
-状態: **DB1・DB2・DB3・DB4 PASS、RT0 NEXT**
+状態: **DB1・DB2・DB3・DB4・DMUI4 PASS、データ管理基盤として継続運用**
 
 ## 1. 安全境界
 
@@ -67,7 +67,7 @@ python3 -m market_db.inspect inventory --database saxo_research_v13
 
 exit codeは正常`0`、接続・設定・query失敗`1`、`--fail-on-alert`で警告条件を検出した場合`2`。calendarや期待更新間隔が未登録ならcoverage/freshnessは`NOT_EVALUATED`となり、根拠なしにPASSへしない。DB3の`coverage`は`missing_rows`、`out_of_session_rows`、`calendar_aligned_rows`を分離し、`freshness`はwatermarkと次のcalendar slotを比較する。`saxo_forward_v13`のinspectは評価ゲートまで拒否される。
 
-DB2完了時点では、market inventoryは実データを返し、DB2 legacy importのlineageは69 source fileを返す。DB3開始後の`ops.source_file`とlineage全体はlive取得artifactを監査追記するため69件を超える。DB2 baselineの照合は`ops.ingestion_run.trigger='DB2_LEGACY_IMPORT'`に限定する。`quality --fail-on-alert`は既知のERROR/OPEN event 5件によりexit 2となるのが正常である。これらはraw 240分FX 2系列とdaily ETF 3系列の既知品質FAILであり、根拠なくresolveまたはraw修正しない。
+DB2完了時点では、market inventoryは実データを返し、DB2 legacy importのlineageは69 source fileを返す。DB3開始後の`ops.source_file`とlineage全体はlive取得artifactを監査追記するため69件を超える。DB2 baselineの照合は`ops.ingestion_run.trigger='DB2_LEGACY_IMPORT'`に限定する。`quality --fail-on-alert`でERROR/CRITICALのCURRENTまたはUNKNOWNを検出した場合はexit 2となる。2026-07-19のmigration 0015適用時点では旧OPEN event 22件が未reviewのため全件UNKNOWNであり、正常扱いせずDMI1Bを`BLOCKED_DATA_RECONCILIATION`に保つ。根拠なくresolve、HISTORICAL分類、raw修正をしない。
 
 ## 5. Qualityとbackup状態の限定更新
 
@@ -76,9 +76,17 @@ quality noteは引数へ書かず、promptまたはstdinから入力する。
 ```bash
 python3 -m market_db.operate acknowledge-quality 123 --operator operator-label
 python3 -m market_db.operate resolve-quality 123 --operator operator-label
+python3 -m market_db.operate record-quality-scope 123 \
+  --scope-kind INSTRUMENT --affected-layer curated --price-basis native_ohlc \
+  --operator operator-label
+python3 -m market_db.operate review-quality 123 \
+  --applicability HISTORICAL --superseded-by-run-id 456 \
+  --operator operator-label
 python3 -m market_db.operate start-backup saxo_market backups/example.dump
 python3 -m market_db.operate finish-backup 1 FAILED --error-code MANUAL_CHECK
 ```
+
+scope evidence、applicability reason、quality noteは非表示promptまたはstdinから入力し、shell引数へ書かない。scope/reviewは追記専用で、誤りの修正は既存rowのUPDATEではなく新しいrowを追記する。HISTORICALは対象run manifest、後続PASS run、現在watermark/coverage/freshnessの証拠を確認してから選択する。不明ならUNKNOWNを維持する。
 
 CLIは`saxo_ops_operator`で固定済みprocedureだけを実行する。table直接更新、任意procedure、任意SQL、市場データ変更は許可されない。DB4のbackup commandは内部で開始・完了procedureを使い、restore結果は`ops.record_restore_smoke`だけから記録する。
 
@@ -233,6 +241,7 @@ run JSONの`rejected_rows`、quality eventのtimestamp・元Bid/Ask・raw artifa
 ## 11. DB4 Read API・backup・export
 
 Read APIは一般DB管理画面ではなく、固定された参照endpointだけをlocalhostへ公開する。
+外部プロジェクトからの接続契約、response schema、品質確認、期間分割、total-return、エラー処理、Parquetの使い分けは`docs/read_api_interface.md`を正本とする。
 
 ```bash
 .venv/bin/python -m market_db.read_api --port 8766
@@ -242,6 +251,17 @@ curl --fail 'http://127.0.0.1:8766/api/v1/bars?instrument_key=iwm&layer=1h&start
 ```
 
 barはinstrument、layer、UTC start/endが必須で最大10,000行である。APIは`saxo_app_reader`、read-only transaction、最大5接続、30秒statement timeoutを使う。write method、任意relation、任意SQL、token入力を追加しない。
+
+外部projectの正式preflightはatomic endpointを使う。
+
+```bash
+curl --fail --get 'http://127.0.0.1:8766/api/v1/series-status' \
+  --data-urlencode 'instrument_key=spy' \
+  --data-urlencode 'layer=1h' \
+  --data-urlencode 'price_basis=native_ohlc'
+```
+
+このresponseのidentity、coverage、freshness、quality、watermark、latest runは同じ`REPEATABLE READ / READ ONLY` transaction snapshotで取得される。`eligibility_status`が`BLOCKED`の場合はcurrent/live利用へ進まない。`ELIGIBLE_WITH_WARNINGS`の場合も`eligibility_warnings`を利用側で明示的に扱う。複数のoperations responseをclient側でjoinした結果を正式preflightとして保存しない。
 
 ### 11.1 データ管理Web UI
 
@@ -268,6 +288,17 @@ UI確認用の固定endpoint:
 curl --fail http://127.0.0.1:8766/api/v1/ui/overview
 curl --fail 'http://127.0.0.1:8766/api/v1/ui/series?canonical_only=true&limit=50&offset=0'
 ```
+
+品質画面の`全scope blocker`はraw/archiveを含むevent単体の件数、`canonical blocker`はcurated 1Hへscopeが一致する件数である。CURRENT raw eventを消したりHISTORICALへ変更してcanonicalをPASSに見せてはならない。
+
+DMI1 legacy reviewの固定planはread-onlyで再検証できる。
+
+```bash
+.venv/bin/python -m market_db.operate reconcile-dmi1-legacy \
+  --operator operator-label
+```
+
+通常は`PLAN_VALID`と`database_writes=0`を確認するだけでよい。`--apply`は初回または根拠付き再review時だけ使用する。新規eventはrule policyに従ってscope/applicabilityが同一transactionで追記され、未知ruleはUNKNOWNとしてblockする。`db3_atomic_run_gate`は同一instrumentのfull-refetch PASSまたは13系列normal PASSが成立した場合だけ、元eventを変更せずHISTORICAL reviewを自動追記する。
 
 assetは自己ホストし、TradingView Lightweight Charts 5.2.0とApache-2.0 licenseを同梱する。DB4の旧実装manifestは変更せず、DMUI4 manifestが現行artifactと旧DB4 manifestの親SHA-256を検証する。
 
@@ -307,7 +338,7 @@ SAXO_DB_INTEGRATION=1 .venv/bin/python -m pytest
 .venv/bin/python -m market_db.validate --phase db4
 ```
 
-統合testをskipした結果はPASSにしない。DB4 validatorはDB1〜DB3を回帰し、migration 0013/0014、reader権限、3 DB backup、market restore smoke、一時DB削除、Parquet再読込、DB4親manifestとDMUI4拡張manifestを検証する。
+統合testをskipした結果はPASSにしない。DB4 validatorはDB1〜DB3を回帰し、migration 0013/0014/0015、reader権限、3 DB backup、market restore smoke、一時DB削除、Parquet再読込、DB4親manifest、DMUI4拡張manifest、DMI1拡張manifestを検証する。DMI1の契約実装PASSと旧event reconciliationのBLOCKEDは別状態として報告する。
 
 ## 13. Secret rotation
 
@@ -360,12 +391,16 @@ research DB、content manifest、dump manifest、dump本体のいずれかが不
 
 `ops.v_backup_status`と対応manifestを確認し、FAILED/RUNNINGを手動でPASSへ変更しない。`.partial`、SHA-256不一致、`pg_restore --list`失敗は使用不可とする。一時restore DBが残った場合は、今回の`saxo_db4_restore_`名と作成runを確認してから削除し、既存3 DBをdropしない。
 
-## 15. 後続PhaseのLOCK
+## 15. プロジェクト境界と後続作業
 
 - DB2: CSV import、inventory/lineage登録、research snapshot。PASS。
 - DB3: Saxo増分更新、4H/1D派生、session calendar、freshness監視。PASS。
 - DB4: read API、実backup/restore、retention、Parquet、runbook運用ゲート。PASS。
-- RT0: strategy rule、cost、trial freeze。DB4 PASSによりNEXT。
-- PnL、WFO、Holdout、portfolioはRT0以後の各明示gateまで開始しない。
+- DMUI4: データ在庫、期間、品質、lineage、OHLC/total-return表示。PASS。
+- DMI0/DMI1A: consumer fail-closed、安定identity、quality review contract。PASS。
+- DMI1B: 旧eventの根拠付きreview。BLOCKED_DATA_RECONCILIATION。
+- DMI2〜DMI4: DMI1B PASSまでLOCKED。
+- 今後の作業はデータ取得、品質・鮮度、API契約、backup、運用性の改善に限定する。
+- 旧計画のRT0以降にあるstrategy rule、cost、PnL、WFO、Holdout、portfolioは履歴資料として残すが、別の戦略プロジェクトで実施する。
 
 DB2 snapshot dumpは固定証跡として保持し、DB4 retentionで削除しない。DB1〜DB4の完了はデータ基盤の品質証明であり、戦略優位性や収益性の証明ではない。

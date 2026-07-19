@@ -195,7 +195,7 @@ def test_overview_cards_reconcile_from_one_inventory_model():
     assert payload["canonical_guardrails"][0]["symbol"] == "IWM:arcx"
 
 
-def test_quality_summary_keeps_current_status_separate_from_historical_events():
+def test_quality_summary_uses_reviewed_applicability_and_unknown_fails_closed():
     coverage = [{
         "instrument_id": 6, "symbol": "IWM:arcx", "coverage_status": "WARN",
         "missing_rows": 3, "out_of_session_rows": 1,
@@ -204,12 +204,58 @@ def test_quality_summary_keeps_current_status_separate_from_historical_events():
         "instrument_id": 6, "symbol": "IWM:arcx", "category": "equity_reit",
         "freshness_status": "PASS", "latest_complete_time_utc": datetime(2026, 7, 16, tzinfo=timezone.utc),
     }]
-    events = [{"severity": "CRITICAL", "status": "OPEN", "rule_id": "old_failed_run"}]
+    events = [
+        {
+            "quality_event_id": 7, "instrument_id": 6, "severity": "CRITICAL",
+            "status": "OPEN", "rule_id": "unreviewed_run", "applicability": "UNKNOWN",
+            "scope_kind": "INSTRUMENT", "current_blocker": True,
+        },
+        {
+            "quality_event_id": 8, "instrument_id": 6, "severity": "ERROR",
+            "status": "OPEN", "rule_id": "reviewed_old_run", "applicability": "HISTORICAL",
+            "scope_kind": "RUN", "current_blocker": False,
+        },
+        {
+            "quality_event_id": 9, "instrument_id": None, "severity": "CRITICAL",
+            "status": "OPEN", "rule_id": "global_unknown", "applicability": "UNKNOWN",
+            "scope_kind": "GLOBAL", "current_blocker": True,
+        },
+    ]
     payload = quality_summary_payload(FakeReader([coverage, freshness, events]))
-    assert payload["current"][0]["status"] == "WARN"
-    assert payload["current_status_totals"] == {"WARN": 1}
-    assert payload["historical_severity_totals"] == {"CRITICAL": 1}
-    assert payload["historical_open_events"][0]["rule_id"] == "old_failed_run"
+    assert payload["current"][0]["status"] == "FAIL"
+    assert payload["current"][0]["current_blocker_event_ids"] == [7]
+    assert payload["current"][0]["global_blocker_event_ids"] == [9]
+    assert payload["current"][0]["current_blocker_count"] == 2
+    assert payload["current_status_totals"] == {"FAIL": 1}
+    assert payload["blocking_event_count"] == 2
+    assert payload["global_blockers"][0]["quality_event_id"] == 9
+    assert payload["applicability_totals"] == {"HISTORICAL": 1, "UNKNOWN": 2}
+    assert payload["historical_severity_totals"] == {"ERROR": 1}
+    assert payload["historical_open_events"][0]["rule_id"] == "reviewed_old_run"
+    assert {row["quality_event_id"] for row in payload["unresolved_events"]} == {7, 9}
+
+
+def test_quality_summary_keeps_raw_current_event_out_of_canonical_matrix():
+    coverage = [{
+        "instrument_id": 6, "symbol": "IWM:arcx", "coverage_status": "PASS",
+        "missing_rows": 0, "out_of_session_rows": 0,
+    }]
+    freshness = [{
+        "instrument_id": 6, "symbol": "IWM:arcx", "category": "equity_reit",
+        "freshness_status": "PASS", "latest_complete_time_utc": datetime(2026, 7, 16, tzinfo=timezone.utc),
+    }]
+    events = [{
+        "quality_event_id": 13, "instrument_id": 6, "severity": "ERROR",
+        "status": "OPEN", "rule_id": "source_series_quality_gate",
+        "applicability": "CURRENT", "scope_kind": "SERIES", "current_blocker": True,
+        "affected_layer": "raw", "horizon_minutes": 1440, "price_basis": "native_ohlc",
+    }]
+    payload = quality_summary_payload(FakeReader([coverage, freshness, events]))
+    assert payload["current"][0]["status"] == "PASS"
+    assert payload["current"][0]["current_blocker_count"] == 0
+    assert payload["blocking_event_count"] == 1
+    assert payload["canonical_blocking_event_count"] == 0
+    assert payload["unresolved_events"][0]["quality_event_id"] == 13
 
 
 def test_ui_series_and_chart_endpoints_are_get_only_and_warn_for_noneligible_data():

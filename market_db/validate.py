@@ -120,6 +120,68 @@ def db4_manifest_baseline_is_valid(payload: dict[str, Any]) -> bool:
     )
 
 
+def dmi1_manifest_baseline_is_valid(payload: dict[str, Any]) -> bool:
+    """Validate contract implementation separately from the reconciliation gate."""
+    security = payload.get("security", {})
+    reconciliation = payload.get("reconciliation", {})
+    blocked_gate = (
+        payload.get("status") == "BLOCKED_DATA_RECONCILIATION"
+        and reconciliation.get("status") == "BLOCKED_DATA_RECONCILIATION"
+        and isinstance(reconciliation.get("unknown_event_count"), int)
+        and reconciliation.get("unknown_event_count", 0) > 0
+    )
+
+
+    passed_gate = (
+        payload.get("status") == "PASS"
+        and reconciliation.get("status") == "PASS"
+        and reconciliation.get("unknown_event_count") == 0
+        and reconciliation.get("current_event_count") == 5
+        and reconciliation.get("historical_event_count") == 17
+        and reconciliation.get("base_event_unchanged") is True
+    )
+    return (
+        payload.get("phase") == "DMI1"
+        and payload.get("contract_status") == "PASS"
+        and (blocked_gate or passed_gate)
+        and payload.get("migration", {}).get("number") in {"0015", "0017"}
+        and payload.get("migration", {}).get("status") == "APPLIED"
+        and security.get("access_token_saved") is False
+        and security.get("account_identifier_saved") is False
+        and security.get("arbitrary_sql_enabled") is False
+        and security.get("database_write_routes") == 0
+        and security.get("saxo_write_requests") == 0
+    )
+
+
+def dmi2a_manifest_baseline_is_valid(payload: dict[str, Any]) -> bool:
+    """Validate the atomic current-series preflight contract."""
+    endpoint = payload.get("endpoint", {})
+    transaction = payload.get("transaction", {})
+    runtime = payload.get("runtime_evidence", {})
+    security = payload.get("security", {})
+    return (
+        payload.get("phase") == "DMI2A"
+        and payload.get("status") == "PASS"
+        and payload.get("contract_revision") == "1.1"
+        and endpoint.get("method") == "GET"
+        and endpoint.get("path") == "/api/v1/series-status"
+        and endpoint.get("supported_layers") == ["1h"]
+        and transaction.get("read_only") is True
+        and transaction.get("isolation") == "REPEATABLE READ"
+        and transaction.get("single_snapshot") is True
+        and runtime.get("unknown_blocker_count") == 0
+        and runtime.get("quality_event_high_watermark", 0) > 0
+        and payload.get("migration", {}).get("number") == "0018"
+        and payload.get("migration", {}).get("status") == "APPLIED"
+        and security.get("access_token_saved") is False
+        and security.get("account_identifier_saved") is False
+        and security.get("arbitrary_sql_enabled") is False
+        and security.get("database_write_routes") == 0
+        and security.get("saxo_write_requests") == 0
+    )
+
+
 def validate_import_inventory() -> dict[str, Any]:
     root = project_root()
     inventory_path = root / "manifests" / "import_file_inventory.csv"
@@ -787,6 +849,112 @@ def validate_db4_data() -> dict[str, Any]:
             "status": "PASS" if extension_baseline_valid and not extension_mismatches else "FAIL",
         })
     implementation["extension_manifest"] = extension
+
+    dmi1_path = project_root() / "manifests/dmi1_implementation_manifest.json"
+    dmi1_extension: dict[str, Any] = {"exists": dmi1_path.is_file(), "status": "NOT_PRESENT"}
+    if dmi1_path.is_file():
+        dmi1_payload = json.loads(dmi1_path.read_text(encoding="utf-8"))
+        dmi1_mismatches, dmi1_valid_paths = manifest_artifact_state(dmi1_payload)
+        dmi1_parent = dmi1_payload.get("parent_evidence", {})
+        dmi1_baseline_valid = (
+            dmi1_manifest_baseline_is_valid(dmi1_payload)
+            and dmi1_parent.get("relative_path")
+            == "manifests/data_management_web_ui_implementation_manifest.json"
+            and dmi1_parent.get("sha256") == _sha256(extension_path)
+            and dmi1_payload.get("migration", {}).get("filename")
+            in {
+                "0015_read_api_contract_hardening.sql",
+                "0017_quality_event_price_basis_derivation.sql",
+            }
+            and dmi1_payload.get("migration", {}).get("sha256")
+            == _sha256(
+                project_root() / "db/migrations"
+                / dmi1_payload.get("migration", {}).get("filename", "invalid")
+            )
+        )
+
+        def without_superseded(items: list[str]) -> tuple[list[str], list[str]]:
+            superseded = sorted({
+                item.split(":", 1)[1]
+                for item in items
+                if ":" in item and item.split(":", 1)[1] in dmi1_valid_paths
+            })
+            remaining = [
+                item for item in items
+                if ":" not in item or item.split(":", 1)[1] not in dmi1_valid_paths
+            ]
+            return remaining, superseded
+
+        implementation["artifact_mismatches"], dmi1_base_superseded = without_superseded(
+            implementation.get("artifact_mismatches", [])
+        )
+        extension["artifact_mismatches"], dmi1_extension_superseded = without_superseded(
+            extension.get("artifact_mismatches", [])
+        )
+        if extension.get("baseline_valid") is True and not extension["artifact_mismatches"]:
+            extension["status"] = "PASS"
+        dmi1_extension.update({
+            "artifact_mismatches": dmi1_mismatches,
+            "baseline_valid": dmi1_baseline_valid,
+            "gate_status": dmi1_payload.get("status"),
+            "reconciliation_status": dmi1_payload.get("reconciliation", {}).get("status"),
+            "superseded_db4_artifacts": dmi1_base_superseded,
+            "superseded_dmui4_artifacts": dmi1_extension_superseded,
+            "status": "PASS" if dmi1_baseline_valid and not dmi1_mismatches else "FAIL",
+        })
+    implementation["dmi1_extension_manifest"] = dmi1_extension
+
+    dmi2a_path = project_root() / "manifests/dmi2a_implementation_manifest.json"
+    dmi2a_extension: dict[str, Any] = {"exists": dmi2a_path.is_file(), "status": "NOT_PRESENT"}
+    if dmi2a_path.is_file():
+        dmi2a_payload = json.loads(dmi2a_path.read_text(encoding="utf-8"))
+        dmi2a_mismatches, dmi2a_valid_paths = manifest_artifact_state(dmi2a_payload)
+        dmi2a_parent = dmi2a_payload.get("parent_evidence", {})
+        dmi2a_baseline_valid = (
+            dmi2a_manifest_baseline_is_valid(dmi2a_payload)
+            and dmi2a_parent.get("relative_path") == "manifests/dmi1_implementation_manifest.json"
+            and dmi2a_parent.get("sha256") == _sha256(dmi1_path)
+            and dmi2a_payload.get("migration", {}).get("filename")
+            == "0018_series_status_high_watermark.sql"
+            and dmi2a_payload.get("migration", {}).get("sha256")
+            == _sha256(project_root() / "db/migrations/0018_series_status_high_watermark.sql")
+        )
+
+        def remove_dmi2a_superseded(items: list[str]) -> tuple[list[str], list[str]]:
+            superseded = sorted({
+                item.split(":", 1)[1]
+                for item in items
+                if ":" in item and item.split(":", 1)[1] in dmi2a_valid_paths
+            })
+            remaining = [
+                item for item in items
+                if ":" not in item or item.split(":", 1)[1] not in dmi2a_valid_paths
+            ]
+            return remaining, superseded
+
+        implementation["artifact_mismatches"], dmi2a_db4_superseded = remove_dmi2a_superseded(
+            implementation.get("artifact_mismatches", [])
+        )
+        extension["artifact_mismatches"], dmi2a_dmui_superseded = remove_dmi2a_superseded(
+            extension.get("artifact_mismatches", [])
+        )
+        dmi1_extension["artifact_mismatches"], dmi2a_dmi1_superseded = remove_dmi2a_superseded(
+            dmi1_extension.get("artifact_mismatches", [])
+        )
+        if extension.get("baseline_valid") is True and not extension["artifact_mismatches"]:
+            extension["status"] = "PASS"
+        if dmi1_extension.get("baseline_valid") is True and not dmi1_extension["artifact_mismatches"]:
+            dmi1_extension["status"] = "PASS"
+        dmi2a_extension.update({
+            "artifact_mismatches": dmi2a_mismatches,
+            "baseline_valid": dmi2a_baseline_valid,
+            "gate_status": dmi2a_payload.get("status"),
+            "superseded_db4_artifacts": dmi2a_db4_superseded,
+            "superseded_dmui4_artifacts": dmi2a_dmui_superseded,
+            "superseded_dmi1_artifacts": dmi2a_dmi1_superseded,
+            "status": "PASS" if dmi2a_baseline_valid and not dmi2a_mismatches else "FAIL",
+        })
+    implementation["dmi2a_extension_manifest"] = dmi2a_extension
     result["implementation_manifest"] = implementation
 
     backup_pass = (
@@ -820,6 +988,8 @@ def validate_db4_data() -> dict[str, Any]:
         and implementation.get("artifact_mismatches") == []
         and implementation.get("parquet_verified") is True
         and implementation.get("extension_manifest", {}).get("status") in {"PASS", "NOT_PRESENT"}
+        and implementation.get("dmi1_extension_manifest", {}).get("status") in {"PASS", "NOT_PRESENT"}
+        and implementation.get("dmi2a_extension_manifest", {}).get("status") in {"PASS", "NOT_PRESENT"}
     )
     result["status"] = "PASS" if (
         result["migration"]["applied"]

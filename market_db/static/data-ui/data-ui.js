@@ -151,9 +151,9 @@ function barList(values, labels = {}) {
 
 function qualityTable(rows, maximum = 20) {
   if (!rows?.length) return `<div class="empty">対象系列はありません。</div>`;
-  return `<div class="table-panel"><div class="table-scroll"><table><thead><tr><th>状態</th><th>銘柄</th><th>カテゴリ</th><th>カバレッジ</th><th>鮮度</th><th>欠損</th><th>セッション外</th><th>最新 complete</th></tr></thead><tbody>${rows.slice(0, maximum).map(row => `<tr>
+  return `<div class="table-panel"><div class="table-scroll"><table><thead><tr><th>状態</th><th>銘柄</th><th>カテゴリ</th><th>現在blocker</th><th>カバレッジ</th><th>鮮度</th><th>欠損</th><th>セッション外</th><th>最新 complete</th></tr></thead><tbody>${rows.slice(0, maximum).map(row => `<tr>
     <td>${badge(row.status)}</td><td><strong>${escapeHtml(row.symbol)}</strong></td><td>${escapeHtml(row.category || "—")}</td>
-    <td>${badge(row.coverage_status)}</td><td>${badge(row.freshness_status)}</td><td class="numeric">${formatNumber(row.missing_rows)}</td>
+    <td class="numeric">${formatNumber(row.current_blocker_count || 0)}</td><td>${badge(row.coverage_status)}</td><td>${badge(row.freshness_status)}</td><td class="numeric">${formatNumber(row.missing_rows)}</td>
     <td class="numeric">${formatNumber(row.out_of_session_rows)}</td><td>${formatTime(row.latest_complete_time_utc)}</td>
   </tr>`).join("")}</tbody></table></div></div>`;
 }
@@ -553,6 +553,8 @@ async function renderQuality() {
   const data = response.data;
   setAsOf(data.generated_at_utc);
   const totals = data.current_status_totals || {};
+  const applicability = data.applicability_totals || {};
+  const eventCards = (rows, emptyText) => rows.slice(0, 100).map(event => `<article class="event"><span>${badge(event.applicability)}</span><strong>${escapeHtml(event.instrument_key || event.symbol || event.scope_kind || "GLOBAL")}</strong><p><b>${escapeHtml(event.rule_id)}</b><br>${escapeHtml(event.action)}<br><span class="subtle">${escapeHtml(event.severity)} / ${escapeHtml(event.scope_kind)}</span></p><time>#${escapeHtml(event.quality_event_id)}<br>${formatTime(event.created_at_utc)}</time></article>`).join("") || `<div class="empty">${escapeHtml(emptyText)}</div>`;
   page.innerHTML = `
     <section class="kpi-grid">
       ${kpi("現在 PASS", totals.PASS || 0, "current guardrail")}
@@ -560,12 +562,19 @@ async function renderQuality() {
       ${kpi("現在 STALE", totals.STALE || 0, "freshness", (totals.STALE || 0) > 0)}
       ${kpi("現在 FAIL", totals.FAIL || 0, "current failure", (totals.FAIL || 0) > 0)}
       ${kpi("未評価", totals.NOT_EVALUATED || 0, "calendar / threshold")}
-      ${kpi("過去OPEN event", data.historical_open_events.length, "audit history")}
+      ${kpi("canonical blocker", data.canonical_blocking_event_count || 0, "curated 1H scope", (data.canonical_blocking_event_count || 0) > 0)}
+      ${kpi("全scope blocker", data.blocking_event_count || 0, "CURRENT + UNKNOWN", (data.blocking_event_count || 0) > 0)}
+      ${kpi("未判定 event", applicability.UNKNOWN || 0, "operator review required", (applicability.UNKNOWN || 0) > 0)}
+      ${kpi("履歴 event", applicability.HISTORICAL || 0, "reviewed historical")}
     </section>
-    <div class="section-head"><div><span class="section-tag">CURRENT</span><h2>現在の利用可否</h2><p>coverageとfreshnessを銘柄単位で統合しています。</p></div></div>
+    <div class="section-head"><div><span class="section-tag">CURRENT</span><h2>現在の利用可否</h2><p>coverage・freshness・判定済み品質eventを銘柄単位で統合しています。</p></div></div>
     ${qualityTable(data.current, 100)}
-    <div class="section-head"><div><span class="section-tag">HISTORICAL AUDIT</span><h2>過去run由来のOPEN event</h2><p>この件数だけで現在系列をFAILにはしません。</p></div></div>
-    <section class="event-list">${data.historical_open_events.slice(0, 100).map(event => `<article class="event"><span>${badge(event.severity)}</span><strong>${escapeHtml(event.rule_id)}</strong><p>${escapeHtml(event.action)}</p><time>${formatTime(event.created_at_utc)}</time></article>`).join("") || `<div class="empty">OPEN eventはありません。</div>`}</section>`;
+    <div class="section-head"><div><span class="section-tag">GLOBAL / RUN SCOPE</span><h2>全系列blocker</h2><p>instrumentを特定できないGLOBAL・RUN・UNKNOWN scopeは全系列へ適用します。</p></div></div>
+    <section class="event-list">${eventCards(data.global_blockers || [], "全系列blockerはありません。")}</section>
+    <div class="section-head"><div><span class="section-tag">ACTION REQUIRED</span><h2>CURRENT / UNKNOWN event</h2><p>UNKNOWN は安全側で blocker として扱います。分類は運用CLIで監査証跡を残して行います。</p></div></div>
+    <section class="event-list">${eventCards(data.unresolved_events || [], "未解決eventはありません。")}</section>
+    <div class="section-head"><div><span class="section-tag">REVIEWED HISTORY</span><h2>HISTORICAL event</h2><p>運用者が根拠を記録し、現在データへの非適用を確認したeventです。</p></div></div>
+    <section class="event-list">${eventCards(data.historical_open_events || [], "HISTORICAL eventはありません。")}</section>`;
 }
 
 function genericRowsTable(rows, columns) {

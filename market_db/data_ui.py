@@ -434,20 +434,89 @@ def quality_summary_payload(reader: QueryReader) -> dict[str, Any]:
             "freshness_status": normalized_text(row.get("freshness_status")) or "NOT_EVALUATED",
             "data_status": row.get("data_status"),
         })
+    normalized_events: list[dict[str, Any]] = []
+    for source in events:
+        event = dict(source)
+        event["scope_kind"] = normalized_text(event.get("scope_kind")).upper() or "UNKNOWN"
+        applicability = normalized_text(event.get("applicability")).upper()
+        event["applicability"] = (
+            applicability if applicability in {"CURRENT", "HISTORICAL", "UNKNOWN"} else "UNKNOWN"
+        )
+        event["current_blocker"] = bool(event.get("current_blocker")) or (
+            normalized_text(event.get("status")).upper() in {"OPEN", "ACKNOWLEDGED"}
+            and normalized_text(event.get("severity")).upper() in {"ERROR", "CRITICAL"}
+            and event["applicability"] in {"CURRENT", "UNKNOWN"}
+        )
+        normalized_events.append(event)
+
+    def blocks_canonical_1h(event: Mapping[str, Any]) -> bool:
+        """Apply an event blocker only to its declared canonical series scope."""
+        if not event["current_blocker"]:
+            return False
+        if event["scope_kind"] == "UNKNOWN":
+            return True
+        affected_layer = normalized_text(event.get("affected_layer")).lower()
+        if affected_layer and affected_layer != "curated":
+            return False
+        horizon = event.get("horizon_minutes")
+        if horizon is not None and int(horizon) != 60:
+            return False
+        price_basis = normalized_text(event.get("price_basis")).lower()
+        if price_basis and price_basis != "native_ohlc":
+            return False
+        return True
+
+    global_blockers: list[dict[str, Any]] = []
+    for event in normalized_events:
+        if not blocks_canonical_1h(event):
+            continue
+        instrument_id = event.get("instrument_id")
+        if instrument_id is None:
+            global_blockers.append(event)
+            continue
+        selected = matrix.setdefault(
+            instrument_id,
+            {
+                "instrument_id": instrument_id,
+                "instrument_key": event.get("instrument_key"),
+                "symbol": event.get("symbol"),
+                "category": event.get("category"),
+            },
+        )
+        selected.setdefault("current_blocker_event_ids", []).append(event.get("quality_event_id"))
+
     rows = []
     for item in matrix.values():
-        item["status"] = worst_status([
+        item["current_blocker_event_ids"] = item.get("current_blocker_event_ids", [])
+        item["global_blocker_event_ids"] = [
+            event.get("quality_event_id") for event in global_blockers
+        ]
+        item["current_blocker_count"] = (
+            len(item["current_blocker_event_ids"]) + len(item["global_blocker_event_ids"])
+        )
+        item["status"] = "FAIL" if item["current_blocker_count"] else worst_status([
             normalized_text(item.get("coverage_status")),
             normalized_text(item.get("freshness_status")),
         ])
         rows.append(item)
     rows.sort(key=lambda row: (-STATUS_PRIORITY.get(row["status"], 0), normalized_text(row.get("symbol"))))
-    severity_totals = Counter(normalized_text(row.get("severity")) or "UNKNOWN" for row in events)
+    historical = [row for row in normalized_events if row["applicability"] == "HISTORICAL"]
+    unresolved = [row for row in normalized_events if row["applicability"] in {"CURRENT", "UNKNOWN"}]
+    severity_totals = Counter(normalized_text(row.get("severity")) or "UNKNOWN" for row in historical)
     return {
         "generated_at_utc": utc_now(),
         "current": rows,
         "current_status_totals": dict(Counter(row["status"] for row in rows)),
-        "historical_open_events": events,
+        "blocking_event_count": sum(1 for row in normalized_events if row["current_blocker"]),
+        "canonical_blocking_event_count": sum(
+            1 for row in normalized_events if blocks_canonical_1h(row)
+        ),
+        "global_blockers": global_blockers,
+        "unresolved_events": unresolved,
+        "historical_open_events": historical,
+        "applicability_totals": dict(
+            sorted(Counter(row["applicability"] for row in normalized_events).items())
+        ),
         "historical_severity_totals": dict(sorted(severity_totals.items())),
     }
 

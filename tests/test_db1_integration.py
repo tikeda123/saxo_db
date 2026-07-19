@@ -237,20 +237,20 @@ def test_failed_migration_rolls_back_ddl_and_history(tmp_path, monkeypatch):
     source = Path(__file__).resolve().parents[1] / "db" / "migrations"
     for path in source.glob("*.sql"):
         (tmp_path / path.name).write_bytes(path.read_bytes())
-    (tmp_path / "0015_rollback_probe.sql").write_text(
+    (tmp_path / "0019_rollback_probe.sql").write_text(
         "SET LOCAL ROLE saxo_db_owner; "
         "CREATE TABLE ops.db1_rollback_probe(id integer); "
         "SELECT 1 / 0;",
         encoding="utf-8",
     )
-    monkeypatch.setitem(migrate_module.MIGRATION_TARGETS, "0015", (MARKET_DB,))
+    monkeypatch.setitem(migrate_module.MIGRATION_TARGETS, "0019", (MARKET_DB,))
     with pytest.raises(psycopg.errors.DivisionByZero):
         apply_database_migrations(MARKET_DB, directory=tmp_path)
     with connect("saxo_migrator", MARKET_DB) as conn:
         with conn.cursor() as cursor:
             cursor.execute("SELECT to_regclass('ops.db1_rollback_probe')")
             assert cursor.fetchone()[0] is None
-            cursor.execute("SELECT count(*) FROM ops.schema_migration WHERE migration_number='0015'")
+            cursor.execute("SELECT count(*) FROM ops.schema_migration WHERE migration_number='0019'")
             assert cursor.fetchone()[0] == 0
 
 

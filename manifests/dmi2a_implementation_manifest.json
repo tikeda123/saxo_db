@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "phase": "DMI2A",
+  "status": "PASS",
+  "contract_revision": "1.1",
+  "implemented_at_jst": "2026-07-20",
+  "parent_evidence": {
+    "relative_path": "manifests/dmi1_implementation_manifest.json",
+    "sha256": "f76ce332cd6122d7b0f912f3c01940a1ed2e579c28165f5f132b618867145838",
+    "policy": "immutable_parent_with_explicit_hash_attested_supersession"
+  },
+  "migration": {
+    "number": "0018",
+    "filename": "0018_series_status_high_watermark.sql",
+    "sha256": "2824d6bde90391b76ee5d26f7c887144fbbeac5c58e8f5cc8331278b15bf67b0",
+    "database": "saxo_market",
+    "status": "APPLIED",
+    "checksum_validation": "PASS"
+  },
+  "endpoint": {
+    "method": "GET",
+    "path": "/api/v1/series-status",
+    "supported_layers": ["1h"],
+    "required_parameters": ["instrument_key", "layer", "price_basis"],
+    "existing_operations_endpoints_preserved": true
+  },
+  "transaction": {
+    "role": "saxo_app_reader",
+    "read_only": true,
+    "isolation": "REPEATABLE READ",
+    "single_snapshot": true,
+    "component_query_count": 7
+  },
+  "runtime_evidence": {
+    "instrument_key": "spy",
+    "layer": "1h",
+    "price_basis": "native_ohlc",
+    "http_status": 200,
+    "coverage_status": "WARN",
+    "freshness_status": "STALE",
+    "quality_status": "PASS",
+    "eligibility_status": "BLOCKED",
+    "eligibility_reasons": ["FRESHNESS_STALE"],
+    "eligibility_warnings": ["COVERAGE_WARN"],
+    "current_blocker_count": 0,
+    "unknown_blocker_count": 0,
+    "historical_unresolved_event_count": 3,
+    "watermark_data_version": 29732294,
+    "latest_ingestion_run_id": 105,
+    "latest_ingestion_run_status": "PASS",
+    "quality_event_high_watermark": 395064,
+    "wrong_price_basis_fallback": false
+  },
+  "test_evidence": {
+    "unit_passed": 88,
+    "integration_skipped_in_unit_run": 31,
+    "full_database_integration_passed": 31,
+    "full_database_integration_failed": 0,
+    "full_database_integration_seconds": 583.12,
+    "migration_validation": "PASS"
+  },
+  "security": {
+    "bind_host": "127.0.0.1",
+    "access_token_saved": false,
+    "account_identifier_saved": false,
+    "arbitrary_sql_enabled": false,
+    "database_write_routes": 0,
+    "saxo_write_requests": 0,
+    "orders_or_prechecks_sent": 0
+  },
+  "next_phase": "DMI2B",
+  "locked_phases": ["DMI3", "DMI4"],
+  "artifacts": {
+    "README.md": {"size_bytes": 13024, "sha256": "431046d88d4dcea26c6c472be7178886ebadce9c6750dd5e962e5573b2c5b6fd"},
+    "db/migrations/0018_series_status_high_watermark.sql": {"size_bytes": 498, "sha256": "2824d6bde90391b76ee5d26f7c887144fbbeac5c58e8f5cc8331278b15bf67b0"},
+    "market_db/migrate.py": {"size_bytes": 12542, "sha256": "7111101fd4db247e30d983ffbb1d7de61d00d79084ad12a349ec3287b5e19a98"},
+    "market_db/read_api.py": {"size_bytes": 28271, "sha256": "a6411d891af3189665933d47b688ae05a9b72e31fa2425950511496ccd0390d5"},
+    "market_db/validate.py": {"size_bytes": 51032, "sha256": "e00c6d4add1b6afe2b039da81b52efd03a724da9fa401f5b707aff2c6d9b97d2"},
+    "tests/test_read_api.py": {"size_bytes": 14813, "sha256": "18db2da5ac64a00b313f8a657ee577bc9936787c059bbfa635505206ad3a24de"},
+    "tests/test_migration_runner.py": {"size_bytes": 946, "sha256": "46fbb2411fcb77c758d83ae13cfa0a34b996f4b46bb3e3288504d8862af41f28"},
+    "tests/test_db1_integration.py": {"size_bytes": 13574, "sha256": "061e516d3200126b636480728eb1735c79d5c586192cc426af97dedbdd9147bb"},
+    "tests/test_dmi2a_integration.py": {"size_bytes": 2111, "sha256": "2d7c7402f4bf5ccafc3b788dd278ecb7dd147cacc4b39993f81b8d314ddde634"},
+    "docs/read_api_interface.md": {"size_bytes": 22461, "sha256": "e1f9aeca345c4b4bb9e95bf9d6883b762c7dcd64732f22cc0a51519dc7e10170"},
+    "docs/database_operations_runbook.md": {"size_bytes": 25605, "sha256": "9868953c00caea6c61f5f5f918e4f48ecf820ee7b353ac920d81604c997f004e"},
+    "docs/dmi2a_implementation_result.md": {"size_bytes": 1596, "sha256": "31833a6a0597465b94bfd82b51a8fe4764db800e3ae42e9dfb7288120deba7ad"},
+    "specs/data_management_interface_improvement_spec.json": {"size_bytes": 4469, "sha256": "58ce9f54123095c4443c585a30a3c1cceb7b9942a1e0fd53b130dddf3271d514"}
+  }
+}

@@ -27,6 +27,12 @@ def test_alert_evaluation():
     spec = QuerySpec("reader", "view", "id", "status", frozenset({"FAIL"}))
     assert has_alert(spec, [{"status": "FAIL"}])
     assert not has_alert(spec, [{"status": "NOT_EVALUATED"}])
+    quality = QUERY_SPECS[(MARKET_DB, "quality")]
+    assert has_alert(quality, [{"severity": "CRITICAL", "current_blocker": True}])
+    assert not has_alert(
+        quality,
+        [{"severity": "CRITICAL", "applicability": "HISTORICAL", "current_blocker": False}],
+    )
 
 
 def test_main_renders_mocked_json(monkeypatch, capsys):
