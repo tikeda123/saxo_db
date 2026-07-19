@@ -20,6 +20,7 @@ from market_db.validate import (
     dmi1_manifest_baseline_is_valid,
     dmi2a_manifest_baseline_is_valid,
     dmi2b_manifest_baseline_is_valid,
+    dmi3_manifest_baseline_is_valid,
 )
 
 
@@ -342,6 +343,99 @@ def test_snapshot_bars_fail_closed_for_layer_unknown_snapshot_and_integrity():
     assert response.get_json()["error_code"] == "SNAPSHOT_SERIES_NOT_FOUND"
 
 
+def _total_return_responses(*, mapping_count=1, quality_status="PASS"):
+    read_at = datetime(2026, 7, 20, tzinfo=timezone.utc)
+    return [
+        [{
+            "read_at_utc": read_at,
+            "snapshot_marker": "30:40:",
+            "database_name": "saxo_market",
+            "role_name": "saxo_app_reader",
+            "transaction_read_only": "on",
+        }],
+        [{
+            "source_dataset_id": "20260712T135236Z",
+            "external_series_key": "IWM",
+            "instrument_id": 6,
+            "mapping_kind": "TICKER_EXACT",
+            "mapping_reason": "explicit review",
+            "approved_at_utc": read_at,
+            "approved_by": "codex-dmi3-20260720",
+            "instrument_key": "iwm",
+            "symbol": "IWM:arcx",
+            "category": "equity_reit",
+            "dataset_name": "ETF11 curated total-return daily",
+            "provider": "Yahoo Finance and FRED",
+            "price_basis": "etf_total_return",
+            "research_eligibility": "development_cutoff_only",
+            "mapping_count": mapping_count,
+            "session_date": datetime(2024, 6, 28, tzinfo=timezone.utc).date(),
+            "value": Decimal("205.125000000000"),
+            "volume": Decimal("1000000.00000000"),
+            "quality_status": quality_status,
+            "row_price_basis": "etf_total_return",
+        }],
+    ]
+
+
+def test_total_return_endpoint_uses_explicit_mapping_and_separate_price_basis():
+    reader = FakeReader(_total_return_responses())
+    response = create_app(reader).test_client().get(
+        "/api/v1/total-return?instrument_key=IWM"
+        "&start=2024-06-01T00:00:00Z&end=2024-07-01T00:00:00Z&limit=10"
+    )
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["contract_revision"] == "1.2"
+    assert payload["series"]["instrument_key"] == "iwm"
+    assert payload["series"]["source_dataset_id"] == "20260712T135236Z"
+    assert payload["series"]["price_basis"] == "etf_total_return"
+    assert payload["source"]["parity_status"] == "PASS"
+    assert payload["row_count"] == 1
+    assert payload["rows"][0]["value"] == "205.125000000000"
+    assert payload["rows"][0]["price_basis"] == "etf_total_return"
+    assert len(payload["ordered_content_sha256"]) == 64
+    statement, params = reader.calls[0][1][1]
+    assert "catalog.series_instrument_mapping" in statement
+    assert "i.symbol=%s" not in statement
+    assert params[0] == "iwm"
+    assert params[-1] == 11
+
+
+def test_total_return_endpoint_requires_dataset_when_mapping_is_ambiguous():
+    reader = FakeReader(_total_return_responses(mapping_count=2))
+    response = create_app(reader).test_client().get(
+        "/api/v1/total-return?instrument_key=iwm"
+        "&start=2024-06-01T00:00:00Z&end=2024-07-01T00:00:00Z"
+    )
+    assert response.status_code == 409
+    assert response.get_json() == {
+        "error_code": "SOURCE_DATASET_REQUIRED",
+        "status": "FAILED",
+    }
+
+
+def test_total_return_stored_complete_is_explicitly_warned_and_invalid_eligibility_rejected():
+    reader = FakeReader(_total_return_responses(quality_status="WARN"))
+    client = create_app(reader).test_client()
+    response = client.get(
+        "/api/v1/total-return?instrument_key=iwm&source_dataset_id=20260712T135236Z"
+        "&start=2024-06-01T00:00:00Z&end=2024-07-01T00:00:00Z"
+        "&eligibility=stored_complete"
+    )
+    assert response.status_code == 200
+    assert response.get_json()["warnings"] == [
+        "NON_ELIGIBLE_STORED_COMPLETE_DATA_MAY_BE_INCLUDED"
+    ]
+    invalid = client.get(
+        "/api/v1/total-return?instrument_key=iwm"
+        "&start=2024-06-01T00:00:00Z&end=2024-07-01T00:00:00Z"
+        "&eligibility=all"
+    )
+    assert invalid.status_code == 400
+    assert invalid.get_json() == {"error_code": "INVALID_REQUEST", "status": "FAILED"}
+
+
 def _series_status_responses(events=None):
     read_at = datetime(2026, 7, 20, tzinfo=timezone.utc)
     return [
@@ -553,6 +647,36 @@ def test_dmi2a_manifest_requires_atomic_read_only_preflight_contract():
     assert dmi2a_manifest_baseline_is_valid(payload)
     payload["transaction"]["single_snapshot"] = False
     assert not dmi2a_manifest_baseline_is_valid(payload)
+
+
+def test_dmi3_manifest_requires_explicit_mapping_and_parity_contract():
+    payload = {
+        "phase": "DMI3",
+        "status": "PASS",
+        "contract_revision": "1.2",
+        "endpoint": {
+            "method": "GET", "path": "/api/v1/total-return", "supported_price_basis": ["etf_total_return"]
+        },
+        "mapping": {
+            "table": "catalog.series_instrument_mapping",
+            "approved_mapping_count": 11,
+            "unapproved_mapping_count": 0,
+            "ambiguous_mapping_count": 0,
+        },
+        "transaction": {"read_only": True, "isolation": "REPEATABLE READ", "single_snapshot": True},
+        "runtime_evidence": {
+            "instrument_key": "iwm", "source_dataset_id": "20260712T135236Z",
+            "row_count": 20, "parity_status": "PASS", "ordered_content_sha256": "a" * 64,
+        },
+        "security": {
+            "access_token_saved": False, "account_identifier_saved": False,
+            "arbitrary_sql_enabled": False, "database_write_routes": 0,
+            "saxo_write_requests": 0,
+        },
+    }
+    assert dmi3_manifest_baseline_is_valid(payload)
+    payload["mapping"]["unapproved_mapping_count"] = 1
+    assert not dmi3_manifest_baseline_is_valid(payload)
 
 
 def test_dmi2b_manifest_requires_verified_immutable_snapshot_read_contract():

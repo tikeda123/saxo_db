@@ -255,7 +255,8 @@ SAXO_DB_INTEGRATION=1 .venv/bin/python -m pytest
 - DMI1B: 旧22 eventの運用review、CURRENT 5 / HISTORICAL 17 / UNKNOWN 0 — PASS
 - DMI2A: atomic series status — PASS
 - DMI2B: snapshot-bound 1H read — PASS
-- DMI3: stable total-return API — NEXT
+- DMI3: stable total-return API — PASS
+- DMI4: cursor・consumer contract kit — NEXT
 - DMI4: cursor・consumer contract kit — LOCKED
 
 これらはデータ基盤の実装・運用ゲートです。戦略の優位性や収益性を証明するものではありません。旧計画に含まれるRT0以降の戦略文書は履歴資料として保持しますが、このリポジトリの現行スコープには含めません。

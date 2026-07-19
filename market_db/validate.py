@@ -231,6 +231,47 @@ def dmi2b_manifest_baseline_is_valid(payload: dict[str, Any]) -> bool:
     )
 
 
+def dmi3_manifest_baseline_is_valid(payload: dict[str, Any]) -> bool:
+    """Validate the explicit total-return mapping and stable endpoint contract."""
+    endpoint = payload.get("endpoint", {})
+    mapping = payload.get("mapping", {})
+    transaction = payload.get("transaction", {})
+    runtime = payload.get("runtime_evidence", {})
+    security = payload.get("security", {})
+
+    def sha256_value(value: object) -> bool:
+        return (
+            isinstance(value, str)
+            and len(value) == 64
+            and all(character in "0123456789abcdef" for character in value)
+        )
+
+    return (
+        payload.get("phase") == "DMI3"
+        and payload.get("status") == "PASS"
+        and payload.get("contract_revision") == "1.2"
+        and endpoint.get("method") == "GET"
+        and endpoint.get("path") == "/api/v1/total-return"
+        and endpoint.get("supported_price_basis") == ["etf_total_return"]
+        and mapping.get("table") == "catalog.series_instrument_mapping"
+        and mapping.get("approved_mapping_count", 0) > 0
+        and mapping.get("unapproved_mapping_count") == 0
+        and mapping.get("ambiguous_mapping_count") == 0
+        and transaction.get("read_only") is True
+        and transaction.get("isolation") == "REPEATABLE READ"
+        and transaction.get("single_snapshot") is True
+        and isinstance(runtime.get("row_count"), int)
+        and runtime.get("row_count", 0) > 0
+        and runtime.get("parity_status") == "PASS"
+        and sha256_value(runtime.get("ordered_content_sha256"))
+        and security.get("access_token_saved") is False
+        and security.get("account_identifier_saved") is False
+        and security.get("arbitrary_sql_enabled") is False
+        and security.get("database_write_routes") == 0
+        and security.get("saxo_write_requests") == 0
+    )
+
+
 def validate_import_inventory() -> dict[str, Any]:
     root = project_root()
     inventory_path = root / "manifests" / "import_file_inventory.csv"
@@ -1059,6 +1100,72 @@ def validate_db4_data() -> dict[str, Any]:
             "status": "PASS" if dmi2b_baseline_valid and not dmi2b_mismatches else "FAIL",
         })
     implementation["dmi2b_extension_manifest"] = dmi2b_extension
+
+    dmi3_path = project_root() / "manifests/dmi3_implementation_manifest.json"
+    dmi3_extension: dict[str, Any] = {"exists": dmi3_path.is_file(), "status": "NOT_PRESENT"}
+    if dmi3_path.is_file():
+        dmi3_payload = json.loads(dmi3_path.read_text(encoding="utf-8"))
+        dmi3_mismatches, dmi3_valid_paths = manifest_artifact_state(dmi3_payload)
+        dmi3_parent = dmi3_payload.get("parent_evidence", {})
+        dmi3_baseline_valid = (
+            dmi3_manifest_baseline_is_valid(dmi3_payload)
+            and dmi3_parent.get("relative_path")
+            == "manifests/dmi2b_implementation_manifest.json"
+            and dmi3_parent.get("sha256") == _sha256(dmi2b_path)
+            and dmi3_payload.get("migration", {}).get("number") == "0019"
+            and dmi3_payload.get("migration", {}).get("status") == "APPLIED"
+            and dmi3_payload.get("migration", {}).get("sha256")
+            == _sha256(project_root() / "db/migrations/0019_total_return_mapping.sql")
+        )
+
+        def remove_dmi3_superseded(items: list[str]) -> tuple[list[str], list[str]]:
+            superseded = sorted({
+                item.split(":", 1)[1]
+                for item in items
+                if ":" in item and item.split(":", 1)[1] in dmi3_valid_paths
+            })
+            remaining = [
+                item
+                for item in items
+                if ":" not in item or item.split(":", 1)[1] not in dmi3_valid_paths
+            ]
+            return remaining, superseded
+
+        implementation["artifact_mismatches"], dmi3_db4_superseded = (
+            remove_dmi3_superseded(implementation.get("artifact_mismatches", []))
+        )
+        extension["artifact_mismatches"], dmi3_dmui_superseded = (
+            remove_dmi3_superseded(extension.get("artifact_mismatches", []))
+        )
+        dmi1_extension["artifact_mismatches"], dmi3_dmi1_superseded = (
+            remove_dmi3_superseded(dmi1_extension.get("artifact_mismatches", []))
+        )
+        dmi2a_extension["artifact_mismatches"], dmi3_dmi2a_superseded = (
+            remove_dmi3_superseded(dmi2a_extension.get("artifact_mismatches", []))
+        )
+        dmi2b_extension["artifact_mismatches"], dmi3_dmi2b_superseded = (
+            remove_dmi3_superseded(dmi2b_extension.get("artifact_mismatches", []))
+        )
+        for extension_manifest in (
+            extension, dmi1_extension, dmi2a_extension, dmi2b_extension
+        ):
+            if (
+                extension_manifest.get("baseline_valid") is True
+                and not extension_manifest["artifact_mismatches"]
+            ):
+                extension_manifest["status"] = "PASS"
+        dmi3_extension.update({
+            "artifact_mismatches": dmi3_mismatches,
+            "baseline_valid": dmi3_baseline_valid,
+            "gate_status": dmi3_payload.get("status"),
+            "superseded_db4_artifacts": dmi3_db4_superseded,
+            "superseded_dmui4_artifacts": dmi3_dmui_superseded,
+            "superseded_dmi1_artifacts": dmi3_dmi1_superseded,
+            "superseded_dmi2a_artifacts": dmi3_dmi2a_superseded,
+            "superseded_dmi2b_artifacts": dmi3_dmi2b_superseded,
+            "status": "PASS" if dmi3_baseline_valid and not dmi3_mismatches else "FAIL",
+        })
+    implementation["dmi3_extension_manifest"] = dmi3_extension
     result["implementation_manifest"] = implementation
 
     backup_pass = (
@@ -1095,6 +1202,7 @@ def validate_db4_data() -> dict[str, Any]:
         and implementation.get("dmi1_extension_manifest", {}).get("status") in {"PASS", "NOT_PRESENT"}
         and implementation.get("dmi2a_extension_manifest", {}).get("status") in {"PASS", "NOT_PRESENT"}
         and implementation.get("dmi2b_extension_manifest", {}).get("status") in {"PASS", "NOT_PRESENT"}
+        and implementation.get("dmi3_extension_manifest", {}).get("status") in {"PASS", "NOT_PRESENT"}
     )
     result["status"] = "PASS" if (
         result["migration"]["applied"]

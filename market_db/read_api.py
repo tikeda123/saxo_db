@@ -35,6 +35,7 @@ LOOPBACK_HOST = "127.0.0.1"
 DEFAULT_PORT = 8766
 MAX_OPERATION_ROWS = 1_000
 MAX_BAR_ROWS = 10_000
+MAX_TOTAL_RETURN_ROWS = 10_000
 API_VERSION = 1
 CONTRACT_REVISION = "1.2"
 OPERATION_COMMANDS = (
@@ -141,6 +142,13 @@ class SnapshotDatabaseReader(DatabaseReader):
 
 
 class SnapshotReadError(RuntimeError):
+    def __init__(self, code: str, http_status: int) -> None:
+        super().__init__(code)
+        self.code = code
+        self.http_status = http_status
+
+
+class TotalReturnReadError(RuntimeError):
     def __init__(self, code: str, http_status: int) -> None:
         super().__init__(code)
         self.code = code
@@ -339,6 +347,57 @@ WHERE i.market_key=%s
   AND b.is_complete AND b.quality_status='PASS'
 ORDER BY b.time_utc, b.instrument_id, b.price_basis
 LIMIT %s
+"""
+
+TOTAL_RETURN_CONTEXT_QUERY = """
+SELECT transaction_timestamp() AS read_at_utc,
+       txid_current_snapshot()::TEXT AS snapshot_marker,
+       current_database() AS database_name,
+       current_user AS role_name,
+       current_setting('transaction_read_only') AS transaction_read_only
+"""
+
+TOTAL_RETURN_ROWS_QUERY = """
+WITH candidates AS (
+    SELECT m.source_dataset_id, m.external_series_key, m.instrument_id,
+           m.mapping_kind, m.mapping_reason, m.approved_at_utc, m.approved_by,
+           i.market_key AS instrument_key, i.symbol, i.category,
+           ds.dataset_name, ds.provider, ds.price_basis,
+           ds.research_eligibility,
+           COUNT(*) OVER ()::BIGINT AS mapping_count
+    FROM catalog.series_instrument_mapping m
+    JOIN catalog.instrument i ON i.instrument_id=m.instrument_id
+    JOIN catalog.source_dataset ds ON ds.source_dataset_id=m.source_dataset_id
+    WHERE i.market_key=%s
+      AND i.active_to_utc IS NULL
+      AND m.active
+      AND m.approved_at_utc IS NOT NULL
+      AND ds.dataset_kind='total_return'
+      AND ds.price_basis='etf_total_return'
+      AND (%s::TEXT IS NULL OR m.source_dataset_id=%s)
+)
+SELECT c.source_dataset_id, c.external_series_key, c.instrument_id,
+       c.mapping_kind, c.mapping_reason, c.approved_at_utc, c.approved_by,
+       c.instrument_key, c.symbol, c.category, c.dataset_name, c.provider,
+       c.price_basis, c.research_eligibility, c.mapping_count,
+       d.date AS session_date, d.total_return_index AS value,
+       d.volume, d.quality_status,
+       'etf_total_return'::TEXT AS row_price_basis
+FROM candidates c
+LEFT JOIN LATERAL (
+    SELECT date, total_return_index, volume, quality_status
+    FROM curated.etf_total_return_daily d
+    WHERE d.source_dataset_id=c.source_dataset_id
+      AND d.ticker=c.external_series_key
+      AND d.date >= %s::DATE AND d.date < %s::DATE
+      AND (
+          (%s='eligible' AND d.quality_status='PASS')
+          OR (%s='stored_complete' AND d.quality_status IN ('PASS','WARN','NOT_EVALUATED'))
+      )
+    ORDER BY d.date
+    LIMIT %s
+) d ON TRUE
+ORDER BY c.source_dataset_id, c.external_series_key, d.date NULLS FIRST
 """
 
 
@@ -692,6 +751,126 @@ def snapshot_bars_payload(
     }
 
 
+def total_return_payload(
+    reader: QueryReader,
+    *,
+    instrument_key: str,
+    start: datetime,
+    end: datetime,
+    source_dataset_id: str | None,
+    limit: int,
+    eligibility: str,
+) -> dict[str, Any]:
+    if not instrument_key or len(instrument_key) > 64:
+        raise ValueError("instrument_key is required")
+    if start >= end:
+        raise ValueError("start must be earlier than end")
+    if source_dataset_id is not None and len(source_dataset_id) > 128:
+        raise ValueError("source_dataset_id is too long")
+    if eligibility not in {"eligible", "stored_complete"}:
+        raise ValueError("eligibility must be eligible or stored_complete")
+
+    result_sets = reader.query_atomic(
+        (
+            (TOTAL_RETURN_CONTEXT_QUERY, ()),
+            (
+                TOTAL_RETURN_ROWS_QUERY,
+                (
+                    instrument_key,
+                    source_dataset_id,
+                    source_dataset_id,
+                    start.date(),
+                    end.date(),
+                    eligibility,
+                    eligibility,
+                    limit + 1,
+                ),
+            ),
+        )
+    )
+    if len(result_sets) != 2 or len(result_sets[0]) != 1:
+        raise TotalReturnReadError("TOTAL_RETURN_INTEGRITY_FAILED", 503)
+    context = result_sets[0][0]
+    rows = result_sets[1]
+    if context.get("database_name") != MARKET_DB or context.get("role_name") != "saxo_app_reader":
+        raise TotalReturnReadError("TOTAL_RETURN_INTEGRITY_FAILED", 503)
+    if context.get("transaction_read_only") != "on":
+        raise TotalReturnReadError("TOTAL_RETURN_INTEGRITY_FAILED", 503)
+    if not rows:
+        raise TotalReturnReadError("TOTAL_RETURN_MAPPING_NOT_FOUND", 404)
+
+    mapping_count = max(int(row.get("mapping_count") or 0) for row in rows)
+    if mapping_count > 1:
+        raise TotalReturnReadError("SOURCE_DATASET_REQUIRED", 409)
+    if mapping_count != 1:
+        raise TotalReturnReadError("TOTAL_RETURN_MAPPING_NOT_FOUND", 404)
+    mapping = rows[0]
+    row_values = [row for row in rows if row.get("session_date") is not None]
+    truncated = len(row_values) > limit
+    selected_rows = row_values[:limit]
+    response_rows = [
+        {
+            "source_dataset_id": row["source_dataset_id"],
+            "external_series_key": row["external_series_key"],
+            "session_date": row["session_date"],
+            "value": row["value"],
+            "volume": row["volume"],
+            "quality_status": row["quality_status"],
+            "price_basis": row["row_price_basis"],
+        }
+        for row in selected_rows
+    ]
+    warning_codes = (
+        ["NON_ELIGIBLE_STORED_COMPLETE_DATA_MAY_BE_INCLUDED"]
+        if eligibility == "stored_complete"
+        else []
+    )
+    return {
+        "api_version": API_VERSION,
+        "contract_revision": CONTRACT_REVISION,
+        "generated_at_utc": context["read_at_utc"],
+        "consistency": {
+            "read_at_utc": context["read_at_utc"],
+            "snapshot_marker": context["snapshot_marker"],
+            "mapping_count": mapping_count,
+        },
+        "series": {
+            "instrument_id": mapping["instrument_id"],
+            "instrument_key": mapping["instrument_key"],
+            "symbol": mapping["symbol"],
+            "category": mapping["category"],
+            "source_dataset_id": mapping["source_dataset_id"],
+            "external_series_key": mapping["external_series_key"],
+            "provider": mapping["provider"],
+            "dataset_name": mapping["dataset_name"],
+            "price_basis": "etf_total_return",
+        },
+        "mapping": {
+            "mapping_kind": mapping["mapping_kind"],
+            "mapping_reason": mapping["mapping_reason"],
+            "approved_at_utc": mapping["approved_at_utc"],
+            "approved_by": mapping["approved_by"],
+        },
+        "query": {
+            "instrument_key": instrument_key,
+            "start": start,
+            "end": end,
+            "source_dataset_id": source_dataset_id,
+            "limit": limit,
+            "eligibility": eligibility,
+        },
+        "source": {
+            "research_eligibility": mapping["research_eligibility"],
+            "parity_status": "PASS",
+        },
+        "warnings": warning_codes,
+        "row_count": len(response_rows),
+        "truncated": truncated,
+        "ordered_content_sha256": ordered_content_sha256(response_rows),
+        "rows": response_rows,
+    }
+
+
 def create_app(
     reader: QueryReader | None = None,
     snapshot_reader: QueryReader | None = None,
@@ -863,6 +1042,26 @@ def create_app(
                 manifest_loader=snapshot_manifest_loader,
             )
         except SnapshotReadError as exc:
+            return jsonify({"status": "FAILED", "error_code": exc.code}), exc.http_status
+        except ValueError:
+            return jsonify({"status": "FAILED", "error_code": "INVALID_REQUEST"}), 400
+        return jsonify(json_value(payload))
+
+    @app.get("/api/v1/total-return")
+    def total_return():
+        try:
+            payload = total_return_payload(
+                selected_reader,
+                instrument_key=request.args.get("instrument_key", "").strip().lower(),
+                start=parse_utc(request.args.get("start", ""), "start"),
+                end=parse_utc(request.args.get("end", ""), "end"),
+                source_dataset_id=(
+                    request.args.get("source_dataset_id", "").strip() or None
+                ),
+                limit=parse_limit(request.args.get("limit"), MAX_TOTAL_RETURN_ROWS),
+                eligibility=request.args.get("eligibility", "eligible").strip().lower(),
+            )
+        except TotalReturnReadError as exc:
             return jsonify({"status": "FAILED", "error_code": exc.code}), exc.http_status
         except ValueError:
             return jsonify({"status": "FAILED", "error_code": "INVALID_REQUEST"}), 400

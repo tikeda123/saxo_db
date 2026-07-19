@@ -102,7 +102,7 @@ Docker container内の`127.0.0.1`はcontainer自身を指すため、そのま�
 | GET | `/api/v1/ui/chart-marks` | quality marker |
 | GET | `/api/v1/ui/quality-summary` | UI品質summary |
 
-total-returnは現在、安定契約の`/api/v1/bars`には含まれません。必要な場合は第9章のUI支援APIを使用するか、専用の安定endpoint追加を別変更として計画してください。
+total-returnはnative OHLCとは別の安定契約`/api/v1/total-return`で取得します。UI支援APIは対話的な探索用として引き続き利用できます。
 
 ## 4. 共通規約
 
@@ -536,7 +536,26 @@ curl --fail http://127.0.0.1:8766/api/v1/layer-counts
 
 ## 9. ETF total-returnの取得
 
-ETF total-returnは`curated.etf_total_return_daily`にnative OHLCとは別系列で保存されています。現行APIではUI支援APIから取得します。
+ETF total-returnは`curated.etf_total_return_daily`にnative OHLCとは別系列で保存されています。外部batch処理はstable endpoint、UI探索はUI支援APIを使用します。
+
+### 9.0 Stable total-return endpoint
+
+```bash
+curl --fail --get 'http://127.0.0.1:8766/api/v1/total-return' \
+  --data-urlencode 'instrument_key=IWM' \
+  --data-urlencode 'start=2024-01-01T00:00:00Z' \
+  --data-urlencode 'end=2024-07-01T00:00:00Z' \
+  --data-urlencode 'limit=1000' \
+  --data-urlencode 'eligibility=eligible'
+```
+
+このendpointは`catalog.series_instrument_mapping`の承認済みmappingだけを使用します。symbol文字列の暗黙joinは行いません。複数datasetが候補になる場合、`source_dataset_id`を明示しないrequestは`SOURCE_DATASET_REQUIRED`で拒否します。
+
+responseのseriesは`price_basis=etf_total_return`、各rowの`value`はtotal-return indexです。native OHLCのopen/high/low/closeとして扱ってはいけません。`ordered_content_sha256`、`row_count`、`truncated`、`source.parity_status`をconsumer runへ保存してください。
+
+`eligibility=eligible`は`quality_status=PASS`だけを返します。`eligibility=stored_complete`はWARN/NOT_EVALUATEDを含む可能性があり、`NON_ELIGIBLE_STORED_COMPLETE_DATA_MAY_BE_INCLUDED`を返します。
+
+mappingがない場合は`TOTAL_RETURN_MAPPING_NOT_FOUND`、未指定datasetが曖昧な場合は409 `SOURCE_DATASET_REQUIRED`、mapping・source dataの整合性が壊れている場合は503 `TOTAL_RETURN_INTEGRITY_FAILED`です。
 
 ### 9.1 系列を検索
 
@@ -710,7 +729,7 @@ consumerはParquet本体と対応manifestを一緒に保管し、利用前にSHA
 
 - APIの可用性SLAはない。ローカルprocessとして運用する。
 - 認証、TLS、CORS、remote接続は提供しない。
-- total-returnの安定した専用endpointは未実装。
+- total-returnの安定endpointは`GET /api/v1/total-return`を提供する。snapshot-bound total-returnはDMI4以降の拡張対象。
 - corporate action、cash distribution、point-in-time swapはOHLC APIに含まれない。
 - FX calendarはSaxo live scheduleによる完全検証前は`NOT_EVALUATED`になり得る。
 - streaming/WebSocketは提供しない。取得はbounded GETのみ。

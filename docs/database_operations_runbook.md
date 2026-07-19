@@ -279,6 +279,18 @@ curl --fail --get 'http://127.0.0.1:8766/api/v1/snapshots/1/bars' \
 
 DMI2B不変性probeは、current `saxo_market`のsession-local temporary tableへcommitした更新を挟み、同じsnapshot queryのrow count、全row、ordered content SHA、snapshot SHAが同一であることを検証する。共有tableやsnapshot DBは変更しない。
 
+stable total-returnは`GET /api/v1/total-return`を使用する。`catalog.series_instrument_mapping`のapproved mappingだけを参照し、symbol文字列の暗黙joinは行わない。
+
+```bash
+curl --fail --get 'http://127.0.0.1:8766/api/v1/total-return' \
+  --data-urlencode 'instrument_key=iwm' \
+  --data-urlencode 'start=2024-01-01T00:00:00Z' \
+  --data-urlencode 'end=2024-07-01T00:00:00Z' \
+  --data-urlencode 'eligibility=eligible'
+```
+
+`eligibility=eligible`はPASS行だけ、`stored_complete`はWARN/NOT_EVALUATEDを含む可能性がある。複数source dataset候補で`source_dataset_id`を省略した場合は`SOURCE_DATASET_REQUIRED`となり、native OHLC endpointへfallbackしない。
+
 ### 11.1 データ管理Web UI
 
 Read APIを起動した同じprocessで、データ管理UIも利用できる。

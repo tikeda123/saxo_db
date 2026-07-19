@@ -148,17 +148,45 @@
       "integrity_mismatch": "SNAPSHOT_INTEGRITY_FAILED"
     }
   },
+  "total_return_contract": {
+    "phase": "DMI3",
+    "endpoint": "GET /api/v1/total-return",
+    "required_query_parameters": ["instrument_key", "start", "end"],
+    "optional_query_parameters": ["source_dataset_id", "limit", "eligibility"],
+    "supported_price_basis": ["etf_total_return"],
+    "mapping_table": "catalog.series_instrument_mapping",
+    "approved_mapping_required": true,
+    "mapping_key": ["source_dataset_id", "external_series_key"],
+    "transaction": {
+      "read_only": true,
+      "isolation": "REPEATABLE READ",
+      "single_snapshot_for_mapping_and_rows": true
+    },
+    "eligibility_values": ["eligible", "stored_complete"],
+    "stored_complete_warning": "NON_ELIGIBLE_STORED_COMPLETE_DATA_MAY_BE_INCLUDED",
+    "response_identity_fields": [
+      "instrument_id", "instrument_key", "symbol", "category",
+      "source_dataset_id", "external_series_key", "price_basis",
+      "ordered_content_sha256"
+    ],
+    "row_fields": ["session_date", "value", "volume", "quality_status", "price_basis"],
+    "error_codes": {
+      "mapping_not_found": "TOTAL_RETURN_MAPPING_NOT_FOUND",
+      "ambiguous_source": "SOURCE_DATASET_REQUIRED",
+      "integrity_mismatch": "TOTAL_RETURN_INTEGRITY_FAILED"
+    },
+    "native_ohlc_fallback": false
+  },
   "gate_state": {
     "DMI0": "PASS",
     "DMI1A": "PASS",
     "DMI1B": "PASS",
     "DMI2A": "PASS",
     "DMI2B": "PASS",
-    "DMI3": "NEXT",
-    "DMI4": "LOCKED"
+    "DMI3": "PASS",
+    "DMI4": "NEXT"
   },
   "locked_work": {
-    "DMI3": "stable total-return endpoint with explicit catalog mapping",
     "DMI4": "cursor and contract maturity"
   },
   "security": {

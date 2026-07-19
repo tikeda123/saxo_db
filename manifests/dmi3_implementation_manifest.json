@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "phase": "DMI3",
+  "status": "PASS",
+  "contract_revision": "1.2",
+  "implemented_at_jst": "2026-07-20",
+  "parent_evidence": {
+    "relative_path": "manifests/dmi2b_implementation_manifest.json",
+    "sha256": "11d4c9aacc2253a8dac99b7602eda45b24e7e3d3df9cf177833f654ddf807363",
+    "policy": "immutable_parent_with_explicit_hash_attested_supersession"
+  },
+  "migration": {
+    "number": "0019",
+    "filename": "0019_total_return_mapping.sql",
+    "sha256": "8235b18971c89f07f4d62ba0d7f9f110d0ad75c97f265d0644d4159f00bcc688",
+    "database": "saxo_market",
+    "status": "APPLIED",
+    "checksum_validation": "PASS"
+  },
+  "endpoint": {
+    "method": "GET",
+    "path": "/api/v1/total-return",
+    "supported_price_basis": ["etf_total_return"],
+    "required_parameters": ["instrument_key", "start", "end"],
+    "optional_parameters": ["source_dataset_id", "limit", "eligibility"]
+  },
+  "mapping": {
+    "table": "catalog.series_instrument_mapping",
+    "source_dataset_id": "20260712T135236Z",
+    "approved_mapping_count": 11,
+    "unapproved_mapping_count": 0,
+    "ambiguous_mapping_count": 0,
+    "mapping_kind": "TICKER_EXACT",
+    "approved_by": "codex-dmi3-20260720"
+  },
+  "transaction": {
+    "role": "saxo_app_reader",
+    "read_only": true,
+    "isolation": "REPEATABLE READ",
+    "single_snapshot": true,
+    "mapping_and_rows_same_snapshot": true
+  },
+  "runtime_evidence": {
+    "instrument_key": "iwm",
+    "source_dataset_id": "20260712T135236Z",
+    "row_count": 5,
+    "truncated": true,
+    "parity_status": "PASS",
+    "ordered_content_sha256": "1b3c030dd8c1cf4d585cd9903132a1cc88c18a7629444de03b2ec6e5fb726cc3",
+    "price_basis": "etf_total_return",
+    "native_ohlc_fallback": false
+  },
+  "fail_closed_evidence": {
+    "unknown_mapping": true,
+    "ambiguous_source_dataset": true,
+    "invalid_eligibility": true,
+    "write_method": true
+  },
+  "test_evidence": {
+    "unit_passed": 95,
+    "integration_skipped_in_unit_run": 37,
+    "dmi3_database_integration_passed": 3,
+    "dmi3_database_integration_failed": 0,
+    "mapping_parity": "PASS",
+    "migration_validation": "PASS",
+    "db4_validator": "PASS"
+  },
+  "security": {
+    "bind_host": "127.0.0.1",
+    "access_token_saved": false,
+    "account_identifier_saved": false,
+    "arbitrary_sql_enabled": false,
+    "database_write_routes": 0,
+    "saxo_write_requests": 0
+  },
+  "next_phase": "DMI4",
+  "locked_phases": [],
+  "artifacts": {
+    "README.md": {"size_bytes": 14245, "sha256": "bb1e410615f877819ab97ce3d98cf18c9656dd0072ff62d08d4db0bceb210b68"},
+    "docs/data_management_interface_improvement_plan.md": {"size_bytes": 25586, "sha256": "89e0d78d78c05769a64a0d3a642edc8ed860ff118658c051cd1d4cc4478d4d0a"},
+    "docs/database_operations_runbook.md": {"size_bytes": 27529, "sha256": "fde9c263ca00eca4693047a918528b91ab101976e96ab095c009f09707127417"},
+    "docs/read_api_interface.md": {"size_bytes": 28441, "sha256": "8aca8f0859aaff6e6c608ca2fcb810cdad74c7ac70eca485c940cf5454c7aa36"},
+    "docs/dmi3_implementation_result.md": {"size_bytes": 1744, "sha256": "09358867792aa574c6138ab32433c6116bcef53ec37928e90834b921172d1746"},
+    "db/migrations/0019_total_return_mapping.sql": {"size_bytes": 2486, "sha256": "8235b18971c89f07f4d62ba0d7f9f110d0ad75c97f265d0644d4159f00bcc688"},
+    "market_db/migrate.py": {"size_bytes": 12568, "sha256": "41d1168621f1d3d0deb707050ea371038bb6c1f0d8a9093b6437a9aea7135674"},
+    "market_db/read_api.py": {"size_bytes": 48617, "sha256": "08e58730de53f59ee1b37c7748f569310966931eabb0bee8e739b7663cbdd87c"},
+    "market_db/validate.py": {"size_bytes": 61440, "sha256": "84e85d3047e35e31dadfaafe06cc2e7be29f0f8b52535123e90ee2e2a6d2b8c7"},
+    "specs/data_management_interface_improvement_spec.json": {"size_bytes": 7297, "sha256": "e9ed86952d232ac8e7fb2ed35ffbd2764a4420ee5cfa0a737901ec1cb26f82eb"},
+    "tests/test_read_api.py": {"size_bytes": 27483, "sha256": "2fbd5cb58b40b5e1a042b9f26c6ca677b9d80476422fa2b9af6122745fc07f32"},
+    "tests/test_migration_runner.py": {"size_bytes": 946, "sha256": "3f3c876eb5fb983796ea2f18c2e088eaa368288b27f9f71e0a7bf6066bb30aa3"},
+    "tests/test_db1_integration.py": {"size_bytes": 13574, "sha256": "f14b7452565e057eea1c528f09d02b8f61aff13211e7b09aabeb28ead59672f0"},
+    "tests/test_dmi3_integration.py": {"size_bytes": 3755, "sha256": "346e632b207ac926a181152ffdad103b5abe07ea8248f1e6cd5aa569a6f81583"}
+  }
+}
