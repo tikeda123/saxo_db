@@ -10,6 +10,7 @@ from market_db.read_api import (
     bar_rows,
     create_app,
     operation_rows,
+    ordered_content_sha256,
     parse_limit,
     parse_utc,
     series_status_payload,
@@ -18,6 +19,7 @@ from market_db.validate import (
     db4_manifest_baseline_is_valid,
     dmi1_manifest_baseline_is_valid,
     dmi2a_manifest_baseline_is_valid,
+    dmi2b_manifest_baseline_is_valid,
 )
 
 
@@ -121,7 +123,7 @@ def test_bars_require_period_use_parameters_and_normalize_values():
     assert response.status_code == 200
     payload = response.get_json()
     assert payload["api_version"] == 1
-    assert payload["contract_revision"] == "1.1"
+    assert payload["contract_revision"] == "1.2"
     assert payload["generated_at_utc"].endswith("Z")
     assert payload["instrument_key"] == "iwm"
     assert payload["rows"][0]["time_utc"] == "2026-07-16T20:00:00Z"
@@ -159,7 +161,7 @@ def test_operation_endpoint_uses_only_the_fixed_view_allow_list():
     payload = response.get_json()
     assert payload["row_count"] == 1
     assert payload["api_version"] == 1
-    assert payload["contract_revision"] == "1.1"
+    assert payload["contract_revision"] == "1.2"
     assert payload["generated_at_utc"].endswith("Z")
     statement, params = reader.calls[0]
     assert statement == (
@@ -189,6 +191,155 @@ def test_daily_bar_query_uses_date_bounds():
     assert "derivation_version='db3_accepted_1h_calendar_v1'" in statement
     assert params[1].isoformat() == "2026-07-01"
     assert params[2].isoformat() == "2026-07-17"
+
+
+def _snapshot_manifest():
+    return {
+        "phase": "DB2",
+        "plan_id": "category_specific_intraday_strategy_v13",
+        "research_line_id": "v13categoryintraday",
+        "source_database": "saxo_market",
+        "snapshot_database": "saxo_research_v13",
+        "cutoff_utc": "2024-06-28T23:59:59Z",
+        "source_inventory_sha256": "a" * 64,
+        "table_counts_before_snapshot_registry_row": {"curated.market_bar": 2},
+        "boundaries": {"curated_max_time_utc": "2024-06-28T20:00:00+00:00"},
+        "FDW_or_dblink_used": False,
+    }
+
+
+def _snapshot_responses():
+    cutoff = datetime(2024, 6, 28, 23, 59, 59, tzinfo=timezone.utc)
+    max_time = datetime(2024, 6, 28, 20, tzinfo=timezone.utc)
+    return [
+        [{
+            "read_at_utc": datetime(2026, 7, 20, tzinfo=timezone.utc),
+            "snapshot_marker": "10:20:",
+            "database_name": "saxo_research_v13",
+            "role_name": "v13_research_reader",
+            "transaction_read_only": "on",
+            "statement_timeout": "30s",
+        }],
+        [{
+            "snapshot_id": 1,
+            "plan_id": "category_specific_intraday_strategy_v13",
+            "research_line_id": "v13categoryintraday",
+            "cutoff_utc": cutoff,
+            "source_database": "saxo_market",
+            "source_manifest_sha256": "a" * 64,
+            "row_counts_json": {"curated.market_bar": 2},
+            "snapshot_sha256": "c" * 64,
+            "status": "FROZEN",
+            "snapshot_manifest_relative_path": (
+                "manifests/db2_research_snapshot_content.json"
+            ),
+        }],
+        [{
+            "instrument_id": 9,
+            "instrument_key": "spy",
+            "symbol": "SPY:arcx",
+            "category": "equity_reit",
+            "layer": "1h",
+            "horizon_minutes": 60,
+            "price_basis": "native_ohlc",
+        }],
+        [{
+            "curated_market_bar_rows": 2,
+            "curated_min_time_utc": datetime(2024, 6, 28, 19, tzinfo=timezone.utc),
+            "curated_max_time_utc": max_time,
+            "post_cutoff_rows": 0,
+        }],
+        [{
+            "instrument_key": "spy",
+            "instrument_id": 9,
+            "symbol": "SPY:arcx",
+            "category": "equity_reit",
+            "layer": "1h",
+            "time_utc": max_time,
+            "price_basis": "native_ohlc",
+            "open": Decimal("545.100000000000"),
+            "high": Decimal("546.000000000000"),
+            "low": Decimal("544.500000000000"),
+            "close": Decimal("545.500000000000"),
+            "volume": Decimal("1000.000000000000"),
+            "is_complete": True,
+            "quality_status": "PASS",
+        }],
+    ]
+
+
+def test_snapshot_bars_use_dedicated_atomic_reader_and_verified_manifest():
+    market_reader = FakeReader()
+    snapshot_reader = FakeReader(_snapshot_responses())
+    manifest = _snapshot_manifest()
+    client = create_app(
+        market_reader,
+        snapshot_reader,
+        snapshot_manifest_loader=lambda path: (manifest, "c" * 64),
+    ).test_client()
+
+    response = client.get(
+        "/api/v1/snapshots/1/bars?instrument_key=SPY&layer=1h"
+        "&price_basis=native_ohlc&start=2024-06-28T19:00:00Z"
+        "&end=2024-06-29T00:00:00Z&limit=10"
+    )
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["contract_revision"] == "1.2"
+    assert payload["snapshot"]["requested_snapshot_id"] == 1
+    assert payload["snapshot"]["resolved_snapshot_id"] == 1
+    assert payload["snapshot"]["snapshot_database"] == "saxo_research_v13"
+    assert payload["snapshot"]["snapshot_sha256"] == "c" * 64
+    assert payload["integrity"]["status"] == "PASS"
+    assert payload["row_count"] == 1
+    assert payload["ordered_content_sha256"] == ordered_content_sha256(payload["rows"])
+    assert market_reader.calls == []
+    assert len(snapshot_reader.calls) == 1
+    assert snapshot_reader.calls[0][0] == "ATOMIC"
+    atomic_queries = snapshot_reader.calls[0][1]
+    assert len(atomic_queries) == 5
+    assert "FROM ops.research_snapshot" in atomic_queries[1][0]
+    assert "FROM curated.market_bar" in atomic_queries[4][0]
+    assert atomic_queries[4][1][-1] == 11
+
+
+def test_snapshot_bars_fail_closed_for_layer_unknown_snapshot_and_integrity():
+    valid_query = (
+        "?instrument_key=spy&layer=1h&price_basis=native_ohlc"
+        "&start=2024-06-28T19:00:00Z&end=2024-06-29T00:00:00Z&limit=10"
+    )
+    reader = FakeReader()
+    response = create_app(FakeReader(), reader).test_client().get(
+        "/api/v1/snapshots/1/bars" + valid_query.replace("layer=1h", "layer=4h")
+    )
+    assert response.status_code == 409
+    assert response.get_json()["error_code"] == "SNAPSHOT_LAYER_NOT_AVAILABLE"
+    assert reader.calls == []
+
+    missing_responses = _snapshot_responses()
+    missing_responses[1] = []
+    response = create_app(FakeReader(), FakeReader(missing_responses)).test_client().get(
+        "/api/v1/snapshots/999/bars" + valid_query
+    )
+    assert response.status_code == 404
+    assert response.get_json()["error_code"] == "SNAPSHOT_NOT_FOUND"
+
+    mismatch_responses = _snapshot_responses()
+    response = create_app(
+        FakeReader(),
+        FakeReader(mismatch_responses),
+        snapshot_manifest_loader=lambda path: (_snapshot_manifest(), "d" * 64),
+    ).test_client().get("/api/v1/snapshots/1/bars" + valid_query)
+    assert response.status_code == 503
+    assert response.get_json()["error_code"] == "SNAPSHOT_INTEGRITY_FAILED"
+
+    missing_series_responses = _snapshot_responses()
+    missing_series_responses[2] = []
+    response = create_app(
+        FakeReader(), FakeReader(missing_series_responses)
+    ).test_client().get("/api/v1/snapshots/1/bars" + valid_query)
+    assert response.status_code == 404
+    assert response.get_json()["error_code"] == "SNAPSHOT_SERIES_NOT_FOUND"
 
 
 def _series_status_responses(events=None):
@@ -402,3 +553,51 @@ def test_dmi2a_manifest_requires_atomic_read_only_preflight_contract():
     assert dmi2a_manifest_baseline_is_valid(payload)
     payload["transaction"]["single_snapshot"] = False
     assert not dmi2a_manifest_baseline_is_valid(payload)
+
+
+def test_dmi2b_manifest_requires_verified_immutable_snapshot_read_contract():
+    payload = {
+        "phase": "DMI2B",
+        "status": "PASS",
+        "contract_revision": "1.2",
+        "endpoint": {
+            "method": "GET",
+            "path": "/api/v1/snapshots/{snapshot_id}/bars",
+            "supported_layers": ["1h"],
+        },
+        "source": {
+            "database": "saxo_research_v13",
+            "role": "v13_research_reader",
+            "separate_connection_pool": True,
+        },
+        "transaction": {
+            "read_only": True,
+            "isolation": "REPEATABLE READ",
+            "single_snapshot": True,
+        },
+        "runtime_evidence": {
+            "snapshot_id": 1,
+            "integrity_status": "PASS",
+            "row_count": 7,
+            "snapshot_sha256": "a" * 64,
+            "ordered_content_sha256": "b" * 64,
+            "current_database_update_invariant": True,
+        },
+        "fail_closed_evidence": {
+            "unknown_snapshot": True,
+            "unavailable_layer": True,
+            "write_method": True,
+        },
+        "migration": {"status": "NOT_REQUIRED"},
+        "security": {
+            "access_token_saved": False,
+            "account_identifier_saved": False,
+            "arbitrary_sql_enabled": False,
+            "database_write_routes": 0,
+            "fdw_or_dblink_added": False,
+            "saxo_write_requests": 0,
+        },
+    }
+    assert dmi2b_manifest_baseline_is_valid(payload)
+    payload["runtime_evidence"]["current_database_update_invariant"] = False
+    assert not dmi2b_manifest_baseline_is_valid(payload)

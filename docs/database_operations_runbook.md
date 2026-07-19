@@ -263,6 +263,22 @@ curl --fail --get 'http://127.0.0.1:8766/api/v1/series-status' \
 
 このresponseのidentity、coverage、freshness、quality、watermark、latest runは同じ`REPEATABLE READ / READ ONLY` transaction snapshotで取得される。`eligibility_status`が`BLOCKED`の場合はcurrent/live利用へ進まない。`ELIGIBLE_WITH_WARNINGS`の場合も`eligibility_warnings`を利用側で明示的に扱う。複数のoperations responseをclient側でjoinした結果を正式preflightとして保存しない。
 
+固定研究snapshotの1H OHLCはsnapshot-bound endpointで取得する。
+
+```bash
+curl --fail --get 'http://127.0.0.1:8766/api/v1/snapshots/1/bars' \
+  --data-urlencode 'instrument_key=spy' \
+  --data-urlencode 'layer=1h' \
+  --data-urlencode 'price_basis=native_ohlc' \
+  --data-urlencode 'start=2024-06-28T13:00:00Z' \
+  --data-urlencode 'end=2024-06-29T00:00:00Z' \
+  --data-urlencode 'limit=100'
+```
+
+このendpointはcurrent poolを使わず、`saxo_research_v13`へ`v13_research_reader`で接続する専用poolを使う。responseの`integrity.status=PASS`、`truncated=false`を確認し、`requested_snapshot_id`、`resolved_snapshot_id`、`snapshot_sha256`、`row_count`、`ordered_content_sha256`をconsumer runへ保存する。4H/1Dは`SNAPSHOT_LAYER_NOT_AVAILABLE`、未知IDは`SNAPSHOT_NOT_FOUND`、manifestまたはDB内容不一致は503で停止する。これらをcurrent `/api/v1/bars`へfallbackしない。
+
+DMI2B不変性probeは、current `saxo_market`のsession-local temporary tableへcommitした更新を挟み、同じsnapshot queryのrow count、全row、ordered content SHA、snapshot SHAが同一であることを検証する。共有tableやsnapshot DBは変更しない。
+
 ### 11.1 データ管理Web UI
 
 Read APIを起動した同じprocessで、データ管理UIも利用できる。

@@ -96,6 +96,7 @@ Saxo SIM OpenAPI / immutable CSV
 | 目的 | 推奨インターフェース | 備考 |
 |---|---|---|
 | 別のローカルプロセスからOHLCを取得 | `GET /api/v1/bars` | 安定した外部利用契約、1H/4H/1D |
+| 固定研究snapshotからOHLCを取得 | `GET /api/v1/snapshots/{snapshot_id}/bars` | snapshot 1の検証済み1H |
 | データの在庫・品質・鮮度を確認 | `GET /api/v1/operations/*` | allow-list済みの8種類 |
 | datasetとsnapshotを識別 | `GET /api/v1/manifests` | 再現性・lineage確認 |
 | 人が期間・OHLC・品質を確認 | Web UI | localhost限定、完全read-only |
@@ -143,7 +144,7 @@ PostgreSQLはhostの`127.0.0.1:54329`だけにbindされます。
 
 品質画面はCURRENT/HISTORICAL/UNKNOWNを分離し、eventのlayer・足・price basisをcanonical 1Hと照合します。raw archiveに残る既知異常はCURRENTの監査証跡として保持されますが、scopeが異なるcanonical 1HをFAILにしません。UNKNOWNは常にfail-closedです。
 
-Read APIは`saxo_app_reader`、read-only transaction、最大5接続、30秒statement timeoutで動作します。Saxo tokenは不要です。停止は起動したterminalで`Ctrl-C`を使います。
+Read APIはcurrent DB用の`saxo_app_reader` poolと、固定研究DB用の`v13_research_reader` poolを分離します。どちらもread-only、30秒statement timeoutで、最大接続数はそれぞれ5と3です。Saxo tokenは不要です。停止は起動したterminalで`Ctrl-C`を使います。
 
 OHLC取得例:
 
@@ -166,6 +167,20 @@ curl --fail --get 'http://127.0.0.1:8766/api/v1/series-status' \
 ```
 
 identity、coverage、freshness、quality、watermark、latest runは同じread-only repeatable-read snapshotから返されます。初期契約はcanonical 1Hだけを対象とし、`UNKNOWN` ERROR/CRITICALは必ず`BLOCKED`です。
+
+固定研究snapshotからOHLCを取得する場合は、current `/api/v1/bars`ではなくsnapshot-bound endpointを使用します。
+
+```bash
+curl --fail --get 'http://127.0.0.1:8766/api/v1/snapshots/1/bars' \
+  --data-urlencode 'instrument_key=spy' \
+  --data-urlencode 'layer=1h' \
+  --data-urlencode 'price_basis=native_ohlc' \
+  --data-urlencode 'start=2024-06-28T13:00:00Z' \
+  --data-urlencode 'end=2024-06-29T00:00:00Z' \
+  --data-urlencode 'limit=100'
+```
+
+serverは`saxo_research_v13`を直接読み、snapshot ID、cutoff、manifest SHA-256、DB内件数・最大時刻を照合します。responseの`ordered_content_sha256`と`snapshot_sha256`を外部runの証跡に保存してください。4H/1D、未知snapshot、manifest不一致はcurrent DBへfallbackせず拒否します。
 
 ### Parquet export
 
@@ -237,8 +252,11 @@ SAXO_DB_INTEGRATION=1 .venv/bin/python -m pytest
 - DMUI4: データ管理Web UI、TradingView Lightweight Charts — PASS
 - DMI0: 外部consumerのquality event fail-closed判定 — PASS
 - DMI1A: 安定identity、event scope/applicability、API contract 1.1 — PASS
-- DMI1B: 旧22 eventの運用review — BLOCKED_DATA_RECONCILIATION
-- DMI2〜DMI4: DMI1B完了までLOCKED
+- DMI1B: 旧22 eventの運用review、CURRENT 5 / HISTORICAL 17 / UNKNOWN 0 — PASS
+- DMI2A: atomic series status — PASS
+- DMI2B: snapshot-bound 1H read — PASS
+- DMI3: stable total-return API — NEXT
+- DMI4: cursor・consumer contract kit — LOCKED
 
 これらはデータ基盤の実装・運用ゲートです。戦略の優位性や収益性を証明するものではありません。旧計画に含まれるRT0以降の戦略文書は履歴資料として保持しますが、このリポジトリの現行スコープには含めません。
 

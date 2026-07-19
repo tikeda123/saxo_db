@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "phase": "DMI2B",
+  "status": "PASS",
+  "contract_revision": "1.2",
+  "implemented_at_jst": "2026-07-20",
+  "parent_evidence": {
+    "relative_path": "manifests/dmi2a_implementation_manifest.json",
+    "sha256": "b7ebf116d82a527231e272050c4c0711a9f4c32e41894f9c38237a7da90c7b16",
+    "policy": "immutable_parent_with_explicit_hash_attested_supersession"
+  },
+  "migration": {
+    "status": "NOT_REQUIRED",
+    "reason": "DMI2B reads the existing frozen research snapshot without schema changes"
+  },
+  "endpoint": {
+    "method": "GET",
+    "path": "/api/v1/snapshots/{snapshot_id}/bars",
+    "supported_layers": ["1h"],
+    "unavailable_layers": ["4h", "1d"],
+    "required_parameters": ["instrument_key", "layer", "price_basis", "start", "end"]
+  },
+  "source": {
+    "database": "saxo_research_v13",
+    "role": "v13_research_reader",
+    "separate_connection_pool": true,
+    "max_pool_size": 3
+  },
+  "transaction": {
+    "read_only": true,
+    "isolation": "REPEATABLE READ",
+    "single_snapshot": true,
+    "query_components": ["context", "metadata", "series", "integrity", "bars"]
+  },
+  "runtime_evidence": {
+    "snapshot_id": 1,
+    "integrity_status": "PASS",
+    "row_count": 7,
+    "truncated": false,
+    "snapshot_sha256": "c275d078dcdff418ff2d34eb8e2e38a8d790510881556341f6bafbf0c8b63d6b",
+    "ordered_content_sha256": "0d5b1c9b1f804fa1a294322d15fa6c33e9f670880a7a2609ccff6d935fb2594b",
+    "current_database_update_invariant": true,
+    "curated_market_bar_rows": 329745,
+    "curated_max_time_utc": "2024-06-28T20:00:00Z",
+    "post_cutoff_rows": 0
+  },
+  "fail_closed_evidence": {
+    "unknown_snapshot": true,
+    "unavailable_layer": true,
+    "unknown_series": true,
+    "manifest_unverified": true,
+    "integrity_mismatch": true,
+    "write_method": true
+  },
+  "test_evidence": {
+    "unit_passed": 91,
+    "integration_skipped_in_unit_run": 34,
+    "dmi2a_dmi2b_database_integration_passed": 5,
+    "dmi2b_database_integration_failed": 0,
+    "db4_validator": "PASS"
+  },
+  "security": {
+    "bind_host": "127.0.0.1",
+    "access_token_saved": false,
+    "account_identifier_saved": false,
+    "arbitrary_sql_enabled": false,
+    "database_write_routes": 0,
+    "fdw_or_dblink_added": false,
+    "saxo_write_requests": 0
+  },
+  "next_phase": "DMI3",
+  "locked_phases": ["DMI4"],
+  "artifacts": {
+    "README.md": {"size_bytes": 14197, "sha256": "1ea044667ccb469ebd762d99c2a433105ce3e6375bc715df577f30ab4ccc2233"},
+    "docs/data_management_interface_improvement_plan.md": {"size_bytes": 25588, "sha256": "aa202bebef0039c2790cf2e2fd65c29fccf4628907a3a061f8e476e237cdf3d8"},
+    "docs/database_operations_runbook.md": {"size_bytes": 26818, "sha256": "530ed4b46ec07cd4622689154279ed33e527f3388601d2f75e386cb70c53c49a"},
+    "docs/read_api_interface.md": {"size_bytes": 27012, "sha256": "c72ea9dee1dfd01ee10de802e90daffb50c531a89f7e47dc498e0425320ef4e6"},
+    "docs/dmi2b_implementation_result.md": {"size_bytes": 1534, "sha256": "075008c784f6245e0625024721c2b325048cdcb57e82219b2c04d3c0a86611f8"},
+    "market_db/read_api.py": {"size_bytes": 40766, "sha256": "572a73fb84d21a169d4575c09294eddb2551b0716c7b9661a2569d145f01e80f"},
+    "market_db/validate.py": {"size_bytes": 56175, "sha256": "07f5dd1eab3f1af7c3f1db94614a8a2c2c099086e2c916e20e5c6e6da20c49bb"},
+    "specs/data_management_interface_improvement_spec.json": {"size_bytes": 6103, "sha256": "5c901d88fca6a9e8653c0046ac9420100bf415665dd5bd1446276346cad2ebb1"},
+    "tests/test_read_api.py": {"size_bytes": 22371, "sha256": "be50c47a6c2eeb7e5c2e7b98f164ecfff2b1667e0d6a6934b9642af3aacbdaf9"},
+    "tests/test_dmi2b_integration.py": {"size_bytes": 3787, "sha256": "7071f085f990a01ad35e913ebc293446b883c22b40f8f97845106f24d02e64cd"}
+  }
+}

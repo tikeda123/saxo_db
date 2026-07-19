@@ -2,7 +2,7 @@
 
 作成日: 2026-07-19 JST
 
-状態: **DMI0 PASS / DMI1A PASS / DMI1B PASS / DMI2A PASS / DMI2B NEXT / DMI3–DMI4 LOCKED**
+状態: **DMI0 PASS / DMI1A PASS / DMI1B PASS / DMI2A PASS / DMI2B PASS / DMI3 NEXT / DMI4 LOCKED**
 
 基準提案: [データ管理IF改善提案書](data_management_interface_improvement_proposal.md)
 

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import hashlib
+import json
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -13,7 +15,7 @@ from flask import Flask, jsonify, render_template, request
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
-from .connection import MARKET_DB, read_secret, target
+from .connection import MARKET_DB, RESEARCH_DB, project_root, read_secret, target
 from .data_ui import (
     MAX_UI_PAGE_ROWS,
     chart_marks,
@@ -34,7 +36,7 @@ DEFAULT_PORT = 8766
 MAX_OPERATION_ROWS = 1_000
 MAX_BAR_ROWS = 10_000
 API_VERSION = 1
-CONTRACT_REVISION = "1.1"
+CONTRACT_REVISION = "1.2"
 OPERATION_COMMANDS = (
     "inventory",
     "coverage",
@@ -44,6 +46,9 @@ OPERATION_COMMANDS = (
     "lineage",
     "storage",
     "backups",
+)
+SNAPSHOT_MANIFEST_ALLOWLIST = frozenset(
+    {"manifests/db2_research_snapshot_content.json"}
 )
 
 
@@ -108,6 +113,38 @@ class DatabaseReader:
     def close(self) -> None:
         if self._owns_pool:
             self.pool.close()
+
+
+class SnapshotDatabaseReader(DatabaseReader):
+    """Dedicated fixed pool for the frozen research snapshot database."""
+
+    @staticmethod
+    def _create_pool() -> ConnectionPool:
+        selected = target("v13_research_reader", RESEARCH_DB)
+        return ConnectionPool(
+            conninfo="",
+            kwargs={
+                "host": selected.host,
+                "port": selected.port,
+                "dbname": selected.database,
+                "user": selected.role,
+                "password": read_secret(selected.secret_path),
+                "application_name": "saxo_db_snapshot_read_api",
+                "connect_timeout": 10,
+                "options": "-c default_transaction_read_only=on -c statement_timeout=30000",
+            },
+            min_size=0,
+            max_size=3,
+            open=True,
+            name="saxo-db-snapshot-read-api",
+        )
+
+
+class SnapshotReadError(RuntimeError):
+    def __init__(self, code: str, http_status: int) -> None:
+        super().__init__(code)
+        self.code = code
+        self.http_status = http_status
 
 
 @dataclass(frozen=True)
@@ -243,6 +280,68 @@ SERIES_STATUS_QUERIES = (
 )
 
 
+SNAPSHOT_CONTEXT_QUERY = """
+SELECT transaction_timestamp() AS read_at_utc,
+       txid_current_snapshot()::TEXT AS snapshot_marker,
+       current_database() AS database_name,
+       current_user AS role_name,
+       current_setting('transaction_read_only') AS transaction_read_only,
+       current_setting('statement_timeout') AS statement_timeout
+"""
+
+SNAPSHOT_METADATA_QUERY = """
+SELECT snapshot_id, plan_id, research_line_id, cutoff_utc,
+       source_database, source_manifest_sha256, row_counts_json,
+       snapshot_sha256, frozen_at_utc, status,
+       snapshot_manifest_relative_path
+FROM ops.research_snapshot
+WHERE snapshot_id=%s
+"""
+
+SNAPSHOT_SERIES_QUERY = """
+SELECT i.instrument_id, i.market_key AS instrument_key, i.symbol, i.category,
+       '1h'::TEXT AS layer, 60::SMALLINT AS horizon_minutes,
+       %s::TEXT AS price_basis
+FROM catalog.instrument i
+WHERE i.market_key=%s AND i.active_to_utc IS NULL
+  AND EXISTS (
+      SELECT 1 FROM curated.market_bar b
+      WHERE b.instrument_id=i.instrument_id
+        AND b.horizon_minutes=60 AND b.price_basis=%s
+  )
+"""
+
+SNAPSHOT_INTEGRITY_QUERY = """
+SELECT COUNT(*)::BIGINT AS curated_market_bar_rows,
+       MIN(time_utc) AS curated_min_time_utc,
+       MAX(time_utc) AS curated_max_time_utc,
+       COUNT(*) FILTER (
+           WHERE time_utc > (
+               SELECT cutoff_utc FROM ops.research_snapshot WHERE snapshot_id=%s
+           )
+       )::BIGINT AS post_cutoff_rows
+FROM curated.market_bar
+"""
+
+SNAPSHOT_BARS_QUERY = """
+SELECT i.market_key AS instrument_key, i.instrument_id, i.symbol, i.category,
+       '1h'::TEXT AS layer, b.time_utc, b.price_basis,
+       b.open, b.high, b.low, b.close, b.volume,
+       b.is_complete, b.quality_status
+FROM curated.market_bar b
+JOIN catalog.instrument i ON i.instrument_id=b.instrument_id
+WHERE i.market_key=%s
+  AND b.horizon_minutes=60 AND b.price_basis=%s
+  AND b.time_utc >= %s AND b.time_utc < %s
+  AND b.time_utc <= (
+      SELECT cutoff_utc FROM ops.research_snapshot WHERE snapshot_id=%s
+  )
+  AND b.is_complete AND b.quality_status='PASS'
+ORDER BY b.time_utc, b.instrument_id, b.price_basis
+LIMIT %s
+"""
+
+
 def parse_utc(value: str, field: str) -> datetime:
     try:
         selected = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -276,6 +375,41 @@ def json_value(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [json_value(item) for item in value]
     return value
+
+
+SnapshotManifestLoader = Callable[[str], tuple[dict[str, Any], str]]
+
+
+def load_snapshot_manifest(relative_path: str) -> tuple[dict[str, Any], str]:
+    if relative_path not in SNAPSHOT_MANIFEST_ALLOWLIST:
+        raise SnapshotReadError("SNAPSHOT_NOT_VERIFIED", 503)
+    path = project_root() / relative_path
+    if not path.is_file() or path.is_symlink():
+        raise SnapshotReadError("SNAPSHOT_NOT_VERIFIED", 503)
+    try:
+        content = path.read_bytes()
+        payload = json.loads(content.decode("utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise SnapshotReadError("SNAPSHOT_NOT_VERIFIED", 503) from exc
+    return payload, hashlib.sha256(content).hexdigest()
+
+
+def ordered_content_sha256(rows: Sequence[Mapping[str, Any]]) -> str:
+    canonical = json.dumps(
+        json_value(list(rows)),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def _same_utc(left: Any, right: Any) -> bool:
+    if left is None or right is None:
+        return left is right
+    left_value = left if isinstance(left, datetime) else parse_utc(str(left), "timestamp")
+    right_value = right if isinstance(right, datetime) else parse_utc(str(right), "timestamp")
+    return left_value.astimezone(timezone.utc) == right_value.astimezone(timezone.utc)
 
 
 def operation_rows(reader: QueryReader, command: str, limit: int) -> list[dict[str, Any]]:
@@ -415,8 +549,159 @@ def series_status_payload(
     }
 
 
-def create_app(reader: QueryReader | None = None) -> Flask:
+def snapshot_bars_payload(
+    reader: QueryReader,
+    *,
+    snapshot_id: int,
+    instrument_key: str,
+    layer: str,
+    price_basis: str,
+    start: datetime,
+    end: datetime,
+    limit: int,
+    manifest_loader: SnapshotManifestLoader = load_snapshot_manifest,
+) -> dict[str, Any]:
+    if snapshot_id < 1:
+        raise ValueError("snapshot_id must be positive")
+    if not instrument_key or len(instrument_key) > 64:
+        raise ValueError("instrument_key is required")
+    if layer in {"4h", "1d"}:
+        raise SnapshotReadError("SNAPSHOT_LAYER_NOT_AVAILABLE", 409)
+    if layer != "1h":
+        raise ValueError("layer must be 1h")
+    if not price_basis or len(price_basis) > 64:
+        raise ValueError("price_basis is required")
+    if start >= end:
+        raise ValueError("start must be earlier than end")
+
+    result_sets = reader.query_atomic(
+        (
+            (SNAPSHOT_CONTEXT_QUERY, ()),
+            (SNAPSHOT_METADATA_QUERY, (snapshot_id,)),
+            (
+                SNAPSHOT_SERIES_QUERY,
+                (price_basis, instrument_key, price_basis),
+            ),
+            (SNAPSHOT_INTEGRITY_QUERY, (snapshot_id,)),
+            (
+                SNAPSHOT_BARS_QUERY,
+                (instrument_key, price_basis, start, end, snapshot_id, limit + 1),
+            ),
+        )
+    )
+    if len(result_sets) != 5:
+        raise SnapshotReadError("SNAPSHOT_INTEGRITY_FAILED", 503)
+    context_rows, metadata_rows, identity_rows, integrity_rows, rows = result_sets
+    if not metadata_rows:
+        raise SnapshotReadError("SNAPSHOT_NOT_FOUND", 404)
+    if len(metadata_rows) != 1 or len(context_rows) != 1 or len(integrity_rows) != 1:
+        raise SnapshotReadError("SNAPSHOT_INTEGRITY_FAILED", 503)
+    if not identity_rows:
+        raise SnapshotReadError("SNAPSHOT_SERIES_NOT_FOUND", 404)
+    if len(identity_rows) != 1:
+        raise SnapshotReadError("SNAPSHOT_INTEGRITY_FAILED", 503)
+
+    context = context_rows[0]
+    metadata = metadata_rows[0]
+    series = identity_rows[0]
+    integrity = integrity_rows[0]
+    relative_path = str(metadata.get("snapshot_manifest_relative_path") or "")
+    manifest, manifest_sha256 = manifest_loader(relative_path)
+    snapshot_sha256 = str(metadata.get("snapshot_sha256") or "").strip()
+    source_manifest_sha256 = str(metadata.get("source_manifest_sha256") or "").strip()
+    expected_counts = manifest.get("table_counts_before_snapshot_registry_row")
+    raw_manifest_boundaries = manifest.get("boundaries")
+    manifest_boundaries = (
+        raw_manifest_boundaries if isinstance(raw_manifest_boundaries, dict) else {}
+    )
+    expected_bar_rows = (
+        expected_counts.get("curated.market_bar")
+        if isinstance(expected_counts, dict)
+        else None
+    )
+    cutoff_utc = metadata.get("cutoff_utc")
+    actual_max_time = integrity.get("curated_max_time_utc")
+    integrity_pass = (
+        context.get("database_name") == RESEARCH_DB
+        and context.get("role_name") == "v13_research_reader"
+        and context.get("transaction_read_only") == "on"
+        and metadata.get("snapshot_id") == snapshot_id
+        and metadata.get("status") == "FROZEN"
+        and metadata.get("source_database") == MARKET_DB
+        and snapshot_sha256 == manifest_sha256
+        and len(snapshot_sha256) == 64
+        and manifest.get("phase") == "DB2"
+        and manifest.get("snapshot_database") == RESEARCH_DB
+        and manifest.get("source_database") == metadata.get("source_database")
+        and manifest.get("plan_id") == metadata.get("plan_id")
+        and manifest.get("research_line_id") == metadata.get("research_line_id")
+        and manifest.get("source_inventory_sha256") == source_manifest_sha256
+        and manifest.get("FDW_or_dblink_used") is False
+        and _same_utc(manifest.get("cutoff_utc"), cutoff_utc)
+        and metadata.get("row_counts_json") == expected_counts
+        and isinstance(expected_bar_rows, int)
+        and integrity.get("curated_market_bar_rows") == expected_bar_rows
+        and _same_utc(actual_max_time, manifest_boundaries.get("curated_max_time_utc"))
+        and actual_max_time is not None
+        and cutoff_utc is not None
+        and actual_max_time <= cutoff_utc
+        and integrity.get("post_cutoff_rows") == 0
+    )
+    if not integrity_pass:
+        raise SnapshotReadError("SNAPSHOT_INTEGRITY_FAILED", 503)
+
+    truncated = len(rows) > limit
+    selected = rows[:limit]
+    return {
+        "api_version": API_VERSION,
+        "contract_revision": CONTRACT_REVISION,
+        "generated_at_utc": context.get("read_at_utc"),
+        "snapshot": {
+            "requested_snapshot_id": snapshot_id,
+            "resolved_snapshot_id": metadata.get("snapshot_id"),
+            "snapshot_sha256": snapshot_sha256,
+            "snapshot_manifest_relative_path": relative_path,
+            "cutoff_utc": cutoff_utc,
+            "source_database": metadata.get("source_database"),
+            "snapshot_database": context.get("database_name"),
+            "plan_id": metadata.get("plan_id"),
+            "research_line_id": metadata.get("research_line_id"),
+            "read_at_utc": context.get("read_at_utc"),
+            "snapshot_marker": context.get("snapshot_marker"),
+        },
+        "query": {
+            "instrument_key": instrument_key,
+            "layer": layer,
+            "price_basis": price_basis,
+            "start": start,
+            "end": end,
+            "limit": limit,
+        },
+        "series": series,
+        "integrity": {
+            "status": "PASS",
+            "manifest_sha256": manifest_sha256,
+            "curated_market_bar_rows": integrity.get("curated_market_bar_rows"),
+            "curated_max_time_utc": actual_max_time,
+            "post_cutoff_rows": integrity.get("post_cutoff_rows"),
+        },
+        "row_count": len(selected),
+        "truncated": truncated,
+        "ordered_content_sha256": ordered_content_sha256(selected),
+        "rows": selected,
+    }
+
+
+def create_app(
+    reader: QueryReader | None = None,
+    snapshot_reader: QueryReader | None = None,
+    snapshot_manifest_loader: SnapshotManifestLoader = load_snapshot_manifest,
+) -> Flask:
+    use_default_readers = reader is None
     selected_reader = reader or DatabaseReader()
+    selected_snapshot_reader = snapshot_reader
+    if selected_snapshot_reader is None and use_default_readers:
+        selected_snapshot_reader = SnapshotDatabaseReader()
     app = Flask(__name__)
     app.config.update(JSON_SORT_KEYS=True, MAX_CONTENT_LENGTH=16_384)
 
@@ -558,6 +843,30 @@ def create_app(reader: QueryReader | None = None) -> Flask:
                 }
             )
         )
+
+    @app.get("/api/v1/snapshots/<int:snapshot_id>/bars")
+    def snapshot_bars(snapshot_id: int):
+        if selected_snapshot_reader is None:
+            return jsonify(
+                {"status": "FAILED", "error_code": "SNAPSHOT_DATABASE_UNAVAILABLE"}
+            ), 503
+        try:
+            payload = snapshot_bars_payload(
+                selected_snapshot_reader,
+                snapshot_id=snapshot_id,
+                instrument_key=request.args.get("instrument_key", "").strip().lower(),
+                layer=request.args.get("layer", "").strip().lower(),
+                price_basis=request.args.get("price_basis", "").strip().lower(),
+                start=parse_utc(request.args.get("start", ""), "start"),
+                end=parse_utc(request.args.get("end", ""), "end"),
+                limit=parse_limit(request.args.get("limit"), MAX_BAR_ROWS),
+                manifest_loader=snapshot_manifest_loader,
+            )
+        except SnapshotReadError as exc:
+            return jsonify({"status": "FAILED", "error_code": exc.code}), exc.http_status
+        except ValueError:
+            return jsonify({"status": "FAILED", "error_code": "INVALID_REQUEST"}), 400
+        return jsonify(json_value(payload))
 
     @app.get("/api/v1/manifests")
     def manifests():
@@ -733,6 +1042,11 @@ def create_app(reader: QueryReader | None = None) -> Flask:
 
     if isinstance(selected_reader, DatabaseReader):
         atexit.register(selected_reader.close)
+    if (
+        isinstance(selected_snapshot_reader, DatabaseReader)
+        and selected_snapshot_reader is not selected_reader
+    ):
+        atexit.register(selected_snapshot_reader.close)
     return app
 
 

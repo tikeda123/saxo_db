@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "spec_id": "DMI-20260719",
-  "status": "FROZEN_DMI0_DMI2A",
+  "status": "FROZEN_DMI0_DMI2B_CONTRACT",
   "scope": {
     "provider_repository": "saxo_db",
     "consumer_repository": "saxo_trading_strategy_analysis",
@@ -24,7 +24,7 @@
   },
   "read_api_contract": {
     "api_version": 1,
-    "contract_revision": "1.1",
+    "contract_revision": "1.2",
     "compatibility": "additive_fields_only_within_v1",
     "common_envelope_fields": ["api_version", "contract_revision", "generated_at_utc"],
     "stable_identity_fields": [
@@ -107,13 +107,54 @@
     "unknown_error_critical": "BLOCKED",
     "client_side_multi_request_join_is_preflight": false
   },
+  "snapshot_bars_contract": {
+    "phase": "DMI2B",
+    "endpoint": "GET /api/v1/snapshots/{snapshot_id}/bars",
+    "required_query_parameters": [
+      "instrument_key", "layer", "price_basis", "start", "end"
+    ],
+    "supported_layers": ["1h"],
+    "unavailable_layers": ["4h", "1d"],
+    "source_database": "saxo_research_v13",
+    "reader_role": "v13_research_reader",
+    "separate_connection_pool": true,
+    "transaction": {
+      "read_only": true,
+      "isolation": "REPEATABLE READ",
+      "single_snapshot_for_metadata_integrity_and_rows": true
+    },
+    "manifest_allow_list": ["manifests/db2_research_snapshot_content.json"],
+    "integrity_checks": [
+      "database_and_role_identity",
+      "transaction_read_only",
+      "snapshot_status_frozen",
+      "content_manifest_sha256",
+      "snapshot_metadata_matches_manifest",
+      "curated_market_bar_count",
+      "curated_max_time_and_cutoff"
+    ],
+    "response_identity_fields": [
+      "requested_snapshot_id", "resolved_snapshot_id", "snapshot_sha256",
+      "snapshot_manifest_relative_path", "cutoff_utc", "source_database",
+      "snapshot_database", "query", "ordered_content_sha256"
+    ],
+    "ordered_content_digest": "sha256_canonical_json_rows",
+    "current_database_fallback": false,
+    "error_codes": {
+      "unknown_snapshot": "SNAPSHOT_NOT_FOUND",
+      "unavailable_layer": "SNAPSHOT_LAYER_NOT_AVAILABLE",
+      "unknown_series": "SNAPSHOT_SERIES_NOT_FOUND",
+      "manifest_unverified": "SNAPSHOT_NOT_VERIFIED",
+      "integrity_mismatch": "SNAPSHOT_INTEGRITY_FAILED"
+    }
+  },
   "gate_state": {
     "DMI0": "PASS",
     "DMI1A": "PASS",
     "DMI1B": "PASS",
     "DMI2A": "PASS",
-    "DMI2B": "NEXT",
-    "DMI3": "LOCKED",
+    "DMI2B": "PASS",
+    "DMI3": "NEXT",
     "DMI4": "LOCKED"
   },
   "locked_work": {
@@ -123,6 +164,7 @@
   "security": {
     "bind_host": "127.0.0.1",
     "read_api_role": "saxo_app_reader",
+    "research_read_api_role": "v13_research_reader",
     "operator_role": "saxo_ops_operator",
     "access_token_saved": false,
     "account_identifier_saved": false,

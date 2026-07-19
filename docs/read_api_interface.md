@@ -4,7 +4,7 @@
 
 対象API: `v1`
 
-契約revision: `1.1`
+契約revision: `1.2`
 
 対象読者: `saxo_db`のデータを利用する外部の分析・戦略・可視化プロジェクト
 
@@ -85,6 +85,7 @@ Docker container内の`127.0.0.1`はcontainer自身を指すため、そのま�
 | GET | `/health` | DB roleとread-only状態のhealth check |
 | GET | `/api/v1/operations/{command}` | inventory、品質、運用情報 |
 | GET | `/api/v1/bars` | PASS済みOHLCの期間取得 |
+| GET | `/api/v1/snapshots/{snapshot_id}/bars` | 固定研究snapshotの検証済み1H OHLC |
 | GET | `/api/v1/manifests` | dataset、research snapshot識別 |
 | GET | `/api/v1/layer-counts` | 1H、4H、1Dの現在行数 |
 
@@ -101,7 +102,7 @@ Docker container内の`127.0.0.1`はcontainer自身を指すため、そのま�
 | GET | `/api/v1/ui/chart-marks` | quality marker |
 | GET | `/api/v1/ui/quality-summary` | UI品質summary |
 
-total-returnは現在、安定契約の`/api/v1/bars`には含まれません。必要な場合は第8章のUI支援APIを使用するか、専用の安定endpoint追加を別変更として計画してください。
+total-returnは現在、安定契約の`/api/v1/bars`には含まれません。必要な場合は第9章のUI支援APIを使用するか、専用の安定endpoint追加を別変更として計画してください。
 
 ## 4. 共通規約
 
@@ -187,7 +188,7 @@ response envelope:
 ```json
 {
   "api_version": 1,
-  "contract_revision": "1.1",
+  "contract_revision": "1.2",
   "generated_at_utc": "2026-07-19T12:00:00Z",
   "command": "inventory",
   "row_count": 1,
@@ -240,7 +241,7 @@ identity、coverage、freshness、scope適合quality event、watermark、latest 
 ```json
 {
   "api_version": 1,
-  "contract_revision": "1.1",
+  "contract_revision": "1.2",
   "generated_at_utc": "2026-07-20T00:00:00Z",
   "series": {
     "instrument_id": 9,
@@ -323,7 +324,7 @@ curl --fail --get 'http://127.0.0.1:8766/api/v1/bars' \
 ```json
 {
   "api_version": 1,
-  "contract_revision": "1.1",
+  "contract_revision": "1.2",
   "generated_at_utc": "2026-07-19T12:00:00Z",
   "instrument_key": "iwm",
   "layer": "1h",
@@ -386,9 +387,102 @@ serverは`limit + 1`行の存在で`truncated`を判定し、responseには最�
 
 単に`limit`を増やし続けたり、切れたresponseを完全データとして保存したりしないでください。
 
-## 7. dataset・snapshot・件数
+## 7. 固定研究snapshot OHLC
 
-### 7.1 `/api/v1/manifests`
+```text
+GET /api/v1/snapshots/{snapshot_id}/bars
+```
+
+current `/api/v1/bars`とは別契約です。serverはcurrent `saxo_market`をcutoffで切り出さず、default read-onlyの`saxo_research_v13`を`v13_research_reader`専用poolから直接読みます。Saxo tokenは不要です。
+
+### 7.1 Request
+
+| Parameter | 必須 | 値 | 意味 |
+|---|---:|---|---|
+| `snapshot_id` | yes | 正の整数path parameter | 固定snapshot ID |
+| `instrument_key` | yes | market key | 対象銘柄 |
+| `layer` | yes | 現在は`1h`のみ | snapshot内のデータ層 |
+| `price_basis` | yes | `native_ohlc`または`bid_ask_mid` | 価格系列を一意化 |
+| `start` | yes | timezone付きISO-8601 | inclusive lower bound |
+| `end` | yes | timezone付きISO-8601 | exclusive upper bound |
+| `limit` | no | default 200、最大10,000 | 最大返却行数 |
+
+```bash
+curl --fail --get 'http://127.0.0.1:8766/api/v1/snapshots/1/bars' \
+  --data-urlencode 'instrument_key=spy' \
+  --data-urlencode 'layer=1h' \
+  --data-urlencode 'price_basis=native_ohlc' \
+  --data-urlencode 'start=2024-06-28T13:00:00Z' \
+  --data-urlencode 'end=2024-06-29T00:00:00Z' \
+  --data-urlencode 'limit=100'
+```
+
+### 7.2 検証とresponse
+
+metadata、全体件数・最大時刻、系列identity、返却barは1つの`REPEATABLE READ / READ ONLY` transactionから取得します。serverは次をすべて検証した場合だけ200を返します。
+
+- database=`saxo_research_v13`、role=`v13_research_reader`、transaction read-only。
+- `ops.research_snapshot.status=FROZEN`。
+- snapshot rowのcontent manifest相対pathがallow-list内にある。
+- manifest実ファイルのSHA-256が`snapshot_sha256`と一致する。
+- plan、research line、source database、source inventory SHA、cutoff、row countsがDB登録値と一致する。
+- `curated.market_bar`の全体件数・最大時刻がmanifestと一致し、cutoff後の行が0件。
+
+主要response:
+
+```json
+{
+  "api_version": 1,
+  "contract_revision": "1.2",
+  "snapshot": {
+    "requested_snapshot_id": 1,
+    "resolved_snapshot_id": 1,
+    "snapshot_sha256": "c275d078...b63d6b",
+    "snapshot_manifest_relative_path": "manifests/db2_research_snapshot_content.json",
+    "cutoff_utc": "2024-06-28T23:59:59Z",
+    "source_database": "saxo_market",
+    "snapshot_database": "saxo_research_v13",
+    "snapshot_marker": "..."
+  },
+  "query": {
+    "instrument_key": "spy",
+    "layer": "1h",
+    "price_basis": "native_ohlc",
+    "start": "2024-06-28T13:00:00Z",
+    "end": "2024-06-29T00:00:00Z",
+    "limit": 100
+  },
+  "integrity": {
+    "status": "PASS",
+    "curated_market_bar_rows": 329745,
+    "curated_max_time_utc": "2024-06-28T20:00:00Z",
+    "post_cutoff_rows": 0
+  },
+  "row_count": 7,
+  "truncated": false,
+  "ordered_content_sha256": "0d5b1c9b...fb2594b",
+  "rows": []
+}
+```
+
+`ordered_content_sha256`は返却順のrow配列をcanonical JSON化したSHA-256です。同じsnapshot IDとquery parameterによる外部runでは、`snapshot_sha256`、`row_count`、`ordered_content_sha256`を一緒に保存してください。`integrity.curated_market_bar_rows`はquery結果ではなくsnapshot内のcurated 1H全体件数です。
+
+### 7.3 Fail-closed
+
+| 条件 | HTTP | `error_code` |
+|---|---:|---|
+| snapshot IDが存在しない | 404 | `SNAPSHOT_NOT_FOUND` |
+| 系列またはprice basisが存在しない | 404 | `SNAPSHOT_SERIES_NOT_FOUND` |
+| 4H/1Dを要求 | 409 | `SNAPSHOT_LAYER_NOT_AVAILABLE` |
+| manifestが未検証・欠損 | 503 | `SNAPSHOT_NOT_VERIFIED` |
+| DB metadata・件数・cutoff・SHA不一致 | 503 | `SNAPSHOT_INTEGRITY_FAILED` |
+| write method | 405 | `READ_ONLY_API` |
+
+これらの失敗時にcurrent `/api/v1/bars`へfallbackしないでください。固定4H/1Dが必要な場合はsnapshot 1を変更せず、別snapshot IDとmanifestを作る計画が必要です。
+
+## 8. dataset・snapshot・件数
+
+### 8.1 `/api/v1/manifests`
 
 parameterはありません。
 
@@ -432,7 +526,7 @@ response:
 
 再現可能な外部runでは、取得時刻、query parameter、source dataset ID、必要ならsnapshot SHA-256、consumer自身のcode versionを一緒に記録してください。
 
-### 7.2 `/api/v1/layer-counts`
+### 8.2 `/api/v1/layer-counts`
 
 ```bash
 curl --fail http://127.0.0.1:8766/api/v1/layer-counts
@@ -440,11 +534,11 @@ curl --fail http://127.0.0.1:8766/api/v1/layer-counts
 
 1H、現行derivation versionの4H/1Dについて、現在の総行数を返します。件数は増分更新やfull refetchで変化するため、固定テスト値として埋め込まないでください。
 
-## 8. ETF total-returnの取得
+## 9. ETF total-returnの取得
 
 ETF total-returnは`curated.etf_total_return_daily`にnative OHLCとは別系列で保存されています。現行APIではUI支援APIから取得します。
 
-### 8.1 系列を検索
+### 9.1 系列を検索
 
 ```bash
 curl --fail --get 'http://127.0.0.1:8766/api/v1/ui/series' \
@@ -456,7 +550,7 @@ curl --fail --get 'http://127.0.0.1:8766/api/v1/ui/series' \
 
 `data[].series_id`と`price_basis=etf_total_return`を確認します。`series_id`はopaque IDであり、分解・生成・永続的な業務keyとして使用しません。
 
-### 8.2 chart dataを取得
+### 9.2 chart dataを取得
 
 ```bash
 SERIES_ID="<前のresponseに含まれるseries_id>"
@@ -479,7 +573,7 @@ responseの`series_kind`は`line`で、各rowはOHLCではなく`session_date`�
 
 `stored_complete`は研究・戦略利用への昇格ではありません。responseに`NON_ELIGIBLE_STORED_COMPLETE_DATA_MAY_BE_INCLUDED`が含まれます。
 
-## 9. Python consumer例
+## 10. Python consumer例
 
 この例ではconsumer側の依存として`requests`を使用します。
 
@@ -544,20 +638,23 @@ bars = [
 
 この例のfreshness policyは厳格です。実際のconsumerは対象銘柄・layerに絞り込み、自身の用途に合う明示的なpolicyを実装してください。`NOT_EVALUATED`を暗黙にPASSへ変換してはいけません。
 
-## 10. HTTP statusと再試行
+## 11. HTTP statusと再試行
 
 | HTTP | error code | 意味 | consumer動作 |
 |---:|---|---|---|
 | 200 | なし | 正常 | bodyを検証 |
 | 400 | `INVALID_REQUEST` | parameter、日時、limit、allow-list違反 | requestを修正。retryしない |
 | 404 | `NOT_FOUND` / `SERIES_NOT_FOUND` | pathまたはUI系列なし | ID・pathを再確認。retryしない |
+| 404 | `SNAPSHOT_NOT_FOUND` / `SNAPSHOT_SERIES_NOT_FOUND` | 固定snapshotまたは系列なし | ID・price basisを再確認。fallbackしない |
+| 409 | `SNAPSHOT_LAYER_NOT_AVAILABLE` | 固定snapshotに要求layerなし | 新snapshot計画が必要。retryしない |
 | 405 | `READ_ONLY_API` | write methodを使用 | GETへ修正。retryしない |
+| 503 | `SNAPSHOT_NOT_VERIFIED` / `SNAPSHOT_INTEGRITY_FAILED` | manifest・DB内容の検証失敗 | 利用を停止し運用者が調査 |
 | 503 | `DATABASE_UNAVAILABLE` | DB接続・server内部問題 | healthを確認し有限retry |
 
 推奨retry policy:
 
 - connect timeout 2秒、read timeout 30秒を目安に設定する。
-- retry対象は接続断、timeout、HTTP 503だけに限定する。
+- retry対象は接続断、timeout、`DATABASE_UNAVAILABLE`だけに限定する。
 - 1秒、2秒、4秒など有限backoffにし、無限retryしない。
 - GETはidempotentだが、400/404/405は再送しない。
 - retry後も失敗した場合、古いcacheへ黙ってfallbackせずrunを停止する。
@@ -571,7 +668,7 @@ error response例:
 }
 ```
 
-## 11. 大量データはParquetを使う
+## 12. 大量データはParquetを使う
 
 反復研究、長期間・複数銘柄の一括取得、consumer側で固定snapshotが必要な場合は、APIへ多数の小queryを連打せずParquet exportを使用します。
 
@@ -596,19 +693,20 @@ error response例:
 
 consumerはParquet本体と対応manifestを一緒に保管し、利用前にSHA-256とrow countを検証してください。
 
-## 12. 推奨consumer workflow
+## 13. 推奨consumer workflow
 
 1. `/health`がPASSであることを確認する。
 2. `inventory`でsymbol、layer、price basis、期間、件数を確認する。
 3. `coverage`、`freshness`、`quality`を用途別policyで判定し、ERROR/CRITICALのCURRENT/UNKNOWNを遮断する。
 4. `/api/v1/manifests`からdataset/snapshot識別情報を記録する。
-5. 小～中規模は`/api/v1/bars`を非重複期間に分割して取得する。
-6. `truncated=false`、時系列昇順、重複なし、OHLC制約をconsumer側でも検証する。
-7. 大規模・固定入力は検証済みParquetを使用する。
-8. query、取得時刻、API major version、consumer code versionをrun artifactへ保存する。
-9. 戦略結果とデータ品質結果を別artifactとして報告する。
+5. currentデータは`/api/v1/bars`、固定研究入力は`/api/v1/snapshots/{snapshot_id}/bars`を使い分ける。
+6. snapshot利用時はsnapshot ID、snapshot SHA、row count、ordered content SHAを保存する。
+7. `truncated=false`、時系列昇順、重複なし、OHLC制約をconsumer側でも検証する。
+8. 大規模・固定入力は検証済みParquetを使用する。
+9. query、取得時刻、API major version、consumer code versionをrun artifactへ保存する。
+10. 戦略結果とデータ品質結果を別artifactとして報告する。
 
-## 13. 現在の制約と将来拡張
+## 14. 現在の制約と将来拡張
 
 - APIの可用性SLAはない。ローカルprocessとして運用する。
 - 認証、TLS、CORS、remote接続は提供しない。
