@@ -1,6 +1,6 @@
 # Saxo DB Read API インターフェース仕様
 
-更新日: 2026-07-20 JST
+更新日: 2026-07-21 JST
 
 対象API: `v1`
 
@@ -17,6 +17,7 @@ Read APIは、`saxo_market`の管理データを別プロジェクトへ読み�
 基本原則は次のとおりです。
 
 - OHLC取得の正式な入口は`GET /api/v1/bars`とする。
+- データendpointへ進む前にrepo-local non-data preflightの`PASS`を確認・保存する。
 - 利用前にinventory、coverage、freshness、qualityを確認する。
 - datasetやsnapshotを固定した処理では`GET /api/v1/manifests`の識別情報を記録する。
 - responseへ将来追加される未知のfieldは無視する。
@@ -31,7 +32,9 @@ repository rootでPostgreSQLとRead APIを起動します。
 
 ```bash
 docker compose -p saxo-market-data up -d postgres
-.venv/bin/python -m market_db.read_api --port 8766
+.venv/bin/python -m market_db.read_api_service start
+.venv/bin/python -m market_db.read_api_service status --format json
+.venv/bin/python -m market_db.read_api_preflight --format json
 ```
 
 base URL:
@@ -60,7 +63,11 @@ curl --fail http://127.0.0.1:8766/health
 }
 ```
 
-consumerはデータ取得前に`HTTP 200`かつ`status=PASS`を確認してください。
+consumerはデータ取得前に`read_api_preflight`の終了コード0かつ`status=PASS`を確認し、そのJSONをrun artifactとして保存してください。停止時は`BLOCKED_READ_API_NOT_RUNNING`、別processによる8766使用は`BLOCKED_PORT_CONFLICT`として区別されます。
+
+operational preflightが送るHTTP requestは`GET /`、`GET /health`、必須parameterを省略した`GET /api/v1/bars`、`GET /api/v1/total-return`だけです。後者2件は`400 INVALID_REQUEST`によるroute存在確認で、instrument、期間、cursorを指定せず、市場・metadata rowを0件に保ちます。`series-status`、operations、manifests、layer-countsは呼びません。
+
+`PASS`が証明するのはprocess、loopback listener、DB health、reader role、read-only、timeout、API v1/revision 1.2、必須routeの一致だけです。データ品質、coverage、freshness、snapshot完全性、または戦略性能は別gateであり、preflight PASSから推測してはいけません。
 
 ### 2.2 セキュリティ境界
 
@@ -734,16 +741,18 @@ consumerはParquet本体と対応manifestを一緒に保管し、利用前にSHA
 
 ## 13. 推奨consumer workflow
 
-1. `/health`がPASSであることを確認する。
-2. `inventory`でsymbol、layer、price basis、期間、件数を確認する。
-3. `coverage`、`freshness`、`quality`を用途別policyで判定し、ERROR/CRITICALのCURRENT/UNKNOWNを遮断する。
-4. `/api/v1/manifests`からdataset/snapshot識別情報を記録する。
-5. currentデータは`/api/v1/bars`、固定研究入力は`/api/v1/snapshots/{snapshot_id}/bars`を使い分ける。
-6. snapshot利用時はsnapshot ID、snapshot SHA、row count、ordered content SHAを保存する。
-7. `truncated=false`、時系列昇順、重複なし、OHLC制約をconsumer側でも検証する。
-8. 大規模・固定入力は検証済みParquetを使用する。
-9. query、取得時刻、API major version、consumer code versionをrun artifactへ保存する。
-10. 戦略結果とデータ品質結果を別artifactとして報告する。
+1. PostgreSQL containerがhealthyであることを確認する。
+2. Read APIをservice commandでstart/statusし、non-data preflightの`PASS` JSONを保存する。
+3. model/spec/source queryを固定し、必要な一回限りの明示許可を取得する。
+4. `inventory`でsymbol、layer、price basis、期間、件数を確認する。
+5. `coverage`、`freshness`、`quality`を用途別policyで判定し、ERROR/CRITICALのCURRENT/UNKNOWNを遮断する。
+6. `/api/v1/manifests`からdataset/snapshot識別情報を記録する。
+7. currentデータは`/api/v1/bars`、固定研究入力は`/api/v1/snapshots/{snapshot_id}/bars`を使い分ける。
+8. snapshot利用時はsnapshot ID、snapshot SHA、row count、ordered content SHAを保存する。
+9. `truncated=false`、時系列昇順、重複なし、OHLC制約をconsumer側でも検証する。
+10. 大規模・固定入力は検証済みParquetを使用する。
+11. query、取得時刻、API major version、consumer code versionをrun artifactへ保存する。
+12. 戦略結果とデータ品質結果を別artifactとして報告する。
 
 ## 14. 現在の制約と将来拡張
 

@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "phase": "DMI5",
+  "phase_name": "DMI5_READ_API_OPERATIONAL_READINESS",
+  "status": "PASS",
+  "observed_at_utc": "2026-07-21T14:18:19.683398Z",
+  "incident_reproduction": {
+    "checked_at_utc": "2026-07-21T14:14:44.196328Z",
+    "status": "BLOCKED_READ_API_NOT_RUNNING",
+    "exit_code": 2,
+    "market_rows_received": 0,
+    "metadata_rows_received": 0
+  },
+  "lifecycle": {
+    "start": "PASS",
+    "second_start": "PASS",
+    "second_start_idempotent": true,
+    "status": "PASS",
+    "stop": "PASS",
+    "postgres_healthy_after_stop": true
+  },
+  "preflight": {
+    "status": "PASS",
+    "exit_code": 0,
+    "host": "127.0.0.1",
+    "port": 8766,
+    "api_version": 1,
+    "contract_revision": "1.2",
+    "database_name": "saxo_market",
+    "role_name": "saxo_app_reader",
+    "transaction_read_only": "on",
+    "statement_timeout": "30s",
+    "request_paths": [
+      "/",
+      "/health",
+      "/api/v1/bars",
+      "/api/v1/total-return"
+    ],
+    "market_rows_received": 0,
+    "metadata_rows_received": 0,
+    "data_inspection_performed": false
+  },
+  "mutation_invariant": {
+    "market_table_count": 16,
+    "market_table_dml_before_sha256": "7e0a3626287b95519bce9834da283f60a1c8c62a72decf7daa50664f27c5d87d",
+    "market_table_dml_after_sha256": "7e0a3626287b95519bce9834da283f60a1c8c62a72decf7daa50664f27c5d87d",
+    "market_table_dml_counter_delta": 0,
+    "migration_count_before": 17,
+    "migration_count_after": 17,
+    "migration_history_before_sha256": "a56bacba8ebf928b16a3bda3050ee411f8650ab3fc5366c3fecec72c7604f765",
+    "migration_history_after_sha256": "a56bacba8ebf928b16a3bda3050ee411f8650ab3fc5366c3fecec72c7604f765",
+    "migration_history_unchanged": true,
+    "data_mutation_commands": 0
+  },
+  "security": {
+    "bind_host": "127.0.0.1",
+    "access_token_saved": false,
+    "account_identifier_saved": false,
+    "database_write_routes": 0,
+    "saxo_write_requests": 0,
+    "write_method_probe": "405 READ_ONLY_API"
+  },
+  "test_evidence": {
+    "unit_run": {
+      "passed": 116,
+      "skipped": 38,
+      "status": "PASS"
+    },
+    "full_integration_run": {
+      "passed": 154,
+      "total": 154,
+      "duration_seconds": 667.64,
+      "status": "PASS"
+    },
+    "localhost_process_smoke": "PASS",
+    "db4_validator": {
+      "checked_at_utc": "2026-07-21T14:33:11Z",
+      "overall_status": "PASS",
+      "dmi5_extension_status": "PASS",
+      "baseline_valid": true,
+      "artifact_mismatches": []
+    }
+  },
+  "orders_or_prechecks_sent": 0
+}

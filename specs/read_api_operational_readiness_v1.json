@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "contract_id": "DMI5_READ_API_OPERATIONAL_READINESS_V1",
+  "status": "FROZEN_DMI5A",
+  "service": {
+    "host": "127.0.0.1",
+    "port": 8766,
+    "module": "market_db.read_api",
+    "database_name": "saxo_market",
+    "role_name": "saxo_app_reader",
+    "transaction_read_only": "on",
+    "statement_timeout": "30s"
+  },
+  "api_contract": {
+    "api_version": 1,
+    "contract_revision": "1.2",
+    "openapi_relative_path": "specs/read_api_v1_openapi.yaml",
+    "required_routes": ["/api/v1/bars", "/api/v1/total-return"]
+  },
+  "preflight": {
+    "command": ".venv/bin/python -m market_db.read_api_preflight --format json",
+    "allowed_requests": [
+      "GET /",
+      "GET /health",
+      "GET /api/v1/bars without parameters",
+      "GET /api/v1/total-return without parameters"
+    ],
+    "market_data_queries": 0,
+    "metadata_queries": 0,
+    "database_sql": "health endpoint fixed identity query only"
+  },
+  "lifecycle": {
+    "command_module": "market_db.read_api_service",
+    "runtime_relative_path": ".runtime/read_api",
+    "managed_stop_only": true,
+    "bind_host_configurable": false,
+    "start_health_timeout_seconds": 15,
+    "stop_timeout_seconds": 10
+  },
+  "status_codes": {
+    "PASS": "process, listener, health, read-only boundary, and contract are valid",
+    "BLOCKED_READ_API_NOT_RUNNING": "expected process or listener is absent",
+    "BLOCKED_PORT_CONFLICT": "port 8766 is owned by another process",
+    "BLOCKED_DATABASE_UNHEALTHY": "health endpoint is unavailable or non-PASS",
+    "BLOCKED_READ_ONLY_BOUNDARY": "database, role, read-only, or timeout differs",
+    "BLOCKED_API_CONTRACT_MISMATCH": "API version, revision, or required route differs",
+    "FAILED_PREFLIGHT_INTERNAL": "preflight itself failed unexpectedly"
+  },
+  "exit_codes": {"PASS": 0, "BLOCKED": 2, "FAILED": 1},
+  "security": {
+    "loopback_only": true,
+    "access_token_saved": false,
+    "account_identifier_saved": false,
+    "arbitrary_sql_enabled": false,
+    "data_mutation_routes": 0
+  }
+}

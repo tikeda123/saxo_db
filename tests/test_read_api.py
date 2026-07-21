@@ -22,6 +22,7 @@ from market_db.validate import (
     dmi2b_manifest_baseline_is_valid,
     dmi3_manifest_baseline_is_valid,
     dmi4_manifest_baseline_is_valid,
+    dmi5_manifest_baseline_is_valid,
 )
 
 
@@ -724,6 +725,50 @@ def test_dmi4_manifest_requires_cursor_binding_parity_and_contract_evidence():
     assert dmi4_manifest_baseline_is_valid(payload)
     payload["cursor"]["query_bound"] = False
     assert not dmi4_manifest_baseline_is_valid(payload)
+
+
+def test_dmi5_manifest_requires_non_data_lifecycle_and_zero_mutation_evidence():
+    payload = {
+        "phase": "DMI5",
+        "phase_name": "DMI5_READ_API_OPERATIONAL_READINESS",
+        "status": "PASS",
+        "migration": {"status": "NOT_REQUIRED"},
+        "lifecycle": {
+            "start": "PASS", "status": "PASS", "stop": "PASS",
+            "second_start_idempotent": True, "postgres_healthy_after_stop": True,
+        },
+        "incident_reproduction": {
+            "status": "BLOCKED_READ_API_NOT_RUNNING", "exit_code": 2,
+        },
+        "preflight": {
+            "status": "PASS", "exit_code": 0,
+            "request_paths": [
+                "/", "/health", "/api/v1/bars", "/api/v1/total-return"
+            ],
+            "market_rows_received": 0, "metadata_rows_received": 0,
+        },
+        "contract": {
+            "host": "127.0.0.1", "port": 8766, "api_version": 1,
+            "contract_revision": "1.2", "role_name": "saxo_app_reader",
+            "transaction_read_only": "on", "statement_timeout": "30s",
+        },
+        "mutation_invariant": {
+            "data_mutation_commands": 0, "market_table_dml_counter_delta": 0,
+            "migration_history_unchanged": True,
+        },
+        "security": {
+            "bind_host": "127.0.0.1", "access_token_saved": False,
+            "account_identifier_saved": False, "database_write_routes": 0,
+            "saxo_write_requests": 0,
+        },
+        "test_evidence": {
+            "integration_smoke": "PASS", "full_regression": "PASS",
+            "passed": 1, "total": 1,
+        },
+    }
+    assert dmi5_manifest_baseline_is_valid(payload)
+    payload["preflight"]["market_rows_received"] = 1
+    assert not dmi5_manifest_baseline_is_valid(payload)
 
 
 def test_dmi2b_manifest_requires_verified_immutable_snapshot_read_contract():

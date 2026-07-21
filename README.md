@@ -133,8 +133,12 @@ PostgreSQLはhostの`127.0.0.1:54329`だけにbindされます。
 ### Read APIとWeb UI
 
 ```bash
-.venv/bin/python -m market_db.read_api --port 8766
+.venv/bin/python -m market_db.read_api_service start
+.venv/bin/python -m market_db.read_api_service status --format json
+.venv/bin/python -m market_db.read_api_preflight --format json
 ```
+
+`start`はPostgreSQL healthy、port競合、process identityを確認して`127.0.0.1:8766`へ起動し、healthyな同一processへの再実行は冪等です。`preflight`は`/`、`/health`と必須parameterなしのroute probeだけを使い、市場・metadata rowを取得しません。外部consumerはデータ取得前にpreflightの`status=PASS`を保存してください。これはservice運用準備のPASSであり、coverage、freshness、quality、または戦略性能のPASSではありません。
 
 - health: <http://127.0.0.1:8766/health>
 - データ概要: <http://127.0.0.1:8766/ui/overview>
@@ -144,7 +148,7 @@ PostgreSQLはhostの`127.0.0.1:54329`だけにbindされます。
 
 品質画面はCURRENT/HISTORICAL/UNKNOWNを分離し、eventのlayer・足・price basisをcanonical 1Hと照合します。raw archiveに残る既知異常はCURRENTの監査証跡として保持されますが、scopeが異なるcanonical 1HをFAILにしません。UNKNOWNは常にfail-closedです。
 
-Read APIはcurrent DB用の`saxo_app_reader` poolと、固定研究DB用の`v13_research_reader` poolを分離します。どちらもread-only、30秒statement timeoutで、最大接続数はそれぞれ5と3です。Saxo tokenは不要です。停止は起動したterminalで`Ctrl-C`を使います。
+Read APIはcurrent DB用の`saxo_app_reader` poolと、固定研究DB用の`v13_research_reader` poolを分離します。どちらもread-only、30秒statement timeoutで、最大接続数はそれぞれ5と3です。Saxo tokenは不要です。停止は`.venv/bin/python -m market_db.read_api_service stop`を使い、repoが記録した同一processだけを終了します。PID不一致や別processは停止しません。runtime state/logはGit管理外の`.runtime/read_api/`に保存されます。
 
 OHLC取得例:
 
@@ -257,6 +261,7 @@ SAXO_DB_INTEGRATION=1 .venv/bin/python -m pytest
 - DMI2B: snapshot-bound 1H read — PASS
 - DMI3: stable total-return API — PASS
 - DMI4: cursor・consumer contract kit — PASS
+- DMI5: Read API lifecycle・non-data operational preflight — PASS
 
 これらはデータ基盤の実装・運用ゲートです。戦略の優位性や収益性を証明するものではありません。旧計画に含まれるRT0以降の戦略文書は履歴資料として保持しますが、このリポジトリの現行スコープには含めません。
 
@@ -268,6 +273,8 @@ SAXO_DB_INTEGRATION=1 .venv/bin/python -m pytest
 - [データ管理Web UI実装結果](docs/data_management_web_ui_implementation_result.md)
 - [データ管理インターフェース改善計画](docs/data_management_interface_improvement_plan.md)
 - [DMI4 cursor・consumer contract実装結果](docs/dmi4_implementation_result.md)
+- [DMI5 Read API運用準備 実装結果](docs/read_api_operational_readiness_implementation_result.md)
+- [DMI5 Read API運用準備 実装計画](docs/read_api_operational_readiness_implementation_plan.md)
 - [Read API OpenAPI契約](specs/read_api_v1_openapi.yaml)
 - [DMI0/DMI1実装結果](docs/dmi1_implementation_result.md)
 - [旧quality eventレビュー候補](docs/dmi1_legacy_event_review_candidates.md)

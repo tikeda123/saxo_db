@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "healthy",
+      "input": {"listener": "expected", "root": "valid", "health": "valid", "bars": 400, "total_return": 400, "openapi": "valid"},
+      "expected_status": "PASS",
+      "expected_exit_code": 0
+    },
+    {
+      "id": "not_running",
+      "input": {"listener": "absent"},
+      "expected_status": "BLOCKED_READ_API_NOT_RUNNING",
+      "expected_exit_code": 2
+    },
+    {
+      "id": "port_conflict",
+      "input": {"listener": "other"},
+      "expected_status": "BLOCKED_PORT_CONFLICT",
+      "expected_exit_code": 2
+    },
+    {
+      "id": "database_unhealthy",
+      "input": {"listener": "expected", "root": "valid", "health": "unhealthy"},
+      "expected_status": "BLOCKED_DATABASE_UNHEALTHY",
+      "expected_exit_code": 2
+    },
+    {
+      "id": "role_boundary",
+      "input": {"listener": "expected", "root": "valid", "health": "wrong_role"},
+      "expected_status": "BLOCKED_READ_ONLY_BOUNDARY",
+      "expected_exit_code": 2
+    },
+    {
+      "id": "read_only_boundary",
+      "input": {"listener": "expected", "root": "valid", "health": "read_only_off"},
+      "expected_status": "BLOCKED_READ_ONLY_BOUNDARY",
+      "expected_exit_code": 2
+    },
+    {
+      "id": "contract_revision",
+      "input": {"listener": "expected", "root": "wrong_revision", "health": "valid"},
+      "expected_status": "BLOCKED_API_CONTRACT_MISMATCH",
+      "expected_exit_code": 2
+    },
+    {
+      "id": "bars_route_missing",
+      "input": {"listener": "expected", "root": "valid", "health": "valid", "bars": 404, "total_return": 400, "openapi": "valid"},
+      "expected_status": "BLOCKED_API_CONTRACT_MISMATCH",
+      "expected_exit_code": 2
+    },
+    {
+      "id": "total_return_route_missing",
+      "input": {"listener": "expected", "root": "valid", "health": "valid", "bars": 400, "total_return": 404, "openapi": "valid"},
+      "expected_status": "BLOCKED_API_CONTRACT_MISMATCH",
+      "expected_exit_code": 2
+    }
+  ],
+  "invariants": {
+    "data_inspection_performed": false,
+    "market_rows_received": 0,
+    "metadata_rows_received": 0,
+    "allowed_request_paths": ["/", "/health", "/api/v1/bars", "/api/v1/total-return"]
+  }
+}

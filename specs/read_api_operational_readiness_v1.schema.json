@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.saxo-db.invalid/schemas/read-api-operational-readiness-v1.json",
+  "title": "saxo_db Read API operational readiness result",
+  "type": "object",
+  "required": ["schema_version", "status", "checked_at_utc", "service", "health", "contract", "data_inspection"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "status": {
+      "enum": [
+        "PASS",
+        "BLOCKED_READ_API_NOT_RUNNING",
+        "BLOCKED_PORT_CONFLICT",
+        "BLOCKED_DATABASE_UNHEALTHY",
+        "BLOCKED_READ_ONLY_BOUNDARY",
+        "BLOCKED_API_CONTRACT_MISMATCH",
+        "FAILED_PREFLIGHT_INTERNAL"
+      ]
+    },
+    "checked_at_utc": {"type": "string", "format": "date-time"},
+    "service": {
+      "type": "object",
+      "required": ["host", "port", "process_running", "port_listening", "managed"],
+      "properties": {
+        "host": {"const": "127.0.0.1"},
+        "port": {"const": 8766},
+        "process_running": {"type": "boolean"},
+        "port_listening": {"type": "boolean"},
+        "managed": {"type": "boolean"},
+        "pid": {"type": ["integer", "null"], "minimum": 1}
+      },
+      "additionalProperties": false
+    },
+    "health": {
+      "type": "object",
+      "required": ["http_status", "api_status", "database_name", "role_name", "transaction_read_only", "statement_timeout"],
+      "properties": {
+        "http_status": {"type": ["integer", "null"]},
+        "api_status": {"type": ["string", "null"]},
+        "database_name": {"type": ["string", "null"]},
+        "role_name": {"type": ["string", "null"]},
+        "transaction_read_only": {"type": ["string", "null"]},
+        "statement_timeout": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "contract": {
+      "type": "object",
+      "required": ["api_version", "contract_revision", "bars_route_present", "total_return_route_present", "openapi_sha256"],
+      "properties": {
+        "api_version": {"type": ["integer", "null"]},
+        "contract_revision": {"type": ["string", "null"]},
+        "bars_route_present": {"type": "boolean"},
+        "total_return_route_present": {"type": "boolean"},
+        "openapi_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
+      },
+      "additionalProperties": false
+    },
+    "data_inspection": {
+      "type": "object",
+      "required": ["performed", "market_rows_received", "metadata_rows_received", "request_paths"],
+      "properties": {
+        "performed": {"const": false},
+        "market_rows_received": {"const": 0},
+        "metadata_rows_received": {"const": 0},
+        "request_paths": {
+          "type": "array",
+          "items": {"enum": ["/", "/health", "/api/v1/bars", "/api/v1/total-return"]},
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "diagnostic_code": {"type": ["string", "null"]}
+  },
+  "additionalProperties": false
+}

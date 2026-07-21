@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "phase": "DMI5",
+  "phase_name": "DMI5_READ_API_OPERATIONAL_READINESS",
+  "status": "PASS",
+  "implemented_at_jst": "2026-07-21",
+  "parent_evidence": {
+    "relative_path": "manifests/dmi4_implementation_manifest.json",
+    "sha256": "3a6aa8a9a28cdcbccdcffec49c50de73e990efcbc940d243c4933f3002f2cf5d",
+    "policy": "immutable_parent_with_explicit_hash_attested_supersession"
+  },
+  "migration": {
+    "status": "NOT_REQUIRED",
+    "reason": "operational readiness and process lifecycle are application and runbook artifacts"
+  },
+  "incident_reproduction": {
+    "status": "BLOCKED_READ_API_NOT_RUNNING",
+    "exit_code": 2,
+    "market_rows_received": 0,
+    "metadata_rows_received": 0
+  },
+  "lifecycle": {
+    "start": "PASS",
+    "status": "PASS",
+    "stop": "PASS",
+    "second_start_idempotent": true,
+    "postgres_healthy_after_stop": true,
+    "runtime_relative_path": ".runtime/read_api"
+  },
+  "preflight": {
+    "status": "PASS",
+    "exit_code": 0,
+    "request_paths": [
+      "/",
+      "/health",
+      "/api/v1/bars",
+      "/api/v1/total-return"
+    ],
+    "market_rows_received": 0,
+    "metadata_rows_received": 0,
+    "data_inspection_performed": false
+  },
+  "contract": {
+    "host": "127.0.0.1",
+    "port": 8766,
+    "api_version": 1,
+    "contract_revision": "1.2",
+    "role_name": "saxo_app_reader",
+    "transaction_read_only": "on",
+    "statement_timeout": "30s",
+    "openapi_relative_path": "specs/read_api_v1_openapi.yaml",
+    "openapi_sha256": "b61895a3dcd1d667eab648525075908c6a69e36e3e8cdee35c081ceb3bb14a25",
+    "readiness_contract_sha256": "e4306688daf07dd7957321dd67da8f609d529f8ecfd8bbd559e7298efd526489",
+    "readiness_schema_sha256": "d303eec2eefedc540174ceb19222edfeb4cc0cf972728968d8f117d36baecff2"
+  },
+  "mutation_invariant": {
+    "data_mutation_commands": 0,
+    "market_table_dml_counter_delta": 0,
+    "migration_history_unchanged": true
+  },
+  "test_evidence": {
+    "dmi5_unit_fixture_passed": 15,
+    "dmi5_localhost_integration_passed": 1,
+    "unit_run_passed": 116,
+    "unit_run_skipped": 38,
+    "integration_smoke": "PASS",
+    "full_regression": "PASS",
+    "db4_validator": "PASS",
+    "passed": 154,
+    "total": 154,
+    "duration_seconds": 667.64
+  },
+  "security": {
+    "bind_host": "127.0.0.1",
+    "access_token_saved": false,
+    "account_identifier_saved": false,
+    "arbitrary_sql_enabled": false,
+    "database_write_routes": 0,
+    "saxo_write_requests": 0,
+    "write_method": "405 READ_ONLY_API"
+  },
+  "runtime_evidence": {
+    "relative_path": "manifests/read_api_operational_readiness_runtime_evidence.json",
+    "sha256": "9a374ff4c98ac519184f1deebaec3fe68257d95ed96c20ef8a2b0dc8760e5fd4"
+  },
+  "next_gate": "CONSUMER_PRE_HOLDOUT_OPERATIONAL_PREFLIGHT",
+  "locked_scope": [
+    "closed_strategy_models",
+    "consumed_holdout",
+    "S6",
+    "Live"
+  ],
+  "artifacts": {
+    ".gitignore": {"size_bytes": 191, "sha256": "f84a209b875728b20592b4f1dafe0c0318c4ed70558cf7f3526872afa4c30d08"},
+    "README.md": {"size_bytes": 15470, "sha256": "7f5d77e85ea565016dbcd3c468c5a602aa0471be06dcb41cae25cc4609505037"},
+    "docs/database_operations_runbook.md": {"size_bytes": 31124, "sha256": "00f410c28e1db40d0e944ae6eba073a8cff2339537558f0246d98641bad63e40"},
+    "docs/read_api_interface.md": {"size_bytes": 31932, "sha256": "12afb5ae34ff1a55d34b3d038d112f9e6a526f143744950a8f904975252d8cfb"},
+    "docs/read_api_operational_readiness_improvement_instruction.md": {"size_bytes": 16890, "sha256": "fc8bbac03e5e012195196419b7dc77293e1b690efe162102dca9b8c28171b759"},
+    "docs/read_api_operational_readiness_implementation_plan.md": {"size_bytes": 4775, "sha256": "6f3bf405064c2514cf4e5d4cf091a2b0bfd33f8e52e84c0316c0892e0d0069c0"},
+    "docs/read_api_operational_readiness_implementation_result.md": {"size_bytes": 6277, "sha256": "86455e267448121cc4a9bbb3cb4d8bf5213208f9a0290e461901727e03dd17ff"},
+    "market_db/read_api_preflight.py": {"size_bytes": 13464, "sha256": "6b9cbd6f358281772cbc7e361c56a988492e3174621f26528c0cfc3d85365088"},
+    "market_db/read_api_service.py": {"size_bytes": 10808, "sha256": "0399c646c0555ebf7f185ac6e0d33d26fc9488f131f4b5e5bde86ae2b093fa85"},
+    "market_db/validate.py": {"size_bytes": 71130, "sha256": "9b873f90d6f4609fb60b84f415ce15deedf60d03474a62d4e84a36d3ce64e23c"},
+    "specs/read_api_operational_readiness_v1.json": {"size_bytes": 2033, "sha256": "e4306688daf07dd7957321dd67da8f609d529f8ecfd8bbd559e7298efd526489"},
+    "specs/read_api_operational_readiness_v1.schema.json": {"size_bytes": 2969, "sha256": "d303eec2eefedc540174ceb19222edfeb4cc0cf972728968d8f117d36baecff2"},
+    "tests/fixtures/read_api_operational_readiness_v1/cases.json": {"size_bytes": 2211, "sha256": "eab76d98420d0b4ce0ba46427b3f1a9c1f1d8cdfc774038b4efe19207b55f60a"},
+    "tests/test_dmi5_integration.py": {"size_bytes": 2386, "sha256": "a743d641c49f2453e943449e3eae05430a2a330144b6e218d4b74f5d7335d651"},
+    "tests/test_read_api_operational_readiness.py": {"size_bytes": 6804, "sha256": "e7f1547cb335592157cf39d6cfc6fd7caaeaee2a86c5dbd91e73a9adbbb1c508"},
+    "tests/test_read_api.py": {"size_bytes": 30992, "sha256": "ec6c742fbc9c773b5daf0a1b05c820d6cb44e1ad8177b3be994339283f9d958e"},
+    "manifests/read_api_operational_readiness_runtime_evidence.json": {"size_bytes": 2520, "sha256": "9a374ff4c98ac519184f1deebaec3fe68257d95ed96c20ef8a2b0dc8760e5fd4"}
+  }
+}

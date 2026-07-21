@@ -32,6 +32,9 @@ python3 -m market_db.migrate all
 ```bash
 docker compose -p saxo-market-data up -d postgres
 docker compose -p saxo-market-data ps
+.venv/bin/python -m market_db.read_api_service start
+.venv/bin/python -m market_db.read_api_service status --format json
+.venv/bin/python -m market_db.read_api_preflight --format json
 ```
 
 通常restart:
@@ -44,10 +47,11 @@ docker compose -p saxo-market-data ps
 停止（volumeは保持される）:
 
 ```bash
+.venv/bin/python -m market_db.read_api_service stop
 docker compose -p saxo-market-data stop postgres
 ```
 
-`ps`ではserviceが`running (healthy)`で、host側portは`127.0.0.1:54329`だけにbindされる。restart後はmigration履歴とschemaが保持される。
+`ps`ではPostgreSQLが`running (healthy)`で、host側portは`127.0.0.1:54329`だけにbindされる。Read API preflightは`PASS`、`127.0.0.1:8766`、`saxo_app_reader`、read-only、30秒timeout、API v1/revision 1.2を返すことを確認する。restart後はmigration履歴とschemaが保持される。
 
 ## 4. 格納データの確認
 
@@ -244,13 +248,18 @@ Read APIは一般DB管理画面ではなく、固定された参照endpointだ�
 外部プロジェクトからの接続契約、response schema、品質確認、期間分割、total-return、エラー処理、Parquetの使い分けは`docs/read_api_interface.md`を正本とする。
 
 ```bash
-.venv/bin/python -m market_db.read_api --port 8766
-curl --fail http://127.0.0.1:8766/health
+.venv/bin/python -m market_db.read_api_service start
+.venv/bin/python -m market_db.read_api_service status --format json
+.venv/bin/python -m market_db.read_api_preflight --format json
 curl --fail 'http://127.0.0.1:8766/api/v1/operations/inventory?limit=25'
 curl --fail 'http://127.0.0.1:8766/api/v1/bars?instrument_key=iwm&layer=1h&start=2026-07-15T00:00:00Z&end=2026-07-17T00:00:00Z&limit=100'
 ```
 
 barはinstrument、layer、UTC start/endが必須で最大10,000行である。APIは`saxo_app_reader`、read-only transaction、最大5接続、30秒statement timeoutを使う。write method、任意relation、任意SQL、token入力を追加しない。
+
+外部consumerへデータ取得を許可する前の標準順序は、`DB container healthy -> Read API start/status -> non-data preflight PASS artifact保存 -> model/spec/source query freeze -> explicit one-time authorization -> atomic acquisition/evaluation`である。preflight自体は`/`、`/health`、parameterなしのbars/total-returnだけを呼び、市場・metadata rowを取得しない。preflight PASSをcoverage、freshness、quality、戦略性能のPASSへ読み替えない。
+
+serviceのstateとlogはGit管理外の`.runtime/read_api/state.json`、`.runtime/read_api/read_api.log`に0600で保存し、directoryは0700とする。startはPostgreSQL unhealthyまたはport競合時にfail-closed、healthyな同一serviceへは冪等PASSとなる。stopはPID、開始fingerprint、command hash、cwd、portが一致するrepo管理processだけへSIGTERMを送る。broadな`pkill`や未検証PIDへの`kill`を使わない。Read API停止後もPostgreSQL、8765 operator UI、volume、data、migrationは停止・変更しない。
 
 外部projectの正式preflightはatomic endpointを使う。
 
@@ -307,10 +316,10 @@ PYTHONPATH=. .venv/bin/pytest -q \
 Read APIを起動した同じprocessで、データ管理UIも利用できる。
 
 ```bash
-.venv/bin/python -m market_db.read_api --port 8766
+.venv/bin/python -m market_db.read_api_service start
 ```
 
-ブラウザで <http://127.0.0.1:8766/ui/overview> を開く。`8765`の取得・Reconcile用operator UIとは別の画面であり、Saxo tokenは不要で、入力欄も存在しない。停止は起動terminalで`Ctrl-C`を使う。
+ブラウザで <http://127.0.0.1:8766/ui/overview> を開く。`8765`の取得・Reconcile用operator UIとは別の画面であり、Saxo tokenは不要で、入力欄も存在しない。停止は`.venv/bin/python -m market_db.read_api_service stop`を使う。
 
 - `データ概要`: 有効dataset、正式13銘柄、1H/4H/1D件数、現在の品質・鮮度、最新run
 - `データ在庫`: 正式・派生・total return・raw/archive・referenceを別系列として検索し、50件ずつ確認
@@ -410,6 +419,22 @@ docker compose -p saxo-market-data logs --tail 100 postgres
 
 出力を共有する前にcredentialや個人情報を確認する。volume削除で復旧しない。
 
+### Read API operational readiness BLOCKED
+
+```bash
+.venv/bin/python -m market_db.read_api_service status --format json
+lsof -nP -iTCP:8766 -sTCP:LISTEN
+```
+
+- `BLOCKED_READ_API_NOT_RUNNING`: PostgreSQL healthyを確認してservice `start`を実行する。preflight自身は自動起動しない。
+- `BLOCKED_PORT_CONFLICT`: listenerの所有processを確認し、勝手に停止・port変更せず所有者へ確認する。
+- `BLOCKED_DATABASE_UNHEALTHY`: PostgreSQLの`ps`とlogを確認し、volume削除で復旧しない。
+- `BLOCKED_READ_ONLY_BOUNDARY`: role、read-only、timeoutの設定差分を調査し、データ取得を止める。
+- `BLOCKED_API_CONTRACT_MISMATCH`: API/OpenAPI revisionと必須routeを照合し、旧APIへfallbackしない。
+- `FAILED_PREFLIGHT_INTERNAL`: preflight実装またはhost commandの異常として扱い、PASSへ読み替えない。
+
+stale stateは別processをsignalせず`BLOCKED_STALE_PID`として閉じる。state fileを手動で別PIDへ書き換えない。必要な調査後もprocess identityが一致しない場合は、所有者確認のうえruntime stateだけを除去する。LaunchAgentは自動installせず、常駐化はrepo-local lifecycle受入後のoperator判断とする。
+
 ### Disk不足
 
 `docker system df`とhost空き容量を確認する。named volumeは削除せず、不要な別projectの資源整理について所有者確認を行う。
@@ -440,6 +465,7 @@ research DB、content manifest、dump manifest、dump本体のいずれかが不
 - DMI1B: 旧eventの根拠付きreview。PASS。
 - DMI2A/DMI2B/DMI3: atomic status、snapshot-bound read、stable total-return。PASS。
 - DMI4: cursor・consumer contract kit。PASS。
+- DMI5: Read API lifecycle・non-data operational preflight。PASS。
 - 今後の作業はデータ取得、品質・鮮度、API契約、backup、運用性の改善に限定する。
 - 旧計画のRT0以降にあるstrategy rule、cost、PnL、WFO、Holdout、portfolioは履歴資料として残すが、別の戦略プロジェクトで実施する。
 

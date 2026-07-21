@@ -313,6 +313,56 @@ def dmi4_manifest_baseline_is_valid(payload: dict[str, Any]) -> bool:
     )
 
 
+def dmi5_manifest_baseline_is_valid(payload: dict[str, Any]) -> bool:
+    """Validate non-data readiness, owned lifecycle, and zero-mutation evidence."""
+    lifecycle = payload.get("lifecycle", {})
+    preflight = payload.get("preflight", {})
+    incident = payload.get("incident_reproduction", {})
+    contract = payload.get("contract", {})
+    mutation = payload.get("mutation_invariant", {})
+    security = payload.get("security", {})
+    tests = payload.get("test_evidence", {})
+    return (
+        payload.get("phase") == "DMI5"
+        and payload.get("phase_name") == "DMI5_READ_API_OPERATIONAL_READINESS"
+        and payload.get("status") == "PASS"
+        and payload.get("migration", {}).get("status") == "NOT_REQUIRED"
+        and lifecycle.get("start") == "PASS"
+        and lifecycle.get("status") == "PASS"
+        and lifecycle.get("stop") == "PASS"
+        and lifecycle.get("second_start_idempotent") is True
+        and lifecycle.get("postgres_healthy_after_stop") is True
+        and incident.get("status") == "BLOCKED_READ_API_NOT_RUNNING"
+        and incident.get("exit_code") == 2
+        and preflight.get("status") == "PASS"
+        and preflight.get("exit_code") == 0
+        and preflight.get("request_paths") == [
+            "/", "/health", "/api/v1/bars", "/api/v1/total-return"
+        ]
+        and preflight.get("market_rows_received") == 0
+        and preflight.get("metadata_rows_received") == 0
+        and contract.get("host") == LOOPBACK_HOST
+        and contract.get("port") == 8766
+        and contract.get("api_version") == 1
+        and contract.get("contract_revision") == "1.2"
+        and contract.get("role_name") == "saxo_app_reader"
+        and contract.get("transaction_read_only") == "on"
+        and contract.get("statement_timeout") == "30s"
+        and mutation.get("data_mutation_commands") == 0
+        and mutation.get("market_table_dml_counter_delta") == 0
+        and mutation.get("migration_history_unchanged") is True
+        and security.get("bind_host") == LOOPBACK_HOST
+        and security.get("access_token_saved") is False
+        and security.get("account_identifier_saved") is False
+        and security.get("database_write_routes") == 0
+        and security.get("saxo_write_requests") == 0
+        and tests.get("integration_smoke") == "PASS"
+        and tests.get("full_regression") == "PASS"
+        and isinstance(tests.get("passed"), int)
+        and tests.get("passed") == tests.get("total")
+    )
+
+
 def validate_import_inventory() -> dict[str, Any]:
     root = project_root()
     inventory_path = root / "manifests" / "import_file_inventory.csv"
@@ -1255,6 +1305,57 @@ def validate_db4_data() -> dict[str, Any]:
             "status": "PASS" if dmi4_baseline_valid and not dmi4_mismatches else "FAIL",
         })
     implementation["dmi4_extension_manifest"] = dmi4_extension
+
+    dmi5_path = project_root() / "manifests/read_api_operational_readiness_implementation_manifest.json"
+    dmi5_extension: dict[str, Any] = {"exists": dmi5_path.is_file(), "status": "NOT_PRESENT"}
+    if dmi5_path.is_file():
+        dmi5_payload = json.loads(dmi5_path.read_text(encoding="utf-8"))
+        dmi5_mismatches, dmi5_valid_paths = manifest_artifact_state(dmi5_payload)
+        dmi5_parent = dmi5_payload.get("parent_evidence", {})
+        dmi5_baseline_valid = (
+            dmi5_manifest_baseline_is_valid(dmi5_payload)
+            and dmi5_parent.get("relative_path") == "manifests/dmi4_implementation_manifest.json"
+            and dmi5_parent.get("sha256") == _sha256(dmi4_path)
+            and dmi5_payload.get("contract", {}).get("openapi_sha256")
+            == _sha256(project_root() / "specs/read_api_v1_openapi.yaml")
+            and dmi5_payload.get("contract", {}).get("readiness_contract_sha256")
+            == _sha256(project_root() / "specs/read_api_operational_readiness_v1.json")
+            and dmi5_payload.get("contract", {}).get("readiness_schema_sha256")
+            == _sha256(project_root() / "specs/read_api_operational_readiness_v1.schema.json")
+        )
+
+        def remove_dmi5_superseded(items: list[str]) -> tuple[list[str], list[str]]:
+            superseded = sorted({
+                item.split(":", 1)[1]
+                for item in items
+                if ":" in item and item.split(":", 1)[1] in dmi5_valid_paths
+            })
+            remaining = [
+                item
+                for item in items
+                if ":" not in item or item.split(":", 1)[1] not in dmi5_valid_paths
+            ]
+            return remaining, superseded
+
+        for extension_manifest in (
+            implementation, extension, dmi1_extension, dmi2a_extension,
+            dmi2b_extension, dmi3_extension, dmi4_extension,
+        ):
+            extension_manifest["artifact_mismatches"], _ = remove_dmi5_superseded(
+                extension_manifest.get("artifact_mismatches", [])
+            )
+            if (
+                extension_manifest.get("baseline_valid") is True
+                and not extension_manifest["artifact_mismatches"]
+            ):
+                extension_manifest["status"] = "PASS"
+        dmi5_extension.update({
+            "artifact_mismatches": dmi5_mismatches,
+            "baseline_valid": dmi5_baseline_valid,
+            "gate_status": dmi5_payload.get("status"),
+            "status": "PASS" if dmi5_baseline_valid and not dmi5_mismatches else "FAIL",
+        })
+    implementation["dmi5_extension_manifest"] = dmi5_extension
     result["implementation_manifest"] = implementation
 
     backup_pass = (
@@ -1293,6 +1394,7 @@ def validate_db4_data() -> dict[str, Any]:
         and implementation.get("dmi2b_extension_manifest", {}).get("status") in {"PASS", "NOT_PRESENT"}
         and implementation.get("dmi3_extension_manifest", {}).get("status") in {"PASS", "NOT_PRESENT"}
         and implementation.get("dmi4_extension_manifest", {}).get("status") in {"PASS", "NOT_PRESENT"}
+        and implementation.get("dmi5_extension_manifest", {}).get("status") in {"PASS", "NOT_PRESENT"}
     )
     result["status"] = "PASS" if (
         result["migration"]["applied"]
