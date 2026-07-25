@@ -49,9 +49,31 @@ DB1・DB2・DB3はPASSし、DB3のAPI取得、DB transaction、派生足、運�
 
 ## 4. 認証とoperator手順
 
-### 4.1 24時間tokenを使用する段階
+### 4.1 OAuth PKCEによる定期運用
 
-PKCE未実装の現在は、operatorがSaxo Developer Portalの`Get 24 Hour Token`からSIM tokenを取得する。
+2026-07-24以降の定期運用は`market_db.saxo_auth`のOAuth Authorization Code Grant with PKCEを使用する。Developer PortalのSIM Application Managementでアプリを作成し、PKCE redirect URIを`http://localhost/saxo/oauth/callback`として登録する。
+
+```bash
+export SAXO_OAUTH_APP_KEY='<SIM application key>'
+.venv/bin/python -m market_db.operator_ui
+```
+
+`http://127.0.0.1:8765/`で「Saxo OAuth接続」を実行する。初回login後、refresh credentialとPKCE verifierだけをmacOS Keychainへ保存する。access tokenはprocess memoryだけに保持し、refresh時に返された新refresh tokenで旧値を置換する。token値はGit、`.env`、`.secrets/`、PostgreSQL、manifest、raw、log、browser storageへ保存しない。
+
+定期service:
+
+```bash
+.venv/bin/python -m market_db.saxo_auth status --callback-port 8765
+.venv/bin/python -m market_db.periodic_update schedule
+.venv/bin/python -m market_db.periodic_update_service start --callback-port 8765
+.venv/bin/python -m market_db.periodic_update_service status
+```
+
+初回、refresh credential失効、Saxo側revocation、Mac停止がrefresh期限を超えた場合だけ人間が再loginする。各定期runで24時間tokenを取得しない。
+
+### 4.2 24時間tokenを使用するfallback
+
+OAuth未設定または手動診断時だけ、operatorがSaxo Developer Portalの`Get 24 Hour Token`からSIM tokenを取得する。
 
 1. Developer PortalでSimulation/Demo accountへloginする。
 2. `Get 24 Hour Token`を開く。
@@ -65,15 +87,15 @@ CLI実装では、tokenをコマンドライン引数に渡さない。次のよ
 read -s SAXO_ACCESS_TOKEN
 export SAXO_ACCESS_TOKEN
 python3 -m market_db.saxo_smoke_test
-python3 -m market_db.incremental_update --environment sim --horizon 60 --all
+python3 -m market_db.incremental_update run
 unset SAXO_ACCESS_TOKEN
 ```
 
 `read -s`のpromptは実装側で表示してよいが、token値は表示しない。shell history、process argument、exception、HTTP debug logにtokenを出さない。`.env`、`.secrets/`、Docker secret、PostgreSQLへSaxo tokenを保存しない。DB passwordとSaxo tokenは別物である。
 
-24時間tokenは無人定期実行に適さない。PKCEとrefresh token保管を設計するまでは、増分取得をoperator起動のjobとして扱う。cron化や常時稼働を先に実装しない。
+24時間tokenは無人定期実行に使用しない。Portal loginやtoken copyをbrowser automationしない。従来のtoken入力reconcileは手動fallbackとして保持する。
 
-### 4.2 疎通確認
+### 4.3 疎通確認
 
 最初のread-only smoke testは次のendpointだけを使用する。
 
@@ -474,7 +496,8 @@ HTTP clientはSIM base URLをconstructor任せにせずallow-list検証する。
 ## 19. 既知の制約
 
 - SIMはLIVEの完全な複製ではなく、一部market data/functionが利用できない場合がある。
-- 24時間token方式では無人の継続更新を保証できない。
+- OAuth refresh chainが継続している間は無人更新できるが、Mac停止・sleepがrefresh期限を超えた場合は人間の再loginが必要になる。
+- repo-owned periodic serviceは実装済みだが、LaunchAgentは未installである。
 - Chartの最新closeはwatchlist用の最適なreal-time quoteではない。
 - Chart historyはinstrument/asset classにより開始時点が異なる。
 - ETF Chart OHLCだけではdividend込みreturnを再現できない。

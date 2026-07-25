@@ -9,10 +9,12 @@ import pytest
 import market_db.raw_artifacts as raw_artifacts
 from market_db.acquire_pages import fetch_chart_pages
 from market_db.incremental_update import (
+    S6V5A_PRIORITY_INSTRUMENT_KEYS,
     _failed_instrument_context,
     _quarantined_row_evidence,
     _validate_full_refetch_quarantine,
     reconcile_incremental,
+    select_instruments,
 )
 from market_db.instrument_registry import InstrumentDriftError, load_canonical_instruments, validate_detail
 from market_db.normalize_bars import (
@@ -167,6 +169,21 @@ def test_registry_drift_is_blocked_without_substitution():
             spy,
             {"Identifier": spy.uic + 1, "AssetType": spy.asset_type, "Symbol": spy.symbol, "CurrencyCode": "USD"},
         )
+
+
+def test_s6v5a_profile_is_exact_ordered_canonical_subset():
+    selected = select_instruments(S6V5A_PRIORITY_INSTRUMENT_KEYS)
+    assert tuple(item.key for item in selected) == (
+        "spy", "iwm", "efa", "eem", "vnq", "eurusd"
+    )
+    assert tuple(item.price_basis for item in selected) == (
+        "native_ohlc", "native_ohlc", "native_ohlc",
+        "native_ohlc", "native_ohlc", "bid_ask_mid",
+    )
+    with pytest.raises(ValueError, match="non-canonical"):
+        select_instruments(("spy", "replacement"))
+    with pytest.raises(ValueError, match="unique"):
+        select_instruments(("spy", "spy"))
 
 
 def test_etf_and_fx_decimal_normalization_and_latest_incomplete():

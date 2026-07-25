@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "profile_id": "s6v5a_priority_market_data_v1",
+  "environment": "SIM",
+  "api_access": {
+    "method_allowlist": ["GET"],
+    "write_requests": 0,
+    "orders_or_prechecks": 0
+  },
+  "authentication": {
+    "flow": "authorization_code_pkce",
+    "authorization_url": "https://sim.logonvalidation.net/authorize",
+    "token_url": "https://sim.logonvalidation.net/token",
+    "redirect_uri_registration": "http://localhost:8765/saxo/oauth/callback",
+    "access_token_storage": "process_memory_only",
+    "refresh_credential_storage": "macos_keychain_only",
+    "manual_24_hour_token": "fallback_only"
+  },
+  "series": [
+    {"instrument_key": "spy", "horizon_minutes": 60, "price_basis": "native_ohlc"},
+    {"instrument_key": "iwm", "horizon_minutes": 60, "price_basis": "native_ohlc"},
+    {"instrument_key": "efa", "horizon_minutes": 60, "price_basis": "native_ohlc"},
+    {"instrument_key": "eem", "horizon_minutes": 60, "price_basis": "native_ohlc"},
+    {"instrument_key": "vnq", "horizon_minutes": 60, "price_basis": "native_ohlc"},
+    {"instrument_key": "eurusd", "horizon_minutes": 60, "price_basis": "bid_ask_mid"}
+  ],
+  "schedule": {
+    "equity_calendar": "XNYS_US_EQUITY",
+    "equity_complete_slot_rule": "bar_start_plus_60_minutes_must_not_exceed_session_close",
+    "equity_bar_close_delay_seconds": 15,
+    "first_regular_bar_deadline_et": "10:33:00",
+    "fx_calendar": "SBFX_24X5",
+    "fx_calendar_verification": "VERIFIED",
+    "fx_schedule_source": "https://www.home.saxo/rates-and-conditions/forex/trading-conditions",
+    "fx_schedule_endpoint": "/ref/v1/instruments/tradingschedule/{Uic}/{AssetType}",
+    "fx_daily_maintenance_new_york": "16:59-17:04",
+    "fx_complete_slot_rule": "utc_hour_must_be_fully_contained_in_verified_session_interval",
+    "fx_hourly_start_minute_utc": 3,
+    "fx_hourly_deadline_minute_utc": 10,
+    "poll_seconds": 15,
+    "retry_seconds": 30,
+    "max_catchup_hours": 6
+  },
+  "publication": {
+    "boundary": "atomic curated and watermark commit",
+    "raw_saved_before_database_commit": true,
+    "read_api_copy_job": false
+  },
+  "failure_domains": [
+    "interface_auth",
+    "interface_operational",
+    "data_not_ready",
+    "source_revision",
+    "data_quality",
+    "source_scope"
+  ],
+  "total_return": {
+    "status": "BLOCKED_SOURCE_PROVIDER_NOT_CONFIGURED",
+    "scheduled": false,
+    "development_dataset_promoted": false,
+    "operator_decision_required": true,
+    "required_provider_contract": [
+      "provider",
+      "license_and_redistribution_terms",
+      "adjusted_close_definition",
+      "cash_dividend_definition",
+      "split_definition",
+      "corporate_action_correction_policy",
+      "availability_sla",
+      "provider_revision_identity"
+    ],
+    "planned_schedule": {
+      "t0_eod": true,
+      "t1_morning_retry": true,
+      "enabled_only_after_provider_contract_freeze": true
+    },
+    "development_dataset_id": "20260712T135236Z",
+    "development_dataset_research_eligibility": "development_cutoff_only"
+  }
+}

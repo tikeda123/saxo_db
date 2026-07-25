@@ -31,16 +31,21 @@ def test_atomic_series_status_matches_current_spy_components():
     assert payload["series"]["instrument_key"] == "spy"
     assert payload["series"]["layer"] == "1h"
     assert payload["series"]["price_basis"] == "native_ohlc"
-    assert payload["consistency"]["latest_ingestion_run_id"] == 105
+    assert payload["consistency"]["latest_ingestion_run_id"] > 0
+    assert (
+        payload["consistency"]["latest_ingestion_run_id"]
+        == payload["components"]["latest_ingestion_run"]["ingestion_run_id"]
+    )
     assert payload["consistency"]["quality_event_high_watermark"] >= 395032
     assert payload["components"]["latest_ingestion_run"]["status"] == "PASS"
     assert payload["state"]["quality_status"] == "PASS"
     assert payload["state"]["current_blockers"] == []
     assert payload["state"]["unknown_blocker_count"] == 0
-    assert payload["state"]["historical_unresolved_event_count"] == 3
-    assert payload["state"]["eligibility_status"] == "BLOCKED"
+    assert payload["state"]["historical_unresolved_event_count"] >= 3
+    assert payload["state"]["eligibility_status"] == "ELIGIBLE_WITH_WARNINGS"
     assert "COVERAGE_WARN" in payload["state"]["eligibility_warnings"]
-    assert "FRESHNESS_STALE" in payload["state"]["eligibility_reasons"]
+    assert payload["state"]["freshness_status"] == "PASS"
+    assert payload["state"]["eligibility_reasons"] == []
 
 
 def test_series_status_rejects_wrong_price_basis_without_fallback():

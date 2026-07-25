@@ -146,10 +146,10 @@ DB1で次を実装する。
 - password生成scriptは値を標準出力・logへ表示しない
 - `.env.example`には非機密のhost、port、database名だけを置く
 - password入り`DATABASE_URL`をcommitしない
-- Saxo 24時間token、AccountKey、ClientKey、account identifierをDBへ保存しない
+- Saxo access token、AccountKey、ClientKey、account identifierをDBへ保存しない。無人更新用OAuth refresh credentialはmacOS Keychainだけに保存し、DB、repository、manifest、raw、logへ保存しない
 - Saxo tokenはlocal operator request/job memoryまたは取得process environmentだけで使用する
 
-DB passwordはローカル永続secretとして管理できるが、Saxo 24時間tokenとは用途と寿命が異なる。両者を同じtableや環境ファイルへ置かない。
+DB passwordはローカル永続secretとして管理できるが、Saxo access/refresh tokenとは用途と寿命が異なる。両者を同じtableや環境ファイルへ置かない。refresh credentialはKeychain、access tokenはprocess memoryに限定する。
 
 ## 6. Schema構成
 

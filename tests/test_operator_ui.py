@@ -97,6 +97,10 @@ def test_operator_page_never_uses_browser_storage_and_clears_password_input():
     assert "sessionStorage." not in page
     assert "document.cookie" not in page
     assert "shell=True" not in page
+    assert 'id="oauth-start"' in page
+    assert 'id="periodic-start"' in page
+    assert "/api/oauth/status" in page
+    assert "/api/periodic/status" in page
 
 
 def test_operator_requires_exact_loopback_origin_and_port():
@@ -127,6 +131,11 @@ def test_operator_http_is_no_store_and_rejects_cross_site_post():
             assert response.headers["X-Frame-Options"] == "DENY"
             assert "default-src 'none'" in response.headers["Content-Security-Policy"]
             assert "DB3 Reconciliation Operator" in page
+
+        with urllib.request.urlopen(f"http://127.0.0.1:{state.port}/api/oauth/status", timeout=2) as response:
+            auth = json.loads(response.read())
+            assert auth["status"] == "AUTH_CONFIG_MISSING"
+            assert auth["token_values_exposed"] is False
 
         request = urllib.request.Request(
             f"http://127.0.0.1:{state.port}/api/reconcile",

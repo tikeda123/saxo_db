@@ -40,6 +40,7 @@ SPEC_RELATIVE_PATH = Path("specs/source_collection/v13_db3_incremental_collectio
 MAX_QUARANTINED_FX_EXTREMA_ROWS = 10
 MAX_QUARANTINED_FX_EXTREMA_RATE = Decimal("0.0001")
 FX_EXTREMA_QUARANTINE_POLICY_ID = "db3_bounded_fx_extrema_quarantine_v1"
+S6V5A_PRIORITY_INSTRUMENT_KEYS = ("spy", "iwm", "efa", "eem", "vnq", "eurusd")
 
 
 @dataclass(frozen=True)
@@ -59,6 +60,22 @@ class AcquiredInstrument:
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def select_instruments(instrument_keys: Iterable[str] | None = None) -> tuple[CanonicalInstrument, ...]:
+    """Select a stable canonical subset without accepting symbol substitution."""
+
+    registry = load_canonical_instruments()
+    if instrument_keys is None:
+        return registry
+    requested = tuple(str(key).strip().lower() for key in instrument_keys)
+    if not requested or any(not key for key in requested) or len(set(requested)) != len(requested):
+        raise ValueError("instrument keys must be a non-empty unique canonical subset")
+    by_key = {item.key: item for item in registry}
+    unknown = sorted(set(requested) - set(by_key))
+    if unknown:
+        raise ValueError("instrument keys contain a non-canonical key")
+    return tuple(by_key[key] for key in requested)
 
 
 def _ensure_dataset(cursor: Any) -> None:
@@ -753,11 +770,16 @@ def _write_run_manifest(
     return manifest
 
 
-def run_incremental(client: SaxoClient | None = None) -> dict[str, Any]:
-    registry = load_canonical_instruments()
+def run_incremental(
+    client: SaxoClient | None = None,
+    *,
+    instrument_keys: Iterable[str] | None = None,
+    trigger: str = "manual_db3",
+) -> dict[str, Any]:
+    registry = select_instruments(instrument_keys)
     run_id = utc_run_id(secrets.token_hex(4))
     artifacts = RunArtifacts(run_id)
-    db_run_id = _create_run(run_id, registry)
+    db_run_id = _create_run(run_id, registry, trigger=trigger)
     chart_artifacts: list[ArtifactRecord] = []
     all_artifacts: list[ArtifactRecord] = []
     acquired: list[AcquiredInstrument] = []
@@ -870,14 +892,19 @@ def run_incremental(client: SaxoClient | None = None) -> dict[str, Any]:
     }
 
 
-def run_full_refetch(instrument_key: str, client: SaxoClient | None = None) -> dict[str, Any]:
+def run_full_refetch(
+    instrument_key: str,
+    client: SaxoClient | None = None,
+    *,
+    trigger: str = "manual_db3_full_refetch",
+) -> dict[str, Any]:
     matches = tuple(item for item in load_canonical_instruments() if item.key == instrument_key.lower())
     if len(matches) != 1:
         raise ValueError("instrument key must identify one canonical instrument")
     instrument = matches[0]
     run_id = utc_run_id(secrets.token_hex(4))
     artifacts = RunArtifacts(run_id)
-    db_run_id = _create_run(run_id, matches, trigger="manual_db3_full_refetch")
+    db_run_id = _create_run(run_id, matches, trigger=trigger)
     chart_artifacts: list[ArtifactRecord] = []
     all_artifacts: list[ArtifactRecord] = []
     selected_client = client
@@ -1176,11 +1203,13 @@ def main(argv: Iterable[str] | None = None) -> int:
         "command", choices=("initialize-watermarks", "run", "full-refetch", "reconcile", "status")
     )
     parser.add_argument("--instrument-key")
+    parser.add_argument("--profile", choices=("canonical", "s6v5a"), default="canonical")
     args = parser.parse_args(list(argv) if argv is not None else None)
     if args.command == "initialize-watermarks":
         result = initialize_watermarks()
     elif args.command == "run":
-        result = run_incremental()
+        selected_keys = S6V5A_PRIORITY_INSTRUMENT_KEYS if args.profile == "s6v5a" else None
+        result = run_incremental(instrument_keys=selected_keys)
     elif args.command == "full-refetch":
         if not args.instrument_key:
             parser.error("full-refetch requires --instrument-key")

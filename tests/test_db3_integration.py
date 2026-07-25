@@ -38,7 +38,7 @@ def test_canonical_calendars_and_watermarks_are_registered():
                 ORDER BY c.session_calendar_id
                 """
             )
-            assert cursor.fetchall() == [("SBFX_24X5", "PROVISIONAL", 2), ("XNYS_US_EQUITY", "VERIFIED", 11)]
+            assert cursor.fetchall() == [("SBFX_24X5", "VERIFIED", 2), ("XNYS_US_EQUITY", "VERIFIED", 11)]
             cursor.execute(
                 """
                 SELECT COUNT(*) FROM ops.watermark w JOIN catalog.instrument i USING(instrument_id)
@@ -92,6 +92,32 @@ def test_coverage_separates_missing_and_out_of_session_rows():
             assert len(rows) == 13
             assert all(status != "FAIL" for status, _, _ in rows)
             assert any(out_of_session > 0 for status, _, out_of_session in rows if status == "WARN")
+
+
+def test_s6v5a_calendar_status_is_readable_and_nonblocking_for_all_six_series():
+    with connect("saxo_app_reader", MARKET_DB) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT c.instrument_key, c.coverage_status,
+                       c.calendar_verification_status, c.calendar_aligned_rows,
+                       f.freshness_status, f.latest_complete_time_utc,
+                       f.latest_expected_complete_time_utc
+                FROM analytics.v_data_coverage c
+                JOIN analytics.v_data_freshness f
+                  ON f.instrument_id=c.instrument_id
+                 AND f.horizon_minutes=c.horizon_minutes
+                 AND f.price_basis=c.price_basis
+                WHERE c.instrument_key=ANY(%s)
+                ORDER BY c.instrument_key
+                """,
+                (["spy", "iwm", "efa", "eem", "vnq", "eurusd"],),
+            )
+            rows = cursor.fetchall()
+    assert [row[0] for row in rows] == ["eem", "efa", "eurusd", "iwm", "spy", "vnq"]
+    assert all(row[1] in {"PASS", "WARN"} for row in rows)
+    assert all(row[2] == "VERIFIED" and int(row[3]) > 0 for row in rows)
+    assert all(row[4] == "PASS" and row[5] >= row[6] for row in rows)
 
 
 def test_curated_watermark_and_derived_mutations_roll_back_together():

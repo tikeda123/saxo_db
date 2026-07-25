@@ -8,7 +8,7 @@
 
 - すべてrepository rootから実行する。Pythonコードはhost固有の絶対pathを前提にしない。
 - passwordは`.secrets/`の権限`0600`のfileだけに置き、terminal、log、manifestへ表示しない。
-- Saxo token、AccountKey、ClientKey、口座識別子は本プロジェクトへ保存しない。
+- Saxo access token、AccountKey、ClientKey、口座識別子は本プロジェクトへ保存しない。OAuth refresh credentialだけは無人更新用としてmacOS Keychainへ保存できるが、repository、`.secrets/`、DB、manifest、logには保存しない。
 - 69 CSVはimmutableな監査原本であり、上書き・整形・削除しない。再取込前にinventoryのsize/SHA-256を必ず検証する。
 - DB2のimportとresearch snapshotは完了済みである。通常確認では`status`とread-only inspectを使い、既存内容を手動更新しない。
 - `docker compose down -v`、`docker volume rm`、database drop、migration fileの上書きは実行禁止。volume削除が必要な場合は事前に影響を提示し、明示承認を得る。
@@ -200,7 +200,47 @@ AI側にtokenをchatやtool引数で渡さずlive gateを実行する場合は�
 
 token入力前の画面表示、空入力拒否、`/health`、`IDLE` statusは秘密情報なしでAIが検査できる。token値そのものをAI chat、terminal output、screen captureへ表示しない。
 
-通常runはcanonical 13すべてを単一transactionで処理する。Etfは最新完成実バーから20本、FxSpotは72本をoverlapし、境界を含む`Mode=From`結果を重複排除する。raw JSONは`data/acquisition/runs/<run-id>/`へatomic保存するがGit管理外で、AccountKey、ClientKey、TradableOn等は除去する。smoke response bodyは保存しない。
+### 10.2 OAuth・無人定期更新
+
+定期運用では24時間tokenを使わずOAuth PKCEを使用する。Developer PortalのSIMアプリに`http://localhost:8765/saxo/oauth/callback`を登録し、AppKeyをoperator UIの起動環境へ設定する。AppKeyはOAuth client IDでありtokenではないが、Gitへ固定しない。
+
+```bash
+export SAXO_OAUTH_APP_KEY='<SIM application key>'
+.venv/bin/python -m market_db.operator_ui
+```
+
+`http://127.0.0.1:8765/`の「Saxo OAuth接続」で初回loginを完了し、`AUTH_READY`を確認してから「定期更新を開始」を実行する。CLIの場合は次を使用する。
+
+```bash
+.venv/bin/python -m market_db.saxo_auth login --callback-port 8765
+.venv/bin/python -m market_db.saxo_auth status --callback-port 8765
+.venv/bin/python -m market_db.periodic_update schedule
+.venv/bin/python -m market_db.periodic_update_service start --callback-port 8765
+.venv/bin/python -m market_db.periodic_update_service status
+```
+
+運用仕様:
+
+- refresh credentialとPKCE verifierだけをmacOS Keychainへ保存する。
+- access tokenはscheduler process memoryだけで保持する。
+- SPY、IWM、EFA、EEM、VNQ、EURUSDだけをSLA優先profileとして取得する。
+- ETFはDBのXNYS sessionで各完成可能1H終了15秒後に開始し、第1barは10:33 ETをdeadlineとする。
+- EURUSDは毎UTC時03分に開始し、時10分をdeadlineとする。
+- expected watermark未到達は`DATA_NOT_READY`とし、data quality FAILにしない。
+- 401は強制refresh後1回再試行する。DataVersion変更は対象1系列だけguard付きfull-refetchする。
+- `.runtime/periodic_update/`のstate/logは0600、Git管理外で、token値を含めない。
+- `total_return.status=BLOCKED_SOURCE_PROVIDER_NOT_CONFIGURED`の間はtotal-return jobをscheduleしない。
+
+停止とcredential削除:
+
+```bash
+.venv/bin/python -m market_db.periodic_update_service stop
+.venv/bin/python -m market_db.saxo_auth logout --callback-port 8765
+```
+
+`logout`はKeychainのrefresh credentialを削除する。DB、raw artifact、ingestion run、watermarkを削除しない。LaunchAgentは実credentialと3取引日のSLA受入が完了するまでinstallしない。
+
+手動canonical runは13系列すべて、S6V5A定期runは固定6系列を単一transactionで処理する。Etfは最新完成実バーから20本、FxSpotは72本をoverlapし、境界を含む`Mode=From`結果を重複排除する。raw JSONは`data/acquisition/runs/<run-id>/`へatomic保存するがGit管理外で、AccountKey、ClientKey、TradableOn等は除去する。smoke response bodyは保存しない。
 
 正常時はraw revision、curated latest、watermark、4H/1D、run statusが同時にcommitされる。品質失敗時はこれらをrollbackし、取得済みraw artifact、sanitized error code、OPEN quality eventだけを残す。直後の2回目runは、新しい完成足がなければ新規行0、形成中sampleの変化は最大1行/銘柄までを許容する。
 
@@ -450,6 +490,26 @@ research DB、content manifest、dump manifest、dump本体のいずれかが不
 ### DB3更新中断・品質gate失敗
 
 `market_db.inspect runs`と`market_db.inspect quality`でrun ID、last success step、sanitized codeを確認する。stagingは成功・rollback後に0件でなければ新規runを開始しない。raw artifactは削除せず、token/account情報がないことを確認する。curated、derived、watermarkを個別に手動修正しない。
+
+### 定期更新・OAuth BLOCKED
+
+```bash
+.venv/bin/python -m market_db.saxo_auth status --callback-port 8765
+.venv/bin/python -m market_db.periodic_update_service status
+.venv/bin/python -m market_db.periodic_update status
+```
+
+- `AUTH_CONFIG_MISSING`: operator UI/serviceを同じ`SAXO_OAUTH_APP_KEY`で再起動する。
+- `AUTH_LOGIN_REQUIRED`: Web UIから人間がSaxoへ再loginする。24時間tokenの自動採取へfallbackしない。
+- `AUTH_KEYCHAIN_*`: Keychainのlock、access control、credential破損を調査し、token値をterminalへ出さない。
+- `BLOCKED_STALE_PID`: PID、command、cwd、start fingerprintを照合し、別processをsignalしない。
+- process開始時刻はlocale表示文字列を直接比較せず、`LC_ALL=C`で取得した正規形を使う。旧日本語／英語stateはPID、cwd、command SHA-256、module・portが全一致する場合だけservice managerに移行させる。
+- `DATA_NOT_READY`: deadline内はschedulerが再試行する。deadline超過後は`sla_status=MISS`として扱い、quality FAILへ変更しない。
+- `BLOCKED_SOURCE_PROVIDER_NOT_CONFIGURED`: total-return current providerをfreezeするまで既存development snapshotを昇格しない。
+
+ETF freshnessは`catalog.session_interval`内で完全に閉じる1Hだけを期待し、通常close日の15:30 ET開始barを要求しない。EURUSDは`SBFX_24X5`のverified sessionと16:59〜17:04 New York maintenanceを使い、weekend／maintenance中の未生成barをquality FAILにしない。
+
+coverage／freshnessのRead API計算はmigration `0022`／`0023`で全履歴のslot展開を回避している。`series-status`が30秒でtimeoutする場合はdata quality FAILではなくinterface／operational blockとし、view語義、migration checksum、calendar件数、DB負荷を確認する。
 
 ### DB4 backup・restore失敗
 

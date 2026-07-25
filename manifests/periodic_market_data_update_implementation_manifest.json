@@ -1,0 +1,256 @@
+{
+  "schema_version": 1,
+  "phase": "DPU2R",
+  "phase_name": "S6V5A_PERIODIC_MARKET_DATA_FOUNDATION",
+  "status": "REMEDIATION_IMPLEMENTED_PENDING_SLA_AND_PROVIDER",
+  "implemented_at_jst": "2026-07-25",
+  "parent_evidence": {
+    "relative_path": "manifests/read_api_operational_readiness_implementation_manifest.json",
+    "sha256": "9af5f2cea8e2a2a612a78740df04a090dbeec688d8acc4af6e275cc16f246447",
+    "policy": "immutable_parent_with_explicit_hash_attested_supersession"
+  },
+  "migration": {
+    "number": "0023",
+    "status": "APPLIED",
+    "reason": "complete-slot freshness, verified FX maintenance boundaries, and timeout-safe calendar aggregation"
+  },
+  "profile": {
+    "relative_path": "specs/source_collection/s6v5a_periodic_update_v1.json",
+    "sha256": "c2155382d1caa7e980a0ab6bbf4da6163bec3a87513d1e5741118edbd8a8b997"
+  },
+  "authentication": {
+    "flow": "authorization_code_pkce",
+    "access_token_storage": "process_memory_only",
+    "refresh_credential_storage": "macos_keychain_only",
+    "manual_24_hour_token": "fallback_only",
+    "refresh_heartbeat_seconds": 15,
+    "redirect_uri": "http://localhost:8765/saxo/oauth/callback"
+  },
+  "schedule": {
+    "instrument_keys": [
+      "spy",
+      "iwm",
+      "efa",
+      "eem",
+      "vnq",
+      "eurusd"
+    ],
+    "first_regular_bar_start_et": "10:30:15",
+    "first_regular_bar_deadline_et": "10:33:00",
+    "fx_hourly_start_minute_utc": 3,
+    "complete_slot_contract": "SESSION_FULLY_CONTAINED_1H_V1",
+    "fx_calendar": "SBFX_24X5",
+    "fx_calendar_verification": "VERIFIED"
+  },
+  "runtime_acceptance": {
+    "oauth": "AUTH_READY",
+    "scheduler": "RUNNING",
+    "service_status": "PASS",
+    "service_managed": true,
+    "three_xnys_session_sla": "PENDING_0_OF_3",
+    "verified_run_161_saxo_get_requests": 19,
+    "catchup_run_169_saxo_get_requests": 4,
+    "saxo_requests": 23,
+    "orders_or_prechecks_sent": 0,
+    "latest_complete": {
+      "spy": "2026-07-24T18:30:00Z",
+      "iwm": "2026-07-24T18:30:00Z",
+      "efa": "2026-07-24T18:30:00Z",
+      "eem": "2026-07-24T18:30:00Z",
+      "vnq": "2026-07-24T18:30:00Z",
+      "eurusd": "2026-07-24T19:00:00Z"
+    },
+    "series_status": {
+      "coverage": "WARN_NONBLOCKING",
+      "freshness": "PASS",
+      "quality": "PASS",
+      "current_blockers": [],
+      "unknown_blocker_count": 0
+    },
+    "read_api_health": "PASS",
+    "read_api_transaction_read_only": "on"
+  },
+  "total_return": {
+    "status": "BLOCKED_SOURCE_PROVIDER_NOT_CONFIGURED",
+    "development_dataset_id": "20260712T135236Z",
+    "development_research_eligibility": "development_cutoff_only",
+    "development_dataset_promoted": false,
+    "operator_decision_required": true,
+    "current_dataset_id": null,
+    "required_provider_contract": [
+      "provider",
+      "license_and_redistribution_terms",
+      "adjusted_close_definition",
+      "cash_dividend_definition",
+      "split_definition",
+      "corporate_action_correction_policy",
+      "availability_sla",
+      "provider_revision_identity"
+    ]
+  },
+  "test_evidence": {
+    "unit": "PASS",
+    "unit_passed": 150,
+    "unit_skipped": 39,
+    "database_integration": "PASS",
+    "database_integration_passed": 189,
+    "database_integration_skipped": 0,
+    "db4_validator": "PASS",
+    "artifact_mismatches": 0,
+    "database_integration_duration_seconds": 566.99
+  },
+  "security": {
+    "access_token_saved": false,
+    "refresh_token_in_repository": false,
+    "account_identifier_saved": false,
+    "saxo_write_requests": 0,
+    "orders_or_prechecks_sent": 0
+  },
+  "next_gate": "TOTAL_RETURN_PROVIDER_FREEZE_AND_THREE_XNYS_SESSION_SLA_SOAK",
+  "artifacts": {
+    ".env.example": {
+      "size_bytes": 157,
+      "sha256": "dd63f2cecda4c8c16fc53a132ae360228eb5895b1202ac4919068c46bb0fc6ff"
+    },
+    "README.md": {
+      "size_bytes": 17945,
+      "sha256": "80efe8a163068d3f334a945f83992056e96d3a627527975585487e1f4e417490"
+    },
+    "db/migrations/0020_s6v5a_complete_slot_freshness.sql": {
+      "size_bytes": 6820,
+      "sha256": "336cd780d705bbea5b160f1212cd61cb6fdaceb6f0398176eab9de4e37c9882f"
+    },
+    "db/migrations/0021_s6v5a_fx_maintenance_slot_boundary.sql": {
+      "size_bytes": 6859,
+      "sha256": "04a4e57067a06c4b84d24c7c85f8bc24edd3ac69f94b822b35772d9c617ae275"
+    },
+    "db/migrations/0022_s6v5a_calendar_view_performance.sql": {
+      "size_bytes": 8294,
+      "sha256": "c18fadd0ec24841860f0275eec98c88a32587810837b29710e02aba8d2b5f020"
+    },
+    "db/migrations/0023_s6v5a_calendar_view_boundary_correction.sql": {
+      "size_bytes": 8558,
+      "sha256": "d8d6a6d3e1eee7924bcb3a4bfb24b7d3d695fe877e530fd1332e1c44d6424a5e"
+    },
+    "docs/database_operations_runbook.md": {
+      "size_bytes": 35392,
+      "sha256": "3a0a05e0d87680db0129f427aaa7ea62612b7397a8baac8335eca4dcd5bd4d0d"
+    },
+    "docs/periodic_market_data_update_implementation_plan.md": {
+      "size_bytes": 9668,
+      "sha256": "72982dcdf1d6c08692b35397439296fb8e1ec94aea2a19c24280d16b30eb750e"
+    },
+    "docs/read_api_interface.md": {
+      "size_bytes": 32632,
+      "sha256": "8ee6be2c8dcad8855d3caa7c97902a0df51ae24856df49d79b99ab0718dbb5a1"
+    },
+    "docs/s6v5a_periodic_update_remediation_instruction.md": {
+      "size_bytes": 10547,
+      "sha256": "82022cf77a92f68949b5937b7f58d5b9745c5b86e0ba76abb20eaf0424bbf8d9"
+    },
+    "docs/s6v5a_periodic_update_remediation_result.md": {
+      "size_bytes": 7574,
+      "sha256": "f71314bfd22f7feb5a98f3e8f5cb9744a0457e5a729687d022499dd02e8a1f0c"
+    },
+    "docs/saxo_api_data_acquisition_handoff.md": {
+      "size_bytes": 28424,
+      "sha256": "bdf24ae17295801e1a2a1f1ff05428648b434376180373c9190dc21961a39988"
+    },
+    "docs/v13_phase_db0_database_implementation_spec.md": {
+      "size_bytes": 34297,
+      "sha256": "79ddefa3c68367d90a39e5ca8e541bf387f2471d4b47aed92881e108bcff7ddc"
+    },
+    "market_db/derive_bars.py": {
+      "size_bytes": 7732,
+      "sha256": "c51418f4c10cdc9b6b91d159731fd96d1f0c6d6fae7a8c030c26206ef87c9833"
+    },
+    "market_db/incremental_update.py": {
+      "size_bytes": 53430,
+      "sha256": "e99513fd513c93820c6da1db70c49340fe9d26e3de6f0a73c78d0a7b36b5b6da"
+    },
+    "market_db/migrate.py": {
+      "size_bytes": 12672,
+      "sha256": "f4f1aac76df3141f9843aea294c45330c3e1c1c53314e12e1c3965cb343d06a5"
+    },
+    "market_db/operator_ui.py": {
+      "size_bytes": 25695,
+      "sha256": "6a3769e0d832b4e2d9905bd73f40f12474c5f69222fbd3891ec6325b83a118db"
+    },
+    "market_db/periodic_update.py": {
+      "size_bytes": 23360,
+      "sha256": "d8fdbef20eb927da473ebd0714ae3483b0d3bfb60788c3988bd974dfe93589a6"
+    },
+    "market_db/periodic_update_service.py": {
+      "size_bytes": 11606,
+      "sha256": "64621ff5b145f757f07ba7cb861b9d2b0fa70fe544011f1e741d97d0fe3e4447"
+    },
+    "market_db/read_api_preflight.py": {
+      "size_bytes": 16058,
+      "sha256": "a6d64321661e063cf47acf24eafee76806f9534d215e21f9999c1ecb69a4a30b"
+    },
+    "market_db/saxo_auth.py": {
+      "size_bytes": 22965,
+      "sha256": "8429ac57dfa01a7d384d35d802a617917cdb74a68198d14accd8444a75754815"
+    },
+    "market_db/session_calendar.py": {
+      "size_bytes": 14010,
+      "sha256": "2a1c101ab75e725e4fa557a2bfa0ed94847a33bfdad64bcd63d703053679d177"
+    },
+    "market_db/total_return_update.py": {
+      "size_bytes": 5756,
+      "sha256": "381372198bb90bd808c22d8f99903dcb776b5f1528664225536cdee6791f79bd"
+    },
+    "market_db/validate.py": {
+      "size_bytes": 76726,
+      "sha256": "26394a5bb18aa6583d0365865e8e255410136bd4ecf5c8921fb0d47e078c84ae"
+    },
+    "specs/source_collection/s6v5a_periodic_update_v1.json": {
+      "size_bytes": 3040,
+      "sha256": "c2155382d1caa7e980a0ab6bbf4da6163bec3a87513d1e5741118edbd8a8b997"
+    },
+    "tests/test_db1_integration.py": {
+      "size_bytes": 13574,
+      "sha256": "6884e265c801b09092c6b0347e9b30960ba782a842b1124b278f7ae252569d18"
+    },
+    "tests/test_db3_integration.py": {
+      "size_bytes": 8329,
+      "sha256": "b487a72fe95a0844c87d252d5696f1d831b13ebce3a66ee31865268c9409c01a"
+    },
+    "tests/test_db3_unit.py": {
+      "size_bytes": 20590,
+      "sha256": "bef41b1867c8ff36c6e61ec027d54ef9d1b837a3ed1fcd2c8e32de7ddcb13849"
+    },
+    "tests/test_dmi1_integration.py": {
+      "size_bytes": 7934,
+      "sha256": "f59d6bbfdaba055a7d947728ada481a818afe40b5e364c6459eacd34192d01c9"
+    },
+    "tests/test_dmi2a_integration.py": {
+      "size_bytes": 2320,
+      "sha256": "da91cc5573ef62f72cfe8904ca80faeab655c9fd34f95f799ca34525501f8094"
+    },
+    "tests/test_migration_runner.py": {
+      "size_bytes": 946,
+      "sha256": "0c4ee7441e38585103f7fa356101735b19b587f2329599290b5199d2710cf14d"
+    },
+    "tests/test_operator_ui.py": {
+      "size_bytes": 5734,
+      "sha256": "7e03451f11773cb3ed8fa4d03216d179b23cc25dceea58e8d10b3455bd85f708"
+    },
+    "tests/test_periodic_update.py": {
+      "size_bytes": 10279,
+      "sha256": "f1a25266e02fa63ed75bbd66725d031457e258b2a8d6b9a5d949e25407123a6a"
+    },
+    "tests/test_periodic_update_service.py": {
+      "size_bytes": 3809,
+      "sha256": "e5a2a20b73a0246b11c7f9493d8ea711980c76b5485d14658c5664ad4587effd"
+    },
+    "tests/test_saxo_auth.py": {
+      "size_bytes": 7574,
+      "sha256": "e89fe26f764e1dae54487149dfba80ec5fc3818bf4a54be4754166480a4884bf"
+    },
+    "tests/test_total_return_update.py": {
+      "size_bytes": 2497,
+      "sha256": "6c0c574cb8232a7cfdeeaa1a58fbeefbb888a9840951a72a7cbf8dbf1d488f28"
+    }
+  }
+}

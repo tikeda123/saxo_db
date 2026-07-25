@@ -15,9 +15,13 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable, Iterable
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from .connection import project_root
+from .periodic_update_service import start_service as start_periodic_service
+from .periodic_update_service import status_service as periodic_service_status
+from .periodic_update_service import stop_service as stop_periodic_service
+from .saxo_auth import CALLBACK_PATH, OAuthConfig, PendingAuthorization, SaxoAuthError, SaxoOAuthManager
 
 
 LOOPBACK_HOST = "127.0.0.1"
@@ -204,6 +208,15 @@ def operator_html(csrf_token: str, script_nonce: str) -> bytes:
 <main>
   <header><span class="badge">SIM / GET ONLY / LOOPBACK</span><h1>DB3 Reconciliation Operator</h1><p>DataVersion復旧、必要なfull-refetch、通常run連続2回を一つの固定jobで実行します。</p></header>
   <section class="card">
+    <h2>無人定期更新</h2>
+    <div class="notice">OAuthではrefresh credentialだけをmacOS Keychainへ保存します。access tokenはscheduler processのメモリだけで使用します。</div>
+    <p>認証: <strong id="auth-state">確認中</strong> ／ scheduler: <strong id="periodic-state">確認中</strong></p>
+    <button id="oauth-start" type="button">Saxo OAuth接続</button>
+    <button id="periodic-start" type="button">定期更新を開始</button>
+    <button id="periodic-stop" type="button">定期更新を停止</button>
+    <p id="periodic-message" aria-live="polite"></p>
+  </section>
+  <section class="card">
     <div class="notice">tokenはこのjobの子process環境だけで使用し、ファイル、DB、ログ、cookie、localStorageへ保存しません。</div>
     <p><label for="token">Saxo SIM 24時間token</label><input id="token" type="password" autocomplete="new-password" spellcheck="false" autocapitalize="off"></p>
     <button id="start" type="button">AI運用用 reconcile を開始</button>
@@ -222,6 +235,12 @@ const message = document.querySelector('#message');
 const state = document.querySelector('#state');
 const dot = document.querySelector('#dot');
 const output = document.querySelector('#output');
+const authState = document.querySelector('#auth-state');
+const periodicState = document.querySelector('#periodic-state');
+const oauthStart = document.querySelector('#oauth-start');
+const periodicStart = document.querySelector('#periodic-start');
+const periodicStop = document.querySelector('#periodic-stop');
+const periodicMessage = document.querySelector('#periodic-message');
 let pollTimer = null;
 
 function render(job) {{
@@ -237,6 +256,54 @@ async function readStatus() {{
   const response = await fetch('/api/status', {{ cache:'no-store', credentials:'same-origin' }});
   render(await response.json());
 }}
+
+async function readOperationalStatus() {{
+  const [authResponse, periodicResponse] = await Promise.all([
+    fetch('/api/oauth/status', {{ cache:'no-store', credentials:'same-origin' }}),
+    fetch('/api/periodic/status', {{ cache:'no-store', credentials:'same-origin' }})
+  ]);
+  const auth = await authResponse.json();
+  const periodic = await periodicResponse.json();
+  authState.textContent = auth.status;
+  periodicState.textContent = periodic.status;
+}}
+
+async function postOperation(path) {{
+  const response = await fetch(path, {{
+    method:'POST', credentials:'same-origin', cache:'no-store',
+    headers:{{'Content-Type':'application/json','X-CSRF-Token':csrf}}, body:'{{}}'
+  }});
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || result.status || `HTTP ${{response.status}}`);
+  return result;
+}}
+
+oauthStart.addEventListener('click', async () => {{
+  periodicMessage.className = '';
+  periodicMessage.textContent = 'Saxo認証画面へ移動します…';
+  try {{
+    const result = await postOperation('/api/oauth/start');
+    window.location.assign(result.authorization_url);
+  }} catch (error) {{ periodicMessage.className='error'; periodicMessage.textContent=error.message; }}
+}});
+
+periodicStart.addEventListener('click', async () => {{
+  try {{
+    const result = await postOperation('/api/periodic/start');
+    periodicMessage.className = '';
+    periodicMessage.textContent = `scheduler: ${{result.status}}`;
+    await readOperationalStatus();
+  }} catch (error) {{ periodicMessage.className='error'; periodicMessage.textContent=error.message; }}
+}});
+
+periodicStop.addEventListener('click', async () => {{
+  try {{
+    const result = await postOperation('/api/periodic/stop');
+    periodicMessage.className = '';
+    periodicMessage.textContent = `scheduler stop: ${{result.status}}`;
+    await readOperationalStatus();
+  }} catch (error) {{ periodicMessage.className='error'; periodicMessage.textContent=error.message; }}
+}});
 
 startButton.addEventListener('click', async () => {{
   let token = tokenInput.value.trim();
@@ -267,6 +334,8 @@ startButton.addEventListener('click', async () => {{
 }});
 
 readStatus().catch(() => {{ message.className='error'; message.textContent='status取得に失敗しました。'; }});
+readOperationalStatus().catch(() => {{ periodicMessage.className='error'; periodicMessage.textContent='運用status取得に失敗しました。'; }});
+setInterval(() => readOperationalStatus().catch(() => {{}}), 5000);
 </script>
 </body>
 </html>""".encode("utf-8")
@@ -278,6 +347,49 @@ class OperatorState:
         self.port = port
         self.csrf_token = secrets.token_urlsafe(32)
         self.script_nonce = secrets.token_urlsafe(24)
+        self.oauth_lock = threading.Lock()
+        self.pending_oauth: PendingAuthorization | None = None
+        try:
+            self.oauth_manager: SaxoOAuthManager | None = SaxoOAuthManager(
+                OAuthConfig.from_environment(callback_port=port)
+            )
+            self.oauth_config_error: str | None = None
+        except SaxoAuthError as exc:
+            self.oauth_manager = None
+            self.oauth_config_error = exc.code
+
+    def oauth_status(self) -> dict[str, Any]:
+        if self.oauth_manager is None:
+            return {
+                "status": self.oauth_config_error or "AUTH_CONFIG_MISSING",
+                "token_values_exposed": False,
+                "orders_or_prechecks_sent": 0,
+            }
+        return self.oauth_manager.status()
+
+    def begin_oauth(self) -> dict[str, Any]:
+        if self.oauth_manager is None:
+            raise SaxoAuthError(self.oauth_config_error or "AUTH_CONFIG_MISSING")
+        with self.oauth_lock:
+            self.pending_oauth = self.oauth_manager.begin_authorization()
+            return {
+                "status": "AUTHORIZATION_REQUIRED",
+                "authorization_url": self.pending_oauth.authorization_url,
+                "token_values_exposed": False,
+                "orders_or_prechecks_sent": 0,
+            }
+
+    def complete_oauth(self, observed_state: str, code: str, error: str) -> dict[str, Any]:
+        if self.oauth_manager is None:
+            raise SaxoAuthError(self.oauth_config_error or "AUTH_CONFIG_MISSING")
+        with self.oauth_lock:
+            pending = self.pending_oauth
+            self.pending_oauth = None
+        if pending is None or not secrets.compare_digest(observed_state, pending.state):
+            raise SaxoAuthError("AUTH_CALLBACK_STATE_MISMATCH")
+        if error or not code:
+            raise SaxoAuthError("AUTHORIZATION_DENIED")
+        return self.oauth_manager.complete_authorization(pending, code)
 
 
 def make_handler(state: OperatorState) -> type[BaseHTTPRequestHandler]:
@@ -317,12 +429,37 @@ def make_handler(state: OperatorState) -> type[BaseHTTPRequestHandler]:
                 "application/json; charset=utf-8",
             )
 
+        def _oauth_result_page(self, status: int, message: str) -> None:
+            body = (
+                "<!doctype html><html lang='ja'><meta charset='utf-8'>"
+                f"<title>saxo_db OAuth</title><p>{message}</p><p><a href='/'>operatorへ戻る</a></p></html>"
+            ).encode("utf-8")
+            self._send(status, body, "text/html; charset=utf-8")
+
         def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API.
+            parsed = urlsplit(self.path)
+            if parsed.path == CALLBACK_PATH:
+                query = parse_qs(parsed.query, keep_blank_values=True)
+                observed_state = (query.get("state") or [""])[0]
+                code = (query.get("code") or [""])[0]
+                error = (query.get("error") or [""])[0]
+                try:
+                    state.complete_oauth(observed_state, code, error)
+                    self._oauth_result_page(200, "Saxo OAuth接続が完了しました。")
+                except SaxoAuthError as exc:
+                    self._oauth_result_page(400, f"Saxo OAuth接続に失敗しました: {exc.code}")
+                return
             if self.path == "/":
                 self._send(200, operator_html(state.csrf_token, state.script_nonce), "text/html; charset=utf-8")
                 return
             if self.path == "/api/status":
                 self._json(200, state.manager.status())
+                return
+            if self.path == "/api/oauth/status":
+                self._json(200, state.oauth_status())
+                return
+            if self.path == "/api/periodic/status":
+                self._json(200, periodic_service_status())
                 return
             if self.path == "/health":
                 self._json(200, {"status": "PASS", "bind": "loopback"})
@@ -330,7 +467,11 @@ def make_handler(state: OperatorState) -> type[BaseHTTPRequestHandler]:
             self._json(404, {"error": "not found"})
 
         def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API.
-            if self.path != "/api/reconcile":
+            allowed_paths = {
+                "/api/reconcile", "/api/oauth/start",
+                "/api/periodic/start", "/api/periodic/stop",
+            }
+            if self.path not in allowed_paths:
                 self._json(404, {"error": "not found"})
                 return
             if not allowed_browser_request(
@@ -352,6 +493,26 @@ def make_handler(state: OperatorState) -> type[BaseHTTPRequestHandler]:
                 content_length = 0
             if not 1 <= content_length <= MAX_REQUEST_BYTES:
                 self._json(413, {"error": "invalid request size"})
+                return
+            if self.path != "/api/reconcile":
+                try:
+                    payload = json.loads(self.rfile.read(content_length))
+                    if payload != {}:
+                        raise ValueError
+                    if self.path == "/api/oauth/start":
+                        result = state.begin_oauth()
+                    elif self.path == "/api/periodic/start":
+                        result = start_periodic_service(callback_port=state.port)
+                    else:
+                        result = stop_periodic_service()
+                except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+                    self._json(400, {"error": "empty JSON object required"})
+                    return
+                except SaxoAuthError as exc:
+                    self._json(409, {"error": exc.code})
+                    return
+                response_status = 202 if result.get("status") in {"PASS", "AUTHORIZATION_REQUIRED"} else 409
+                self._json(response_status, result)
                 return
             try:
                 payload = json.loads(self.rfile.read(content_length))

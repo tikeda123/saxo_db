@@ -201,15 +201,31 @@ serverは`saxo_research_v13`を直接読み、snapshot ID、cutoff、manifest SH
 
 ## Saxoデータ更新
 
-Saxo SIM tokenは24時間程度で失効するsession credentialです。file、shell startup、`.env`、DB、manifest、ブラウザstorageへ保存しません。取得操作はlocalhost限定operator UIから行えます。
+日常の定期更新にはSaxo SIM OAuth PKCEを使用します。初回だけユーザーがSaxoへloginし、refresh credentialをmacOS Keychainへ保存します。access tokenはscheduler processのメモリだけで保持し、refresh時に返る新しいrefresh tokenでKeychain値を置き換えます。token値はfile、`.env`、DB、manifest、log、ブラウザstorageへ保存しません。
+
+Developer PortalのApplication ManagementでSIMアプリを作成し、PKCE用redirect URIを`http://localhost:8765/saxo/oauth/callback`として登録する。AppKeyはOAuth client IDでありtokenではないが、repositoryへ固定せず実行環境から与える。
 
 ```bash
+export SAXO_OAUTH_APP_KEY='<SIM application key>'
 .venv/bin/python -m market_db.operator_ui
 ```
 
-<http://127.0.0.1:8765/>でtokenを一度だけ入力し、Reconcileを開始します。tokenは子processの環境へ渡され、job完了後に破棄されます。Read API/Web UIの`8766`とは別processです。
+<http://127.0.0.1:8765/>で「Saxo OAuth接続」を選択し、Saxo画面で初回認証する。`AUTH_READY`後に「定期更新を開始」を選択する。CLIでも同じ操作を行える。
+
+```bash
+.venv/bin/python -m market_db.saxo_auth status --callback-port 8765
+.venv/bin/python -m market_db.periodic_update schedule
+.venv/bin/python -m market_db.periodic_update_service start --callback-port 8765
+.venv/bin/python -m market_db.periodic_update_service status
+```
+
+schedulerはdata jobがない時間もtoken期限を監視してrefresh chainを維持する。そのうえでXNYS calendarの営業日・短縮日をDBから読み、SPY、IWM、EFA、EEM、VNQの各完成可能なregular 1Hをbar終了15秒後から取得する。第1barは10:30:15 ETに開始し、10:33 ETをdeadlineとする。EURUSDは毎UTC時03分に取得する。定期runは6系列だけを原子的に更新し、401はrefresh後1回再試行、DataVersion変更は対象系列だけをguard付きfull-refetchして再実行する。未確定barは`DATA_NOT_READY`、認証・timeout・429はinterface/operational、値異常はdata qualityとして分離する。
+
+Developer Portalの24時間tokenと従来reconcile画面は手動fallbackとして残す。24時間token自体を永続保存・自動更新・Portal画面から自動採取しない。Macの停止やsleepがrefresh期限を超えた場合はWeb UIから再認証する。repo-local serviceは実装済みだが、LaunchAgentの自動installは行わない。
 
 更新処理はSIMのGET allow-listだけを使用し、注文・precheckは送信しません。DataVersion変更時は通常更新を止め、guard付きfull refetchでraw revisionを保持したまま対象銘柄を再構築します。
+
+total-return定期取得はprovider contract未確定のため`BLOCKED_SOURCE_PROVIDER_NOT_CONFIGURED`であり、既存`development_cutoff_only` datasetをcurrentへ昇格しません。詳細は[定期更新実装計画](docs/periodic_market_data_update_implementation_plan.md)を参照してください。
 
 ## 安全境界
 
@@ -262,6 +278,9 @@ SAXO_DB_INTEGRATION=1 .venv/bin/python -m pytest
 - DMI3: stable total-return API — PASS
 - DMI4: cursor・consumer contract kit — PASS
 - DMI5: Read API lifecycle・non-data operational preflight — PASS
+- DPU1: OAuth PKCE・Keychain rotation・定期更新service — IMPLEMENTED / 初回OAuth実証待ち
+- DPU2: S6V5A優先6系列scheduler — IMPLEMENTED / 取引日SLA実証待ち
+- DPU3: current total-return定期取得 — BLOCKED_SOURCE_PROVIDER_NOT_CONFIGURED
 
 これらはデータ基盤の実装・運用ゲートです。戦略の優位性や収益性を証明するものではありません。旧計画に含まれるRT0以降の戦略文書は履歴資料として保持しますが、このリポジトリの現行スコープには含めません。
 
@@ -275,6 +294,7 @@ SAXO_DB_INTEGRATION=1 .venv/bin/python -m pytest
 - [DMI4 cursor・consumer contract実装結果](docs/dmi4_implementation_result.md)
 - [DMI5 Read API運用準備 実装結果](docs/read_api_operational_readiness_implementation_result.md)
 - [DMI5 Read API運用準備 実装計画](docs/read_api_operational_readiness_implementation_plan.md)
+- [S6V5A向け定期更新 実装計画](docs/periodic_market_data_update_implementation_plan.md)
 - [Read API OpenAPI契約](specs/read_api_v1_openapi.yaml)
 - [DMI0/DMI1実装結果](docs/dmi1_implementation_result.md)
 - [旧quality eventレビュー候補](docs/dmi1_legacy_event_review_candidates.md)

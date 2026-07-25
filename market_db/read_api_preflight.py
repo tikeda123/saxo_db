@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
+import re
 import shlex
 import subprocess
 from dataclasses import dataclass
@@ -76,9 +78,14 @@ class ReadinessProbe(Protocol):
 
 
 def _run_text(command: list[str]) -> str:
+    environment = os.environ.copy()
+    # macOS ps(1) localizes lstart.  Process identity must not change merely
+    # because the operator shell uses a different locale.
+    environment.update({"LC_ALL": "C", "LANG": "C"})
     completed = subprocess.run(
         command,
         cwd=project_root(),
+        env=environment,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
@@ -87,6 +94,63 @@ def _run_text(command: list[str]) -> str:
         check=False,
     )
     return completed.stdout.strip() if completed.returncode == 0 else ""
+
+
+_ENGLISH_MONTHS = {
+    name: number
+    for number, name in enumerate(
+        ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"),
+        start=1,
+    )
+}
+_ENGLISH_LSTART = re.compile(
+    r"^[A-Za-z]{3}\s+(?P<month>[A-Za-z]{3})\s+(?P<day>\d{1,2})\s+"
+    r"(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2})\s+(?P<year>\d{4})$"
+)
+_JAPANESE_LSTART = re.compile(
+    r"^[日月火水木金土]\s+(?P<month>\d{1,2})/(?P<day>\d{1,2})\s+"
+    r"(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2})\s+(?P<year>\d{4})$"
+)
+_CANONICAL_LSTART = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$")
+
+
+def normalize_process_start_fingerprint(value: str) -> str | None:
+    """Normalize macOS ps lstart output without consulting process locale."""
+
+    selected = " ".join(str(value).split())
+    if _CANONICAL_LSTART.fullmatch(selected):
+        return selected
+    english = _ENGLISH_LSTART.fullmatch(selected)
+    if english is not None:
+        month = _ENGLISH_MONTHS.get(english.group("month").title())
+        if month is None:
+            return None
+        values = {key: int(english.group(key)) for key in ("year", "day", "hour", "minute", "second")}
+        values["month"] = month
+    else:
+        japanese = _JAPANESE_LSTART.fullmatch(selected)
+        if japanese is None:
+            return None
+        values = {
+            key: int(japanese.group(key))
+            for key in ("year", "month", "day", "hour", "minute", "second")
+        }
+    try:
+        parsed = datetime(**values)
+    except ValueError:
+        return None
+    return parsed.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def process_start_fingerprints_match(stored: object, observed: object) -> bool:
+    if not isinstance(stored, str) or not isinstance(observed, str):
+        return False
+    stored_normalized = normalize_process_start_fingerprint(stored)
+    observed_normalized = normalize_process_start_fingerprint(observed)
+    if stored_normalized is not None and observed_normalized is not None:
+        return stored_normalized == observed_normalized
+    # Unknown legacy forms are accepted only when byte-for-byte equal.
+    return stored == observed
 
 
 def _process_cwd(pid: int) -> str | None:
@@ -115,7 +179,10 @@ class SystemReadinessProbe:
         started = _run_text(["ps", "-p", str(pid), "-o", "lstart="])
         if not command or not started:
             return None
-        return ProcessInfo(pid, command, _process_cwd(pid), " ".join(started.split()))
+        normalized = normalize_process_start_fingerprint(started)
+        if normalized is None:
+            return None
+        return ProcessInfo(pid, command, _process_cwd(pid), normalized)
 
     def managed_state(self) -> dict[str, Any] | None:
         path = project_root() / ".runtime/read_api/state.json"
@@ -197,7 +264,9 @@ def managed_process_matches(
         and state.get("pid") == info.pid
         and state.get("port") == DEFAULT_PORT
         and state.get("cwd") == info.cwd
-        and state.get("start_fingerprint") == info.start_fingerprint
+        and process_start_fingerprints_match(
+            state.get("start_fingerprint"), info.start_fingerprint
+        )
         and state.get("command_sha256") == info.command_sha256
         and is_expected_process(info)
     )

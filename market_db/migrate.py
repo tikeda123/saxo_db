@@ -42,6 +42,10 @@ MIGRATION_TARGETS = {
     "0017": (MARKET_DB,),
     "0018": (MARKET_DB,),
     "0019": (MARKET_DB,),
+    "0020": (MARKET_DB,),
+    "0021": (MARKET_DB,),
+    "0022": (MARKET_DB,),
+    "0023": (MARKET_DB,),
 }
 
 LOGIN_ROLES = (

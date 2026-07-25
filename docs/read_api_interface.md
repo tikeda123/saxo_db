@@ -280,11 +280,17 @@ identity、coverage、freshness、scope適合quality event、watermark、latest 
   },
   "components": {
     "coverage": {},
-    "freshness": {},
+    "freshness": {
+      "latest_complete_time_utc": "2026-07-24T18:30:00Z",
+      "latest_expected_complete_time_utc": "2026-07-24T18:30:00Z",
+      "next_expected_time_utc": "2026-07-27T13:30:00Z"
+    },
     "latest_ingestion_run": {}
   }
 }
 ```
+
+`latest_expected_complete_time_utc`は照会時点でdeadlineを迎えた最新の完成可能1H bar startである。ETFでは`catalog.session_interval`内で`bar start + 60分 <= close`のslotだけを含み、通常XNYS日は14:30 ET開始が最終となる。EURUSDではverified FX session、weekend、16:59〜17:04 New York maintenance、DSTを反映する。`latest_complete_time_utc`がこの値以上ならfreshnessはPASSであり、未来barや引けまでに閉じないbarをPASS根拠にしない。
 
 `eligibility_status`:
 

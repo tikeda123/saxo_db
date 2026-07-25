@@ -1,8 +1,9 @@
 """Deterministic session calendars used by DB3 coverage and derivation.
 
-The US-equity calendar is rule based and includes the exceptional full-day
-closures that affect the supported history.  The FX calendar is deliberately
-provisional until it is reconciled with the Saxo trading-schedule endpoint.
+The US-equity calendar is rule based and includes exceptional closures.  The
+EURUSD/USDJPY calendar freezes Saxo's published standard-FX daily maintenance
+boundary in America/New_York; special-pair and holiday overrides remain outside
+the supported instrument set and must be sourced from Saxo's schedule endpoint.
 """
 
 from __future__ import annotations
@@ -25,6 +26,8 @@ EQUITY_CALENDAR_ID = "XNYS_US_EQUITY"
 FX_CALENDAR_ID = "SBFX_24X5"
 CALENDAR_START = date(2010, 1, 1)
 NY = ZoneInfo("America/New_York")
+FX_SESSION_BOUNDARY = time(17, 0)
+FX_SCHEDULE_SOURCE = "https://www.home.saxo/rates-and-conditions/forex/trading-conditions"
 
 
 @dataclass(frozen=True)
@@ -143,8 +146,14 @@ def generate_fx_sessions(start: date, end: date) -> list[SessionInterval]:
     selected = start
     while selected <= end:
         if selected.weekday() < 5:
-            open_local = datetime.combine(selected - timedelta(days=1), time(17), NY)
-            close_local = datetime.combine(selected, time(17), NY)
+            # Keep the canonical trading-day boundary stable at 17:00 New York
+            # for existing derived buckets.  The 16:59-17:04 maintenance gap is
+            # excluded by the complete-1H slot rule, not by shifting this base
+            # interval and silently changing 4H/1D derivations.
+            open_local = datetime.combine(
+                selected - timedelta(days=1), FX_SESSION_BOUNDARY, NY
+            )
+            close_local = datetime.combine(selected, FX_SESSION_BOUNDARY, NY)
             sessions.append(
                 SessionInterval(
                     selected,
@@ -202,12 +211,16 @@ def apply_calendars(*, start: date = CALENDAR_START, end: date | None = None) ->
                         None,
                         "FxSpot",
                         "America/New_York",
-                        "db3_saxo_fx_provisional_v1",
+                        "saxo_fx_spot_trading_conditions_20260725_v1",
                         fx,
                         {
-                            "verification_status": "PROVISIONAL",
-                            "source": "24x5_17_new_york_provisional",
-                            "required_confirmation": "Saxo trading schedule",
+                            "verification_status": "VERIFIED",
+                            "source": FX_SCHEDULE_SOURCE,
+                            "supported_pairs": ["EURUSD", "USDJPY"],
+                            "daily_maintenance_new_york": "16:59-17:04",
+                            "weekend_rule": "conservative Monday-Friday session days",
+                            "dst_rule": "America/New_York zoneinfo",
+                            "schedule_endpoint": "/ref/v1/instruments/tradingschedule/{Uic}/{AssetType}",
                         },
                     ),
                 )

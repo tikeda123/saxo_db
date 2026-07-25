@@ -363,6 +363,51 @@ def dmi5_manifest_baseline_is_valid(payload: dict[str, Any]) -> bool:
     )
 
 
+def periodic_update_manifest_baseline_is_valid(payload: dict[str, Any]) -> bool:
+    authentication = payload.get("authentication", {})
+    schedule = payload.get("schedule", {})
+    runtime = payload.get("runtime_acceptance", {})
+    security = payload.get("security", {})
+    tests = payload.get("test_evidence", {})
+    total_return = payload.get("total_return", {})
+    return (
+        payload.get("phase") == "DPU2R"
+        and payload.get("phase_name") == "S6V5A_PERIODIC_MARKET_DATA_FOUNDATION"
+        and payload.get("status") == "REMEDIATION_IMPLEMENTED_PENDING_SLA_AND_PROVIDER"
+        and payload.get("migration", {}).get("number") == "0023"
+        and payload.get("migration", {}).get("status") == "APPLIED"
+        and authentication.get("flow") == "authorization_code_pkce"
+        and authentication.get("access_token_storage") == "process_memory_only"
+        and authentication.get("refresh_credential_storage") == "macos_keychain_only"
+        and schedule.get("instrument_keys")
+        == ["spy", "iwm", "efa", "eem", "vnq", "eurusd"]
+        and schedule.get("first_regular_bar_start_et") == "10:30:15"
+        and schedule.get("first_regular_bar_deadline_et") == "10:33:00"
+        and schedule.get("fx_hourly_start_minute_utc") == 3
+        and schedule.get("complete_slot_contract") == "SESSION_FULLY_CONTAINED_1H_V1"
+        and runtime.get("oauth") == "AUTH_READY"
+        and runtime.get("scheduler") == "RUNNING"
+        and runtime.get("service_status") == "PASS"
+        and runtime.get("service_managed") is True
+        and runtime.get("three_xnys_session_sla") == "PENDING_0_OF_3"
+        and isinstance(runtime.get("saxo_requests"), int)
+        and runtime.get("saxo_requests", 0) > 0
+        and security.get("access_token_saved") is False
+        and security.get("refresh_token_in_repository") is False
+        and security.get("account_identifier_saved") is False
+        and security.get("saxo_write_requests") == 0
+        and security.get("orders_or_prechecks_sent") == 0
+        and total_return.get("status") == "BLOCKED_SOURCE_PROVIDER_NOT_CONFIGURED"
+        and total_return.get("development_dataset_promoted") is False
+        and total_return.get("operator_decision_required") is True
+        and total_return.get("current_dataset_id") is None
+        and tests.get("unit") == "PASS"
+        and tests.get("database_integration") == "PASS"
+        and isinstance(tests.get("database_integration_passed"), int)
+        and tests.get("database_integration_passed") > 0
+    )
+
+
 def validate_import_inventory() -> dict[str, Any]:
     root = project_root()
     inventory_path = root / "manifests" / "import_file_inventory.csv"
@@ -785,7 +830,7 @@ def validate_db3_data() -> dict[str, Any]:
     offline_pass = (
         offline["market_migrations"] == ["0010", "0011", "0012"]
         and offline["calendars"] == [
-            {"calendar_id": "SBFX_24X5", "verification_status": "PROVISIONAL", "instruments": 2},
+            {"calendar_id": "SBFX_24X5", "verification_status": "VERIFIED", "instruments": 2},
             {"calendar_id": "XNYS_US_EQUITY", "verification_status": "VERIFIED", "instruments": 11},
         ]
         and offline["watermarks"] == {"ACTIVE": 13}
@@ -1356,6 +1401,66 @@ def validate_db4_data() -> dict[str, Any]:
             "status": "PASS" if dmi5_baseline_valid and not dmi5_mismatches else "FAIL",
         })
     implementation["dmi5_extension_manifest"] = dmi5_extension
+
+    periodic_path = project_root() / "manifests/periodic_market_data_update_implementation_manifest.json"
+    periodic_extension: dict[str, Any] = {
+        "exists": periodic_path.is_file(), "status": "NOT_PRESENT"
+    }
+    if periodic_path.is_file():
+        periodic_payload = json.loads(periodic_path.read_text(encoding="utf-8"))
+        periodic_mismatches, periodic_valid_paths = manifest_artifact_state(periodic_payload)
+        periodic_parent = periodic_payload.get("parent_evidence", {})
+        periodic_baseline_valid = (
+            periodic_update_manifest_baseline_is_valid(periodic_payload)
+            and periodic_parent.get("relative_path")
+            == "manifests/read_api_operational_readiness_implementation_manifest.json"
+            and periodic_parent.get("sha256") == _sha256(dmi5_path)
+            and periodic_payload.get("profile", {}).get("relative_path")
+            == "specs/source_collection/s6v5a_periodic_update_v1.json"
+            and periodic_payload.get("profile", {}).get("sha256")
+            == _sha256(project_root() / "specs/source_collection/s6v5a_periodic_update_v1.json")
+        )
+
+        def remove_periodic_superseded(items: list[str]) -> tuple[list[str], list[str]]:
+            superseded = sorted({
+                item.split(":", 1)[1]
+                for item in items
+                if ":" in item and item.split(":", 1)[1] in periodic_valid_paths
+            })
+            remaining = [
+                item for item in items
+                if ":" not in item or item.split(":", 1)[1] not in periodic_valid_paths
+            ]
+            return remaining, superseded
+
+        superseded_by_manifest: dict[str, list[str]] = {}
+        for name, extension_manifest in (
+            ("db4", implementation),
+            ("dmui4", extension),
+            ("dmi1", dmi1_extension),
+            ("dmi2a", dmi2a_extension),
+            ("dmi2b", dmi2b_extension),
+            ("dmi3", dmi3_extension),
+            ("dmi4", dmi4_extension),
+            ("dmi5", dmi5_extension),
+        ):
+            extension_manifest["artifact_mismatches"], superseded = remove_periodic_superseded(
+                extension_manifest.get("artifact_mismatches", [])
+            )
+            superseded_by_manifest[name] = superseded
+            if (
+                extension_manifest.get("baseline_valid") is True
+                and not extension_manifest["artifact_mismatches"]
+            ):
+                extension_manifest["status"] = "PASS"
+        periodic_extension.update({
+            "artifact_mismatches": periodic_mismatches,
+            "baseline_valid": periodic_baseline_valid,
+            "gate_status": periodic_payload.get("status"),
+            "superseded_artifacts": superseded_by_manifest,
+            "status": "PASS" if periodic_baseline_valid and not periodic_mismatches else "FAIL",
+        })
+    implementation["periodic_update_extension_manifest"] = periodic_extension
     result["implementation_manifest"] = implementation
 
     backup_pass = (
@@ -1395,6 +1500,8 @@ def validate_db4_data() -> dict[str, Any]:
         and implementation.get("dmi3_extension_manifest", {}).get("status") in {"PASS", "NOT_PRESENT"}
         and implementation.get("dmi4_extension_manifest", {}).get("status") in {"PASS", "NOT_PRESENT"}
         and implementation.get("dmi5_extension_manifest", {}).get("status") in {"PASS", "NOT_PRESENT"}
+        and implementation.get("periodic_update_extension_manifest", {}).get("status")
+        in {"PASS", "NOT_PRESENT"}
     )
     result["status"] = "PASS" if (
         result["migration"]["applied"]

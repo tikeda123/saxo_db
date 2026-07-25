@@ -15,6 +15,11 @@ DERIVATION_VERSION = "db3_accepted_1h_calendar_v1"
 def rebuild(cursor: Any, *, derivation_version: str = DERIVATION_VERSION) -> dict[str, int]:
     """Rebuild one deterministic version inside the caller's transaction."""
 
+    # A periodic incremental run and an operator/integration rebuild may overlap.
+    # Serialise the delete-and-repopulate sequence so two otherwise valid
+    # transactions cannot race into the canonical derived primary keys.
+    cursor.execute("SELECT pg_advisory_xact_lock(hashtext('saxo_db_derived_rebuild'))")
+
     cursor.execute(
         "DELETE FROM derived.market_bar_4h WHERE derivation_version=%s",
         (derivation_version,),
