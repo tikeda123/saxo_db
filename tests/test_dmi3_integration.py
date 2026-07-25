@@ -36,7 +36,7 @@ def _query(eligibility: str = "eligible", source_dataset_id: str | None = None) 
 
 
 def test_stable_total_return_uses_explicit_mapping_and_total_return_basis(client):
-    response = client.get(_query())
+    response = client.get(_query(source_dataset_id="20260712T135236Z"))
     assert response.status_code == 200
     payload = response.get_json()
     assert payload["contract_revision"] == "1.2"

@@ -106,6 +106,8 @@ Docker container内の`127.0.0.1`はcontainer自身を指すため、そのま�
 | Method | Path | 用途 |
 |---|---|---|
 | GET | `/api/v1/ui/overview` | UI概要指標 |
+| GET | `/api/v1/ui/instruments` | 商品辞書、DB登録情報、管理系列summary |
+| GET | `/api/v1/ui/instruments/{instrument_key}` | 商品定義、価格の意味、注意点、公式リンク |
 | GET | `/api/v1/ui/series` | 系列検索・ページング |
 | GET | `/api/v1/ui/series/{series_id}` | 系列詳細 |
 | GET | `/api/v1/ui/chart-bars` | OHLCまたはtotal-return表示データ |

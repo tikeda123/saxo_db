@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Any, Mapping, Protocol, Sequence
 
+from .instrument_reference import instrument_detail_payload
+
 
 MAX_INVENTORY_ROWS = 1_000
 MAX_UI_PAGE_ROWS = 200
@@ -362,7 +364,18 @@ def series_detail(reader: QueryReader, selected_id: str) -> dict[str, Any]:
         reader.query(LINEAGE_DETAIL_SQL, (source_dataset_id, 100))
         if source_dataset_id is not None else []
     )
-    return {"series": series, "coverage": coverage, "freshness": freshness, "lineage": lineage}
+    product = instrument_detail_payload(
+        reader,
+        instrument_id=instrument_id,
+        series_rows=[series],
+    )
+    return {
+        "series": series,
+        "coverage": coverage,
+        "freshness": freshness,
+        "lineage": lineage,
+        "product": product,
+    }
 
 
 def overview_payload(reader: QueryReader) -> dict[str, Any]:

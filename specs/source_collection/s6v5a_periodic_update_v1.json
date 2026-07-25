@@ -55,10 +55,16 @@
     "source_scope"
   ],
   "total_return": {
-    "status": "BLOCKED_SOURCE_PROVIDER_NOT_CONFIGURED",
+    "status": "READY_SIM_RESEARCH_ONLY",
     "scheduled": false,
+    "provider": "Yahoo Finance chart endpoint",
+    "research_eligibility": "SIM_RESEARCH_ONLY",
+    "acquisition_mode": "operator_one_shot",
+    "launch_agent_acceptance_required": false,
+    "three_session_sla_required": false,
+    "formal_provider_acceptance_required": false,
     "development_dataset_promoted": false,
-    "operator_decision_required": true,
+    "operator_decision_required": false,
     "required_provider_contract": [
       "provider",
       "license_and_redistribution_terms",
@@ -72,7 +78,8 @@
     "planned_schedule": {
       "t0_eod": true,
       "t1_morning_retry": true,
-      "enabled_only_after_provider_contract_freeze": true
+      "enabled_only_after_provider_contract_freeze": false,
+      "sim_research_one_shot_enabled": true
     },
     "development_dataset_id": "20260712T135236Z",
     "development_dataset_research_eligibility": "development_cutoff_only"

@@ -24,6 +24,7 @@ const state = {
 const VIEW_TITLES = {
   overview: "データ概要",
   inventory: "データ在庫",
+  catalog: "商品・データ辞書",
   series: "系列チャート",
   quality: "品質・鮮度",
   runs: "取込・由来",
@@ -37,6 +38,13 @@ const ROLE_LABELS = {
   RAW_ARCHIVE: "Raw / Archive",
   REFERENCE_METADATA: "Reference / Metadata",
   UNKNOWN_ROLE: "未分類",
+};
+const CATEGORY_LABELS = {
+  equity_reit: "株式・REIT",
+  bond_credit: "債券・クレジット",
+  commodity: "コモディティ",
+  gold: "金",
+  fx: "外国為替",
 };
 
 function escapeHtml(value) {
@@ -266,6 +274,82 @@ async function renderInventory() {
   document.querySelector("#inventory-prev").addEventListener("click", () => { offset = Math.max(0, offset - pageSize); safelyLoad(); });
   document.querySelector("#inventory-next").addEventListener("click", () => { offset += pageSize; safelyLoad(); });
   await load();
+}
+
+function officialSourceLinks(sources) {
+  return (sources || []).map(source => `<a class="official-link" href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(source.label)} ↗</a>`).join("");
+}
+
+function aiExplanationPrompt(instrumentKey) {
+  return `saxo_db MCPを使って instrument_key=${instrumentKey} について、(1)どのような商品か、(2)DBの価格系列は何を表すか、(3)管理中の足と期間、(4)最新時刻と品質状態、(5)データ利用上の注意を初心者向けの日本語で説明してください。公式情報リンクも示してください。投資助言、売買判断、将来予測はしないでください。`;
+}
+
+async function copyAiPrompt(instrumentKey, button) {
+  try {
+    await navigator.clipboard.writeText(aiExplanationPrompt(instrumentKey));
+    button.textContent = "質問文をコピーしました";
+    setTimeout(() => { button.textContent = "AIへの質問文をコピー"; }, 1800);
+  } catch (_) {
+    button.textContent = "コピーできませんでした";
+  }
+}
+
+function productReferencePanel(product, compact = false) {
+  if (!product) return `<div class="empty">この系列の商品説明は登録されていません。</div>`;
+  const instrument = product.managed_instrument || {};
+  const cautions = (product.data_cautions_ja || []).map(item => `<li>${escapeHtml(item)}</li>`).join("");
+  return `<article class="product-reference${compact ? " compact" : ""}">
+    <div class="product-reference-head">
+      <div><span class="section-tag">${escapeHtml(product.instrument_type_ja)}</span><h3>${escapeHtml(product.display_name_ja)}</h3><p class="product-symbol">${escapeHtml(product.short_name)} · <span class="mono">${escapeHtml(product.instrument_key)}</span></p></div>
+      <span class="category-pill">${escapeHtml(CATEGORY_LABELS[product.category] || product.category)}</span>
+    </div>
+    <p class="product-summary">${escapeHtml(product.summary_ja)}</p>
+    <dl class="definition-list">
+      <div><dt>主なエクスポージャー</dt><dd>${escapeHtml(product.exposure_ja)}</dd></div>
+      <div><dt>参照指数・基準</dt><dd>${escapeHtml(product.benchmark_or_reference)}</dd></div>
+      <div><dt>このDBの値の意味</dt><dd>${escapeHtml(product.quote_interpretation_ja)}</dd></div>
+      ${instrument.asset_type ? `<div><dt>DB登録</dt><dd>${escapeHtml(instrument.asset_type)} / ${escapeHtml(instrument.provider)} ${escapeHtml(instrument.environment)} / ${escapeHtml(instrument.currency)}</dd></div>` : ""}
+    </dl>
+    <div class="caution-box"><strong>データ利用上の注意</strong><ul>${cautions}</ul></div>
+    <div class="product-actions">${officialSourceLinks(product.official_sources)}<button class="button secondary copy-ai-prompt" data-instrument-key="${escapeHtml(product.instrument_key)}" type="button">AIへの質問文をコピー</button></div>
+  </article>`;
+}
+
+async function renderCatalog() {
+  showLoading("商品説明と管理系列を読み込んでいます");
+  const response = await api("/api/v1/ui/instruments");
+  const catalog = response.data;
+  let rows = catalog.instruments || [];
+  setAsOf(response.generated_at_utc);
+  page.innerHTML = `
+    <section class="catalog-intro">
+      <div><span class="section-tag">HUMAN-READABLE DATA DICTIONARY</span><h2>商品と時系列データの意味を調べる</h2><p>${escapeHtml(catalog.scope_note_ja)}</p></div>
+      <div class="mcp-note"><strong>AIで説明する場合</strong><p>質問文をコピーし、ChatGPT/Codexからローカルの <span class="mono">saxo_db</span> MCPを使って質問します。saxo_db側にOpenAI APIキーは保存しません。</p></div>
+    </section>
+    <section class="catalog-filters" aria-label="商品辞書フィルタ">
+      <input class="filter-input" id="catalog-search" placeholder="SPY、商品名、説明を検索" aria-label="商品辞書を検索">
+      <select class="control-select" id="catalog-category" aria-label="カテゴリ"><option value="">すべてのカテゴリ</option>${Object.entries(CATEGORY_LABELS).map(([value, label]) => `<option value="${value}">${escapeHtml(label)}</option>`).join("")}</select>
+      <span id="catalog-count" class="subtle"></span>
+    </section>
+    <section id="catalog-results" class="catalog-grid"></section>`;
+  const draw = () => {
+    const query = document.querySelector("#catalog-search").value.trim().toLocaleLowerCase("ja");
+    const category = document.querySelector("#catalog-category").value;
+    const selected = rows.filter(item => {
+      const haystack = [item.instrument_key, item.short_name, item.display_name_ja, item.summary_ja, item.exposure_ja, item.benchmark_or_reference].join(" ").toLocaleLowerCase("ja");
+      return (!query || haystack.includes(query)) && (!category || item.category === category);
+    });
+    document.querySelector("#catalog-count").textContent = `${selected.length} / ${rows.length} 商品`;
+    document.querySelector("#catalog-results").innerHTML = selected.map(item => {
+      const managed = item.managed_series || {};
+      const seriesLink = managed.default_series_id ? `<a class="link-button" href="/ui/series/${encodeURIComponent(managed.default_series_id)}">管理系列・チャート</a>` : `<span class="subtle">表示可能な系列なし</span>`;
+      return `<div class="catalog-entry">${productReferencePanel(item, true)}<div class="managed-summary"><span><small>管理系列</small><strong>${formatNumber(managed.series_count)}</strong></span><span><small>足</small><strong>${escapeHtml((managed.layers || []).join(" / ") || "—")}</strong></span><span><small>最新 complete</small><strong>${formatTime(managed.latest_complete_time_utc)}</strong></span>${seriesLink}</div></div>`;
+    }).join("") || `<div class="empty">条件に一致する商品はありません。</div>`;
+    document.querySelectorAll(".copy-ai-prompt").forEach(button => button.addEventListener("click", () => copyAiPrompt(button.dataset.instrumentKey, button)));
+  };
+  document.querySelector("#catalog-search").addEventListener("input", draw);
+  document.querySelector("#catalog-category").addEventListener("change", draw);
+  draw();
 }
 
 function chartTimestamp(row) {
@@ -526,8 +610,9 @@ async function renderSeries(selectedId) {
     <section id="tab-coverage" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-coverage" hidden>${coveragePanel(state.detail)}</section>
     <section id="tab-quality" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-quality" hidden><article class="panel"><div class="metric-strip"><span class="metric-chip"><small>series status</small><strong>${badge(series.status)}</strong></span>${state.detail.freshness.map(row => `<span class="metric-chip"><small>freshness</small><strong>${badge(row.freshness_status)}</strong></span><span class="metric-chip"><small>latest complete</small><strong>${formatTime(row.latest_complete_time_utc)}</strong></span>`).join("")}</div></article></section>
     <section id="tab-lineage" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-lineage" hidden>${lineagePanel(state.detail)}</section>
-    <section id="tab-definition" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-definition" hidden><article class="panel"><p><strong>${escapeHtml(ROLE_LABELS[series.role] || series.role)}</strong></p><p>price basis: <span class="mono">${escapeHtml(series.price_basis)}</span></p><p>UTCで保存し、画面表示だけJST/UTCを切り替えます。クライアント側で別の足へ再集計しません。</p>${!series.authoritative ? `<div class="warning-banner">この系列は正式な戦略入力ではありません。</div>` : ""}</article></section>`;
+    <section id="tab-definition" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-definition" hidden><article class="panel series-definition"><p><strong>${escapeHtml(ROLE_LABELS[series.role] || series.role)}</strong></p><p>price basis: <span class="mono">${escapeHtml(series.price_basis)}</span></p><p>UTCで保存し、画面表示だけJST/UTCを切り替えます。クライアント側で別の足へ再集計しません。</p>${!series.authoritative ? `<div class="warning-banner">この系列は正式な戦略入力ではありません。</div>` : ""}</article>${productReferencePanel(state.detail.product)}</section>`;
   installTabs();
+  document.querySelectorAll(".copy-ai-prompt").forEach(button => button.addEventListener("click", () => copyAiPrompt(button.dataset.instrumentKey, button)));
   document.querySelectorAll(".period-button").forEach(button => button.addEventListener("click", async () => {
     state.period = button.dataset.period;
     document.querySelectorAll(".period-button").forEach(item => item.classList.toggle("active", item === button));
@@ -634,6 +719,7 @@ async function render() {
   try {
     if (view === "overview") await renderOverview();
     else if (view === "inventory") await renderInventory();
+    else if (view === "catalog") await renderCatalog();
     else if (view === "series") await renderSeries(route.id);
     else if (view === "quality") await renderQuality();
     else if (view === "runs") await renderRuns();

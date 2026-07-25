@@ -399,8 +399,10 @@ def test_total_return_endpoint_uses_explicit_mapping_and_separate_price_basis():
     assert len(payload["ordered_content_sha256"]) == 64
     statement, params = reader.calls[0][1][1]
     assert "catalog.series_instrument_mapping" in statement
+    assert "metadata_json->>'current'" in statement
     assert "i.symbol=%s" not in statement
     assert params[0] == "iwm"
+    assert params[1:4] == (None, None, None)
     assert params[-1] == 11
 
 

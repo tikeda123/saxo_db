@@ -373,7 +373,7 @@ def periodic_update_manifest_baseline_is_valid(payload: dict[str, Any]) -> bool:
     return (
         payload.get("phase") == "DPU2R"
         and payload.get("phase_name") == "S6V5A_PERIODIC_MARKET_DATA_FOUNDATION"
-        and payload.get("status") == "REMEDIATION_IMPLEMENTED_PENDING_SLA_AND_PROVIDER"
+        and payload.get("status") == "SIM_RESEARCH_READY"
         and payload.get("migration", {}).get("number") == "0023"
         and payload.get("migration", {}).get("status") == "APPLIED"
         and authentication.get("flow") == "authorization_code_pkce"
@@ -389,7 +389,7 @@ def periodic_update_manifest_baseline_is_valid(payload: dict[str, Any]) -> bool:
         and runtime.get("scheduler") == "RUNNING"
         and runtime.get("service_status") == "PASS"
         and runtime.get("service_managed") is True
-        and runtime.get("three_xnys_session_sla") == "PENDING_0_OF_3"
+        and runtime.get("three_xnys_session_sla") == "NOT_REQUIRED_FOR_SIM_RESEARCH_START"
         and isinstance(runtime.get("saxo_requests"), int)
         and runtime.get("saxo_requests", 0) > 0
         and security.get("access_token_saved") is False
@@ -397,10 +397,16 @@ def periodic_update_manifest_baseline_is_valid(payload: dict[str, Any]) -> bool:
         and security.get("account_identifier_saved") is False
         and security.get("saxo_write_requests") == 0
         and security.get("orders_or_prechecks_sent") == 0
-        and total_return.get("status") == "BLOCKED_SOURCE_PROVIDER_NOT_CONFIGURED"
+        and total_return.get("status") == "PASS_SIM_RESEARCH_CURRENT"
+        and total_return.get("provider") == "Yahoo Finance chart endpoint"
+        and total_return.get("research_eligibility") == "SIM_RESEARCH_ONLY"
+        and total_return.get("quality_status") == "PASS"
         and total_return.get("development_dataset_promoted") is False
-        and total_return.get("operator_decision_required") is True
-        and total_return.get("current_dataset_id") is None
+        and total_return.get("operator_decision_required") is False
+        and isinstance(total_return.get("current_dataset_id"), str)
+        and total_return.get("current_dataset_id", "").startswith("SIMTR_")
+        and total_return.get("read_api_total_return") == "PASS"
+        and total_return.get("read_api_manifests") == "PASS"
         and tests.get("unit") == "PASS"
         and tests.get("database_integration") == "PASS"
         and isinstance(tests.get("database_integration_passed"), int)

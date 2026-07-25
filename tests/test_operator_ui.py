@@ -101,6 +101,8 @@ def test_operator_page_never_uses_browser_storage_and_clears_password_input():
     assert 'id="periodic-start"' in page
     assert "/api/oauth/status" in page
     assert "/api/periodic/status" in page
+    assert 'href="http://127.0.0.1:8766/ui/overview"' in page
+    assert 'href="http://127.0.0.1:8766/ui/catalog"' in page
 
 
 def test_operator_requires_exact_loopback_origin_and_port():

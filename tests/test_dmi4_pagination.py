@@ -33,7 +33,7 @@ class PagingReader:
                 self.integrity_rows,
                 rows,
             ]
-        after_date = selected[1][1][7]
+        after_date = selected[1][1][8]
         rows = self.total_rows[1:] if after_date is not None else self.total_rows
         return [self.context_rows[:1], rows]
 

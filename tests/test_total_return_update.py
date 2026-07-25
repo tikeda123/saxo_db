@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from datetime import date as session_date
+
 from market_db.total_return_update import (
     classify_provider_error,
     evaluate_total_return_batch,
+    evaluate_sim_research_quality,
     provider_gate,
     revision_keys,
 )
@@ -21,11 +24,12 @@ def row(ticker="SPY", date="2026-07-23", **values):
     }
 
 
-def test_provider_gate_keeps_development_snapshot_out_of_current_operation():
+def test_provider_gate_allows_one_shot_sim_research_without_promoting_development():
     result = provider_gate()
-    assert result["status"] == "BLOCKED_SOURCE_PROVIDER_NOT_CONFIGURED"
+    assert result["status"] == "READY_SIM_RESEARCH_ONLY"
     assert result["scheduled"] is False
-    assert result["operator_decision_required"] is True
+    assert result["operator_decision_required"] is False
+    assert result["research_eligibility"] == "SIM_RESEARCH_ONLY"
     assert result["development_dataset_promoted"] is False
 
 
@@ -66,3 +70,29 @@ def test_total_return_provider_error_is_not_misclassified_as_data_quality():
     assert unavailable["error_domain"] == "interface_operational"
     assert auth["quality_status"] == unavailable["quality_status"] == "NOT_EVALUATED"
     assert auth["publish_current_dataset"] is False
+
+
+def test_sim_research_quality_checks_missing_duplicate_and_nonpositive():
+    valid_rows = [row(ticker=ticker) for ticker in ("SPY", "IWM", "EFA", "EEM", "VNQ")]
+    for value in valid_rows:
+        value.update(
+            open_unadjusted="99", high_unadjusted="101", low_unadjusted="98",
+            total_return_index="100", volume="10",
+        )
+    passed = evaluate_sim_research_quality(
+        valid_rows, [session_date.fromisoformat(valid_rows[0]["date"])]
+    )
+    assert passed["status"] == "PASS"
+    assert passed["missing_count"] == 0
+    assert passed["duplicate_count"] == 0
+    assert passed["null_or_nonpositive_count"] == 0
+
+    failed_rows = list(valid_rows)
+    failed_rows.append(dict(valid_rows[0], adjusted_close="0"))
+    failed = evaluate_sim_research_quality(
+        failed_rows, [session_date(2026, 7, 23), session_date(2026, 7, 24)]
+    )
+    assert failed["status"] == "FAIL"
+    assert failed["duplicate_count"] == 1
+    assert failed["missing_count"] == 5
+    assert failed["null_or_nonpositive_count"] > 0

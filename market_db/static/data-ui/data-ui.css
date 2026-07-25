@@ -121,6 +121,37 @@ td.numeric { text-align: right; font-variant-numeric: tabular-nums; }
 .button.ghost { color: var(--ink); border: 1px solid var(--line); background: white; }
 .button:disabled { cursor: wait; opacity: .55; }
 
+.catalog-intro { display: grid; grid-template-columns: minmax(0,1.3fr) minmax(280px,.7fr); gap: 18px; margin-bottom: 18px; }
+.catalog-intro > div, .mcp-note { padding: 20px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); }
+.catalog-intro p, .mcp-note p { margin: 8px 0 0; color: var(--muted); }
+.mcp-note { background: linear-gradient(145deg,#e8f4ee,#f8fbf8); }
+.catalog-filters { display: grid; grid-template-columns: minmax(260px,1fr) 220px auto; gap: 10px; align-items: center; margin-bottom: 15px; }
+.catalog-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; }
+.catalog-entry { display: flex; min-width: 0; flex-direction: column; }
+.catalog-entry .product-reference { flex: 1; }
+.product-reference { padding: 21px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); }
+.product-reference.compact { border-bottom-left-radius: 0; border-bottom-right-radius: 0; box-shadow: none; }
+.product-reference-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 15px; }
+.product-reference h3 { margin-top: 5px; font: 650 20px/1.25 Georgia,"Noto Serif JP",serif; }
+.product-symbol, .product-summary { color: var(--muted); }
+.product-symbol { margin: 4px 0 0; }
+.product-summary { margin: 15px 0; font-size: 13px; }
+.category-pill { flex: 0 0 auto; padding: 5px 9px; color: var(--green); border: 1px solid #a9cfc0; border-radius: 99px; background: #e8f4ee; font-size: 10px; font-weight: 800; }
+.definition-list { display: grid; gap: 10px; margin: 0; }
+.definition-list div { display: grid; grid-template-columns: 128px minmax(0,1fr); gap: 12px; padding-top: 9px; border-top: 1px solid #e8eae6; }
+.definition-list dt { color: var(--muted); font-size: 10px; font-weight: 800; }
+.definition-list dd { margin: 0; font-size: 12px; }
+.caution-box { margin-top: 14px; padding: 11px 13px; color: #694915; border: 1px solid #ead2a4; border-radius: 10px; background: #fff9ed; font-size: 11px; }
+.caution-box ul { margin: 6px 0 0; padding-left: 18px; }
+.product-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
+.official-link { display: inline-flex; padding: 7px 9px; color: var(--blue); border: 1px solid #b9d2de; border-radius: 8px; background: #f2f8fa; text-decoration: none; font-size: 10px; font-weight: 800; }
+.official-link:hover { text-decoration: underline; }
+.managed-summary { display: grid; grid-template-columns: auto auto minmax(130px,1fr) auto; gap: 12px; align-items: center; padding: 12px 16px; border: 1px solid var(--line); border-top: 0; border-radius: 0 0 16px 16px; background: #f4f7f2; }
+.managed-summary small, .managed-summary strong { display: block; }
+.managed-summary small { color: var(--muted); font-size: 9px; text-transform: uppercase; }
+.managed-summary strong { margin-top: 2px; font-size: 11px; }
+.series-definition { margin-bottom: 13px; }
+
 .filters { display: grid; grid-template-columns: 1.4fr repeat(4, minmax(112px, .7fr)) auto; gap: 9px; margin-bottom: 14px; }
 .filter-input { width: 100%; }
 .result-summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 9px 0 12px; color: var(--muted); font-size: 11px; }
@@ -175,6 +206,7 @@ td.numeric { text-align: right; font-variant-numeric: tabular-nums; }
   .sidebar-note { display: none; }
   .topbar { min-height: 96px; }
   .dashboard-grid { grid-template-columns: 1fr; }
+  .catalog-intro, .catalog-grid { grid-template-columns: 1fr; }
   .series-hero { display: block; }
   .series-facts { justify-content: start; margin-top: 14px; }
 }
@@ -183,6 +215,7 @@ td.numeric { text-align: right; font-variant-numeric: tabular-nums; }
   .topbar { align-items: flex-start; }
   .topbar-meta { display: grid; justify-items: end; }
   .kpi-grid, .filters { grid-template-columns: 1fr 1fr; }
+  .catalog-filters, .managed-summary { grid-template-columns: 1fr; }
   .kpi { min-height: 104px; }
   .bar-row { grid-template-columns: 100px 1fr; }
   .bar-row strong { grid-column: 2; }

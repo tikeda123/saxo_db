@@ -212,7 +212,7 @@ def test_scheduler_restart_catches_up_only_latest_slot_and_records_deadline_miss
     assert _latest_due_per_kind(slots, now, completed) == ()
 
 
-def test_periodic_profile_spec_is_get_only_exact_six_and_total_return_fail_closed():
+def test_periodic_profile_spec_is_get_only_exact_six_and_total_return_sim_research():
     payload = json.loads(
         (project_root() / "specs/source_collection/s6v5a_periodic_update_v1.json").read_text(
             encoding="utf-8"
@@ -226,15 +226,21 @@ def test_periodic_profile_spec_is_get_only_exact_six_and_total_return_fail_close
     ]
     assert payload["schedule"]["first_regular_bar_deadline_et"] == "10:33:00"
     total_return = payload["total_return"]
-    assert total_return["status"] == "BLOCKED_SOURCE_PROVIDER_NOT_CONFIGURED"
+    assert total_return["status"] == "READY_SIM_RESEARCH_ONLY"
     assert total_return["scheduled"] is False
+    assert total_return["provider"] == "Yahoo Finance chart endpoint"
+    assert total_return["research_eligibility"] == "SIM_RESEARCH_ONLY"
+    assert total_return["three_session_sla_required"] is False
+    assert total_return["formal_provider_acceptance_required"] is False
+    assert total_return["launch_agent_acceptance_required"] is False
     assert total_return["development_dataset_promoted"] is False
-    assert total_return["operator_decision_required"] is True
+    assert total_return["operator_decision_required"] is False
     assert total_return["development_dataset_id"] == "20260712T135236Z"
     assert total_return["planned_schedule"] == {
         "t0_eod": True,
         "t1_morning_retry": True,
-        "enabled_only_after_provider_contract_freeze": True,
+        "enabled_only_after_provider_contract_freeze": False,
+        "sim_research_one_shot_enabled": True,
     }
 
 

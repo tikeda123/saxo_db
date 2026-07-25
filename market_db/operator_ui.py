@@ -202,11 +202,18 @@ def operator_html(csrf_token: str, script_nonce: str) -> bytes:
     .dot.running {{ background:#d38818; }} .dot.pass {{ background:#14905f; }} .dot.failed {{ background:var(--red); }}
     pre {{ margin:0; min-height:120px; max-height:440px; overflow:auto; white-space:pre-wrap; word-break:break-word; border-radius:12px; padding:16px; color:#dcebe3; background:#10231c; font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace; }}
     .error {{ color:var(--red); font-weight:700; }}
+    .console-links {{ display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; }}
+    .console-links a {{ display:inline-flex; padding:10px 14px; border:1px solid #91ad9f; border-radius:10px; color:var(--green); background:#edf7f0; text-decoration:none; font-weight:800; }}
   </style>
 </head>
 <body>
 <main>
   <header><span class="badge">SIM / GET ONLY / LOOPBACK</span><h1>DB3 Reconciliation Operator</h1><p>DataVersion復旧、必要なfull-refetch、通常run連続2回を一つの固定jobで実行します。</p></header>
+  <section class="card">
+    <h2>データ管理・可視化</h2>
+    <p>管理中の商品、時系列データの意味、期間、品質、チャートを確認できます。</p>
+    <div class="console-links"><a href="http://127.0.0.1:8766/ui/overview">Data Consoleを開く</a><a href="http://127.0.0.1:8766/ui/catalog">商品・データ辞書を開く</a></div>
+  </section>
   <section class="card">
     <h2>無人定期更新</h2>
     <div class="notice">OAuthではrefresh credentialだけをmacOS Keychainへ保存します。access tokenはscheduler processのメモリだけで使用します。</div>

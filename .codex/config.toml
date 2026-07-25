@@ -1,0 +1,7 @@
+[mcp_servers.saxo_db]
+command = "/Users/tikeda/workspace/trade/saxo_db/.venv/bin/python"
+args = ["-m", "market_db.mcp_server"]
+cwd = "/Users/tikeda/workspace/trade/saxo_db"
+enabled = true
+required = false
+default_tools_approval_mode = "auto"

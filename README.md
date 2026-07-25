@@ -14,6 +14,8 @@ Saxo OpenAPIと移管済みCSVから取得した市場データを、再現可�
 - ETF total-return日次系列をnative OHLCと区別して管理
 - inventory、期間、鮮度、coverage、品質、lineage、取込run、容量、backupを参照
 - TradingView Lightweight Chartsを用いた読み取り専用Web UI
+- 商品の意味、価格系列の読み方、注意点、公式情報を確認できる商品・データ辞書
+- ChatGPT/Codexのサブスクリプションから利用できる読み取り専用ローカルMCP
 - 外部プロジェクト向けのlocalhost限定Read APIとParquet export
 - 3データベースのbackup、restore smoke、retention運用
 
@@ -100,6 +102,7 @@ Saxo SIM OpenAPI / immutable CSV
 | データの在庫・品質・鮮度を確認 | `GET /api/v1/operations/*` | allow-list済みの8種類 |
 | datasetとsnapshotを識別 | `GET /api/v1/manifests` | 再現性・lineage確認 |
 | 人が期間・OHLC・品質を確認 | Web UI | localhost限定、完全read-only |
+| 人またはAIが商品・系列の意味を確認 | Web UI / local MCP | 公式リンク付き、投資助言は対象外 |
 | 大量データを受け渡す | `market_db.export_parquet` | SHA-256とread-backを検証 |
 | DB運用者がterminalで確認 | `market_db.inspect` | 任意SQLを受け付けない |
 
@@ -143,12 +146,15 @@ PostgreSQLはhostの`127.0.0.1:54329`だけにbindされます。
 - health: <http://127.0.0.1:8766/health>
 - データ概要: <http://127.0.0.1:8766/ui/overview>
 - データ在庫: <http://127.0.0.1:8766/ui/inventory>
+- 商品・データ辞書: <http://127.0.0.1:8766/ui/catalog>
 - 系列チャート: データ在庫から対象系列の「チャート」を選択
 - 品質・鮮度: <http://127.0.0.1:8766/ui/quality>
 
 品質画面はCURRENT/HISTORICAL/UNKNOWNを分離し、eventのlayer・足・price basisをcanonical 1Hと照合します。raw archiveに残る既知異常はCURRENTの監査証跡として保持されますが、scopeが異なるcanonical 1HをFAILにしません。UNKNOWNは常にfail-closedです。
 
 Read APIはcurrent DB用の`saxo_app_reader` poolと、固定研究DB用の`v13_research_reader` poolを分離します。どちらもread-only、30秒statement timeoutで、最大接続数はそれぞれ5と3です。Saxo tokenは不要です。停止は`.venv/bin/python -m market_db.read_api_service stop`を使い、repoが記録した同一processだけを終了します。PID不一致や別processは停止しません。runtime state/logはGit管理外の`.runtime/read_api/`に保存されます。
+
+商品辞書をAIから説明させる場合は、[商品・時系列データ説明MCP](docs/mcp_instrument_explanation.md)を参照してください。AIモデルはChatGPT/Codex側で動作し、ローカルMCPは`saxo_app_reader`による読み取り結果だけを提供します。OpenAI APIキーをこのリポジトリへ設定する必要はありません。
 
 OHLC取得例:
 
@@ -290,6 +296,7 @@ SAXO_DB_INTEGRATION=1 .venv/bin/python -m pytest
 - [データ管理・運用ランブック](docs/database_operations_runbook.md)
 - [データ管理Web UI仕様](docs/data_management_web_ui_spec.md)
 - [データ管理Web UI実装結果](docs/data_management_web_ui_implementation_result.md)
+- [商品・時系列データ説明MCP](docs/mcp_instrument_explanation.md)
 - [データ管理インターフェース改善計画](docs/data_management_interface_improvement_plan.md)
 - [DMI4 cursor・consumer contract実装結果](docs/dmi4_implementation_result.md)
 - [DMI5 Read API運用準備 実装結果](docs/read_api_operational_readiness_implementation_result.md)

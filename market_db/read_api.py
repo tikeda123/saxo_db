@@ -31,6 +31,7 @@ from .data_ui import (
     resolve_series,
     series_detail,
 )
+from .instrument_reference import instrument_catalog_payload, reference_for_key
 from .inspect import QUERY_SPECS
 
 
@@ -410,13 +411,13 @@ SELECT transaction_timestamp() AS read_at_utc,
 """
 
 TOTAL_RETURN_ROWS_QUERY = """
-WITH candidates AS (
+WITH eligible_mappings AS (
     SELECT m.source_dataset_id, m.external_series_key, m.instrument_id,
            m.mapping_kind, m.mapping_reason, m.approved_at_utc, m.approved_by,
            i.market_key AS instrument_key, i.symbol, i.category,
            ds.dataset_name, ds.provider, ds.price_basis,
            ds.research_eligibility, ds.source_manifest_sha256 AS state_revision,
-           COUNT(*) OVER ()::BIGINT AS mapping_count
+           COALESCE((ds.metadata_json->>'current')::BOOLEAN,FALSE) AS is_current
     FROM catalog.series_instrument_mapping m
     JOIN catalog.instrument i ON i.instrument_id=m.instrument_id
     JOIN catalog.source_dataset ds ON ds.source_dataset_id=m.source_dataset_id
@@ -427,6 +428,13 @@ WITH candidates AS (
       AND ds.dataset_kind='total_return'
       AND ds.price_basis='etf_total_return'
       AND (%s::TEXT IS NULL OR m.source_dataset_id=%s)
+), candidates AS (
+    SELECT e.*,
+           COUNT(*) OVER ()::BIGINT AS mapping_count
+    FROM eligible_mappings e
+    WHERE %s::TEXT IS NOT NULL
+       OR e.is_current
+       OR NOT EXISTS (SELECT 1 FROM eligible_mappings x WHERE x.is_current)
 )
 SELECT c.source_dataset_id, c.external_series_key, c.instrument_id,
        c.mapping_kind, c.mapping_reason, c.approved_at_utc, c.approved_by,
@@ -920,6 +928,7 @@ def total_return_payload(
                     instrument_key,
                     source_dataset_id,
                     source_dataset_id,
+                    source_dataset_id,
                     start.date(),
                     end.date(),
                     eligibility,
@@ -1258,7 +1267,9 @@ def create_app(
         datasets = selected_reader.query(
             """
             SELECT source_dataset_id, dataset_name, provider, environment,
-                   dataset_kind, price_basis, research_eligibility
+                   dataset_kind, price_basis, research_eligibility, active,
+                   source_manifest_relative_path, source_manifest_sha256,
+                   metadata_json
             FROM catalog.source_dataset
             ORDER BY source_dataset_id
             """
@@ -1294,6 +1305,35 @@ def create_app(
     @app.get("/api/v1/ui/overview")
     def ui_overview():
         return jsonify(json_value({"api_version": 1, "data": overview_payload(selected_reader)}))
+
+    @app.get("/api/v1/ui/instruments")
+    def ui_instruments():
+        series_rows = inventory_series(selected_reader)
+        return jsonify(
+            json_value(
+                {
+                    "api_version": 1,
+                    "generated_at_utc": datetime.now(timezone.utc),
+                    "data": instrument_catalog_payload(selected_reader, series_rows),
+                }
+            )
+        )
+
+    @app.get("/api/v1/ui/instruments/<instrument_key>")
+    def ui_instrument_reference(instrument_key: str):
+        try:
+            reference = reference_for_key(instrument_key)
+        except (ValueError, LookupError):
+            return jsonify({"status": "FAILED", "error_code": "INSTRUMENT_NOT_FOUND"}), 404
+        return jsonify(
+            json_value(
+                {
+                    "api_version": 1,
+                    "generated_at_utc": datetime.now(timezone.utc),
+                    "data": reference,
+                }
+            )
+        )
 
     @app.get("/api/v1/ui/series")
     def ui_series():
