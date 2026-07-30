@@ -1,0 +1,118 @@
+{
+  "schema_version": 2,
+  "profile_id": "fx_research_candidates_v1",
+  "source_dataset_id": "saxo_sim_fx_research_candidates_60m_v1",
+  "environment": "SIM",
+  "status": "USER_APPROVED_RESEARCH_WARNING_POLICY",
+  "purpose": "Research-only additional FX 1H market-data candidates; no strategy or trading actions",
+  "chart": {
+    "endpoint": "/chart/v3/charts",
+    "horizon_minutes": 60,
+    "price_basis": "bid_ask_mid",
+    "count_per_page": 1200,
+    "full_history_mode": "UpTo",
+    "incremental_mode": "From",
+    "latest_sample_is_forming": true,
+    "inclusive_boundary_policy": "retain_first_seen_full_sample_and_preserve_all_raw_pages"
+  },
+  "research_warning_policy": {
+    "policy_id": "fx_research_candidate_user_approved_warnings_v1",
+    "approved_by": "project_owner",
+    "approved_at_utc": "2026-07-28T01:47:09Z",
+    "availability_status": "AVAILABLE_WITH_WARNINGS",
+    "scope": "SIM_RESEARCH_ONLY",
+    "general_quality_rules_unchanged": true,
+    "interpolation": false,
+    "value_swap": false,
+    "clamp": false,
+    "raw_deletion": false
+  },
+  "instruments": [
+    {
+      "category": "fx", "key": "audusd", "symbol": "AUDUSD", "uic": 4,
+      "asset_type": "FxSpot", "currency": "USD",
+      "coverage_contract": {
+        "provider_advertised_start_utc": "2002-09-25T02:40:00Z",
+        "effective_coverage_start_utc": "2003-05-12T00:00:00Z",
+        "limitation": "Saxo Chart advertises 2002-09-25T02:40:00Z; stable paged 1H retrieval currently begins at 2003-05-12T00:00:00Z. No earlier prices are synthesized."
+      },
+      "approved_provider_anomaly": {
+        "policy_id": "audusd_known_provider_extrema_14_v1",
+        "rule_id": "db3_fx_crossed_extrema_quarantine",
+        "unique_rows": 14,
+        "affected_from_utc": "2013-09-15T21:00:00Z",
+        "affected_to_utc": "2020-04-19T21:00:00Z",
+        "allowed_fields": ["High", "Low"],
+        "content_sha256": "c4039ebdef6caadad6f70cdce3d5c909ed88cbc042e362ecd4e58ad42337196e",
+        "baseline_acquisition_run_id": "20260728T000915Z-809e12ac",
+        "values_modified": false,
+        "raw_retained": true,
+        "curated_action": "exclude_anomalous_rows_and_classify_gaps_without_synthesis",
+        "exact_baseline_required_for_exception": true
+      }
+    },
+    {
+      "category": "fx", "key": "usdcad", "symbol": "USDCAD", "uic": 38,
+      "asset_type": "FxSpot", "currency": "CAD",
+      "coverage_contract": {
+        "provider_advertised_start_utc": "2002-09-25T02:40:00Z",
+        "effective_coverage_start_utc": "2010-06-18T00:00:00Z",
+        "limitation": "Research coverage starts at the first stable paged 1H sample. The provider-advertised 2002-2010 interval is not filled, estimated, or represented as observed data."
+      }
+    },
+    {
+      "category": "fx", "key": "usdchf", "symbol": "USDCHF", "uic": 39,
+      "asset_type": "FxSpot", "currency": "CHF",
+      "coverage_contract": {
+        "provider_advertised_start_utc": "2002-09-25T02:40:00Z",
+        "effective_coverage_start_utc": "2010-06-18T00:00:00Z",
+        "limitation": "Research coverage starts at the first stable paged 1H sample. The provider-advertised 2002-2010 interval is not filled, estimated, or represented as observed data."
+      }
+    }
+  ],
+  "quality_gate": {
+    "single_data_version_per_run": true,
+    "strict_utc_order": true,
+    "curated_duplicate_rows": 0,
+    "null_ohlc_rows": 0,
+    "nonpositive_ohlc_rows": 0,
+    "bid_and_ask_side_ohlc_required": true,
+    "bid_above_ask_open_or_close_rows": 0,
+    "bounded_historical_extrema_quarantine": {
+      "maximum_unique_rows": 10,
+      "maximum_fraction": 0.0001,
+      "value_repair": false,
+      "approved_instrument_exceptions": ["audusd_known_provider_extrema_14_v1"],
+      "exception_match": "exact_count_range_fields_and_content_sha256"
+    },
+    "gap_unclassified_rows": 0,
+    "interpolation": false,
+    "freshness_status": "PASS",
+    "current_blockers": 0,
+    "unknown_blockers": 0
+  },
+  "publication": {
+    "initial_status": "CANDIDATE",
+    "bars_fail_closed_until_status": "STAGING",
+    "warning_availability_status": "AVAILABLE_WITH_WARNINGS",
+    "normal_passes_required_before_scheduler_activation": 2
+  },
+  "scheduler_proposal": {
+    "enabled": false,
+    "slot_kind": "fx_research_candidates_hourly",
+    "isolation": "one_instrument_per_slot",
+    "calendar_id": "SBFX_24X5",
+    "due_minute_utc": 6,
+    "deadline_minute_utc": 15,
+    "existing_eurusd_slot_unchanged": true,
+    "usdjpy_included": false
+  },
+  "security": {
+    "allowed_http_methods": ["GET"],
+    "write_requests": 0,
+    "prechecks": 0,
+    "orders": 0,
+    "persist_access_token": false,
+    "persist_account_identifiers": false
+  }
+}

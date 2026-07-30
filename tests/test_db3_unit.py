@@ -1,22 +1,35 @@
 from __future__ import annotations
 
 import json
+import inspect
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
 
+import market_db.incremental_update as incremental_update
 import market_db.raw_artifacts as raw_artifacts
 from market_db.acquire_pages import fetch_chart_pages
 from market_db.incremental_update import (
     S6V5A_PRIORITY_INSTRUMENT_KEYS,
     _failed_instrument_context,
+    _error_code,
     _quarantined_row_evidence,
+    _record_revision_warning,
+    _records_quality_event,
+    _revision_bar_content,
     _validate_full_refetch_quarantine,
+    compare_revision_sample,
     reconcile_incremental,
+    oauth_reconcile_runners,
     select_instruments,
 )
-from market_db.instrument_registry import InstrumentDriftError, load_canonical_instruments, validate_detail
+from market_db.instrument_registry import (
+    InstrumentDriftError,
+    load_canonical_instruments,
+    load_research_candidate_instruments,
+    validate_detail,
+)
 from market_db.normalize_bars import (
     BarQualityError,
     CrossedQuoteViolation,
@@ -27,6 +40,7 @@ from market_db.normalize_bars import (
 )
 from market_db.raw_artifacts import RunArtifacts, canonical_json_bytes
 from market_db.saxo_client import HTTPResponse, SIM_BASE_URL, SaxoAPIError, SaxoClient
+from market_db.saxo_auth import SaxoAuthError
 from market_db.session_calendar import generate_equity_sessions
 from market_db.validate import db3_manifest_baseline_is_valid
 
@@ -42,6 +56,131 @@ class FakeTransport:
         if isinstance(response, BaseException):
             raise response
         return response
+
+
+def test_candidate_dataset_metadata_is_stable_across_singleton_runs(
+    monkeypatch, tmp_path
+):
+    spec = tmp_path / "candidate.json"
+    spec.write_text("{}", encoding="utf-8")
+
+    class Cursor:
+        def execute(self, _query, params):
+            self.params = params
+
+    cursor = Cursor()
+    monkeypatch.setattr(incremental_update, "project_root", lambda: tmp_path)
+
+    incremental_update._ensure_dataset(
+        cursor,
+        dataset_id=incremental_update.CANDIDATE_DATASET_ID,
+        spec_relative_path=spec.relative_to(tmp_path),
+        dataset_name="candidate",
+        research_eligibility="SIM_RESEARCH_CANDIDATE",
+        instrument_count=1,
+    )
+
+    metadata = cursor.params[-1].obj
+    assert metadata == {
+        "instrument_count": 3,
+        "horizon_minutes": 60,
+        "write_endpoints": 0,
+        "research_warning_policy_id": (
+            "fx_research_candidate_user_approved_warnings_v1"
+        ),
+        "consumer_availability_status": "AVAILABLE_WITH_WARNINGS",
+        "value_repair": False,
+        "interpolation": False,
+    }
+
+
+def test_oauth_reconcile_refreshes_before_each_full_refetch(monkeypatch):
+    calls: list[bool] = []
+
+    class FakeOAuthManager:
+        def access_token(self, *, force_refresh: bool = False) -> str:
+            calls.append(force_refresh)
+            return f"access-{len(calls)}"
+
+    def fake_incremental(*, client_factory):
+        return {"status": "PASS", "client": client_factory()}
+
+    def fake_full_refetch(instrument_key, *, client_factory):
+        return {
+            "status": "PASS",
+            "instrument_key": instrument_key,
+            "client": client_factory(),
+        }
+
+    monkeypatch.setattr(incremental_update, "run_incremental", fake_incremental)
+    monkeypatch.setattr(incremental_update, "run_full_refetch", fake_full_refetch)
+    normal, full_refetch = oauth_reconcile_runners(FakeOAuthManager())
+
+    normal_result = normal()
+    first_refetch = full_refetch("spy")
+    second_refetch = full_refetch("iwm")
+
+    assert calls == [False, True, True]
+    assert normal_result["client"]._access_token == "access-1"
+    assert first_refetch["client"]._access_token == "access-2"
+    assert second_refetch["client"]._access_token == "access-3"
+
+
+def test_keychain_full_refetch_is_single_instrument_and_force_refreshes(
+    monkeypatch, capsys
+):
+    observed: dict[str, object] = {}
+
+    class FakeConfig:
+        @staticmethod
+        def from_environment(*, callback_port: int):
+            observed["callback_port"] = callback_port
+            return object()
+
+    class FakeOAuthManager:
+        def __init__(self, _config):
+            pass
+
+        def access_token(self, *, force_refresh: bool = False) -> str:
+            observed["force_refresh"] = force_refresh
+            return "memory-only-test-token"
+
+    def fake_full_refetch(instrument_key, *, client_factory):
+        client = client_factory()
+        observed["instrument_key"] = instrument_key
+        observed["client_token"] = client._access_token
+        return {"status": "PASS", "instrument_key": instrument_key}
+
+    monkeypatch.setattr(incremental_update, "OAuthConfig", FakeConfig)
+    monkeypatch.setattr(incremental_update, "SaxoOAuthManager", FakeOAuthManager)
+    monkeypatch.setattr(incremental_update, "run_full_refetch", fake_full_refetch)
+
+    status = incremental_update.main(
+        [
+            "full-refetch",
+            "--instrument-key",
+            "eurusd",
+            "--auth-mode",
+            "keychain",
+            "--callback-port",
+            "8765",
+        ]
+    )
+
+    assert status == 0
+    assert observed == {
+        "callback_port": 8765,
+        "force_refresh": True,
+        "instrument_key": "eurusd",
+        "client_token": "memory-only-test-token",
+    }
+    assert "memory-only-test-token" not in capsys.readouterr().out
+
+
+def test_saxo_auth_error_keeps_operational_classification():
+    error = SaxoAuthError("AUTH_LOGIN_REQUIRED")
+    assert _error_code(error) == "AUTH_LOGIN_REQUIRED"
+    assert not _records_quality_event(_error_code(error))
 
 
 def chart_payload(times, *, fx=False, data_version=10):
@@ -73,6 +212,51 @@ def chart_payload(times, *, fx=False, data_version=10):
                 }
             )
     return {"ChartInfo": {"Horizon": 60, "DelayedByMinutes": 0}, "DataVersion": data_version, "Data": data}
+
+
+def test_revision_sample_is_counts_only_and_does_not_decide_or_apply_repair():
+    instrument = next(item for item in load_canonical_instruments() if item.key == "spy")
+    payload = chart_payload(
+        ["2026-07-27T17:30:00Z", "2026-07-27T18:30:00Z"],
+        data_version=20,
+    )
+    provider = normalize_chart_page(
+        instrument,
+        payload,
+        retrieved_at_utc=datetime(2026, 7, 27, 20, tzinfo=timezone.utc),
+        payload_sha256="a" * 64,
+        artifact_relative_path="data/acquisition/test.json",
+    )
+    stored = {
+        provider[0].time_utc: (_revision_bar_content(provider[0]), 19),
+    }
+
+    result = compare_revision_sample(provider, stored)
+
+    assert result["provider_rows"] == 2
+    assert result["matched_rows"] == 1
+    assert result["version_only_rows"] == 1
+    assert result["content_difference_rows"] == 0
+    assert result["new_rows"] == 1
+    assert "decision" not in result
+    assert "affected_from_utc" not in result
+
+
+def test_revision_warning_writer_cannot_mutate_accepted_or_derived_data():
+    source = inspect.getsource(_record_revision_warning)
+    for forbidden in (
+        "staging.market_bar",
+        "raw.market_bar_revision",
+        "curated.market_bar",
+        "ops.watermark",
+        "derived.market_bar_4h",
+        "derived.market_bar_1d",
+        "prepare_bounded_revision",
+        "prepare_full_refetch",
+    ):
+        assert forbidden not in source
+    assert "revision_warning_recorded_no_curated_change" in source
+    assert "WARNING_RECORDED" in source
 
 
 def rejected_bar(time_utc, *, field="Low", bid="1.11749", ask="1.11726"):
@@ -180,10 +364,22 @@ def test_s6v5a_profile_is_exact_ordered_canonical_subset():
         "native_ohlc", "native_ohlc", "native_ohlc",
         "native_ohlc", "native_ohlc", "bid_ask_mid",
     )
-    with pytest.raises(ValueError, match="non-canonical"):
+    with pytest.raises(ValueError, match="unreviewed"):
         select_instruments(("spy", "replacement"))
     with pytest.raises(ValueError, match="unique"):
         select_instruments(("spy", "spy"))
+
+
+def test_fx_research_candidate_registry_is_exact_and_cannot_mix_with_canonical():
+    candidates = load_research_candidate_instruments()
+    assert [(item.key, item.uic, item.asset_type) for item in candidates] == [
+        ("audusd", 4, "FxSpot"),
+        ("usdcad", 38, "FxSpot"),
+        ("usdchf", 39, "FxSpot"),
+    ]
+    assert tuple(item.key for item in select_instruments(("audusd",))) == ("audusd",)
+    with pytest.raises(ValueError, match="must run separately"):
+        select_instruments(("eurusd", "audusd"))
 
 
 def test_etf_and_fx_decimal_normalization_and_latest_incomplete():
@@ -207,6 +403,51 @@ def test_etf_and_fx_decimal_normalization_and_latest_incomplete():
     assert fx[0].open_ask == Decimal("1.1002")
 
 
+def test_merge_pages_keeps_first_seen_complete_up_to_boundary_sample():
+    spy = load_canonical_instruments()[0]
+    now = datetime(2026, 7, 17, tzinfo=timezone.utc)
+    newer_payload = chart_payload(
+        [
+            "2026-07-16T02:00:00Z",
+            "2026-07-16T03:00:00Z",
+            "2026-07-16T04:00:00Z",
+        ]
+    )
+    older_payload = chart_payload(
+        [
+            "2026-07-16T00:00:00Z",
+            "2026-07-16T01:00:00Z",
+            "2026-07-16T02:00:00Z",
+        ]
+    )
+    # Saxo can return a partial copy as the last row of the inclusive older
+    # UpTo page.  Keep the first-seen full bar from the newer window.
+    older_payload["Data"][-1].update(
+        {"Open": "100", "High": "100.5", "Low": "99.5", "Close": "100.1"}
+    )
+    newer = normalize_chart_page(
+        spy,
+        newer_payload,
+        retrieved_at_utc=now,
+        payload_sha256="0" * 64,
+        artifact_relative_path="data/acquisition/newer.json",
+    )
+    older = normalize_chart_page(
+        spy,
+        older_payload,
+        retrieved_at_utc=now,
+        payload_sha256="1" * 64,
+        artifact_relative_path="data/acquisition/older.json",
+    )
+
+    merged = merge_pages([newer, older])
+    boundary = next(bar for bar in merged if bar.time_utc.hour == 2)
+
+    assert boundary.close == Decimal("101")
+    assert boundary.artifact_relative_path == "data/acquisition/newer.json"
+    assert boundary.is_complete is True
+
+
 def test_fx_bid_above_ask_and_wrong_horizon_fail_quality_gate():
     eurusd = next(item for item in load_canonical_instruments() if item.key == "eurusd")
     payload = chart_payload(["2026-07-16T10:00:00Z"], fx=True)
@@ -215,6 +456,25 @@ def test_fx_bid_above_ask_and_wrong_horizon_fail_quality_gate():
         normalize_chart_page(
             eurusd, payload, retrieved_at_utc=datetime.now(timezone.utc), payload_sha256="0" * 64,
             artifact_relative_path="data/acquisition/fail.json",
+        )
+
+
+def test_fx_side_ohlc_violation_is_rejected_even_when_midpoint_ohlc_is_valid():
+    eurusd = next(item for item in load_canonical_instruments() if item.key == "eurusd")
+    payload = chart_payload(["2026-07-16T10:00:00Z"], fx=True)
+    payload["Data"][0].update({
+        "HighBid": "1.1005",
+        "CloseBid": "1.1010",
+        "HighAsk": "1.1035",
+        "CloseAsk": "1.1012",
+    })
+    with pytest.raises(BarQualityError, match="OHLC_VIOLATION"):
+        normalize_chart_page(
+            eurusd,
+            payload,
+            retrieved_at_utc=datetime.now(timezone.utc),
+            payload_sha256="0" * 64,
+            artifact_relative_path="data/acquisition/side-invalid.json",
         )
 
 
@@ -399,6 +659,27 @@ def test_failed_instrument_context_is_only_emitted_for_non_pass_runs():
     assert _failed_instrument_context("FAILED", "iwm") == {"failed_instrument_key": "iwm"}
     assert _failed_instrument_context("PASS", "iwm") == {}
     assert _failed_instrument_context("BLOCKED", None) == {}
+
+
+def test_interface_and_not_ready_failures_do_not_become_content_quality_events():
+    for code in (
+        "BLOCKED_RATE_LIMIT",
+        "BLOCKED_TOKEN_EXPIRED",
+        "FAILED_NETWORK",
+        "FAILED_HTTP_503",
+        "FAILED_SERVICE_UNAVAILABLE",
+        "INSUFFICIENT_INCREMENTAL_CHART_DATA",
+        "BLOCKED_FULL_REFETCH_REQUIRED",
+        "BLOCKED_BOUNDED_REVISION_REQUIRED",
+        "BLOCKED_REVISION_SCOPE_UNRESOLVED_FULL_REFETCH_REQUIRED",
+    ):
+        assert not _records_quality_event(code)
+    for code in (
+        "BLOCKED_CANONICAL_WATERMARK_SET",
+        "BLOCKED_INSTRUMENT_DRIFT",
+        "FUTURE_COMPLETED_BAR",
+    ):
+        assert _records_quality_event(code)
 
 
 def test_reconcile_refetches_drift_and_finishes_with_two_normal_passes():

@@ -1,4 +1,4 @@
-"""Canonical 13-instrument registry and drift checks without auto-substitution."""
+"""Reviewed Saxo instrument registries and drift checks without substitution."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from .connection import project_root
 
 
 CANONICAL_SPEC = Path("specs/source_collection/v13_db3_incremental_collection.json")
+CANDIDATE_SPEC = Path("specs/source_collection/fx_research_candidates_v1.json")
 
 
 class InstrumentDriftError(RuntimeError):
@@ -44,6 +45,27 @@ def load_canonical_instruments(path: Path | None = None) -> tuple[CanonicalInstr
     keys = {(item.uic, item.asset_type) for item in instruments}
     if len(keys) != len(instruments):
         raise RuntimeError("canonical instrument registry has duplicate UIC/AssetType")
+    return instruments
+
+
+def load_research_candidate_instruments(
+    path: Path | None = None,
+) -> tuple[CanonicalInstrument, ...]:
+    selected = path or project_root() / CANDIDATE_SPEC
+    payload = json.loads(selected.read_text(encoding="utf-8"))
+    identity_fields = ("category", "key", "symbol", "uic", "asset_type", "currency")
+    instruments = tuple(
+        CanonicalInstrument(**{field: item[field] for field in identity_fields})
+        for item in payload["instruments"]
+    )
+    expected_keys = ("audusd", "usdcad", "usdchf")
+    if tuple(item.key for item in instruments) != expected_keys:
+        raise RuntimeError("research candidate registry must contain the reviewed three-pair order")
+    identities = {(item.uic, item.asset_type) for item in instruments}
+    if len(identities) != len(instruments):
+        raise RuntimeError("research candidate registry has duplicate UIC/AssetType")
+    if any(item.asset_type != "FxSpot" for item in instruments):
+        raise RuntimeError("research candidate registry is restricted to FxSpot")
     return instruments
 
 

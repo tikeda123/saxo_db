@@ -1,6 +1,6 @@
 # Saxo DB Read API インターフェース仕様
 
-更新日: 2026-07-21 JST
+更新日: 2026-07-28 JST
 
 対象API: `v1`
 
@@ -270,6 +270,9 @@ identity、coverage、freshness、scope適合quality event、watermark、latest 
     "quality_event_high_watermark": 395032
   },
   "state": {
+    "availability_status": "AVAILABLE_WITH_REVISION_WARNING",
+    "revision_review_status": "PENDING_REVIEW",
+    "freshness_basis": "LAST_ACCEPTED_CURATED",
     "coverage_status": "WARN",
     "freshness_status": "STALE",
     "quality_status": "PASS",
@@ -282,6 +285,7 @@ identity、coverage、freshness、scope適合quality event、watermark、latest 
   },
   "components": {
     "coverage": {},
+    "coverage_assessment": null,
     "freshness": {
       "latest_complete_time_utc": "2026-07-24T18:30:00Z",
       "latest_expected_complete_time_utc": "2026-07-24T18:30:00Z",
@@ -301,6 +305,72 @@ identity、coverage、freshness、scope適合quality event、watermark、latest 
 - `BLOCKED`: component欠損、STALE/FAIL/NOT_EVALUATED、非ACTIVE watermark、非PASS latest run、またはscope適合CURRENT/UNKNOWN blockerがある。
 
 UNKNOWN ERROR/CRITICALは必ず`current_blockers`へ入り、`BLOCKED`になります。raw日足などscope不一致eventはcanonical 1H blockerへ混入しません。
+
+future policyでDataVersionを検知すると、`components.revision`に対象instrumentの
+`old_data_version`、`new_data_version`、限定sample比較範囲・差分件数、
+`reconciliation_status=REVIEW_PENDING`、`review_status`、
+`availability_status=AVAILABLE_WITH_REVISION_WARNING`を返します。このwarningだけで
+`quality_status=FAIL`またはservice degradationにはしません。`last_accepted_*`は
+current curated、水位のidentityであり、`latest_provider_observed_time_utc`は未承認raw
+evidenceです。`provider_evidence_curated=false`の間は両者を混同してはいけません。
+
+accepted freshnessは`freshness_basis=LAST_ACCEPTED_CURATED`で評価するため、review待ちの
+間にaccepted barが古くなればSTALEを正しく返します。warning自体はeligibility warning、
+STALEはeligibility blockerとして別々に扱います。
+migration 0027より前からSTALEだった系列は、監査eventが未作成であることを隠さず
+`DETECTED_LEGACY`として返します。
+
+サービス全体の利用可能範囲は次のread-only endpointで確認します。
+
+```text
+GET /api/v1/service-status
+```
+
+全系列利用可能なら`PASS`、一部だけrevision/quarantineで利用不可なら
+`PARTIALLY_DEGRADED`、全系列利用不可なら`BLOCKED`です。
+DataVersion warningは`warning_series_count`と`warning_series`へ分離し、warningだけなら
+`PASS`を維持します。`available_series_count`、`degraded_series_count`、`degraded_series`、
+`all_series_stopped`を返すため、単一instrumentの停止をサービス全停止と解釈しては
+いけません。consumerはサービス集計だけで利用判断せず、実際に使う各系列の
+`series-status`も必ず確認します。
+
+`AVAILABLE_WITH_WARNINGS`の研究候補も`warning_series`へ分類し、degradedへは
+数えない。候補警告とDataVersion review警告は同じ「利用可能だが注意が必要」という
+集計区分だが、個別のpolicyとmetadataは異なるため、consumerは各系列の
+`series-status`で内容を判別する。USDJPYのような`BLOCKED`だけがdegradedへ入る。
+
+EURUSD／USDJPYで`coverage_status=WARN`の場合、`components.coverage_assessment`は`manifests/fx_gap_classification/`の時刻単位JSONとsummaryを指す。ここで`interpolation_performed=false`を確認できる。説明済みの履歴source gapや解決済みquarantineはcoverage WARNとして残り、freshness／current qualityを自動的にFAILへ変換しない。一方、freshness FAIL、非ACTIVE watermark、CURRENT/UNKNOWN blockerをcoverage WARNで隠すこともない。
+
+### 5.2 FX研究候補の警告付き利用契約
+
+AUDUSD、USDCAD、USDCHFは`SIM_RESEARCH_ONLY`の候補系列である。全履歴gate後は
+`components.publication.publication_status=STAGING`でもbarを照会できるが、正式な
+定期取得対象へ昇格するのは、異なる完成1Hで通常更新を2回確認して
+`PUBLISHED / consecutive_normal_passes=2`となった後だけである。
+
+利用前に次を確認する。
+
+- `state.availability_status=AVAILABLE_WITH_WARNINGS`
+- `state.current_blockers=[]`、`state.unknown_blocker_count=0`
+- `state.freshness_status=PASS`
+- `components.publication.research_policy_id=fx_research_candidate_user_approved_warnings_v1`
+- `components.publication.warning_metadata_json.values_modified=false`
+- `components.publication.warning_metadata_json.normal_acceptance_runs`が異なる完成時刻2件
+- `components.coverage_assessment.interpolation_performed=false`
+- `provider_advertised_start_utc`と`effective_coverage_start_utc`の差、および`limitation`
+
+AUDUSDには、2013-09-15 21:00 UTCから2020-04-19 21:00 UTCに限定された14件の
+provider Bid/Ask extrema crossingがある。rawはimmutableに保持し、値の補間、Bid/Ask
+入替、clamp、削除を行っていない。該当14行はcuratedから除外し、その時刻を欠損として
+明示する。件数・期間・対象field・fingerprintが承認baselineと完全一致する場合だけ
+警告付きで利用できる。件数増加、範囲拡大、Open/Close異常、または別品質規則違反は
+自動許容せず、そのinstrumentだけを再reviewする。
+
+USDCADとUSDCHFの研究用有効履歴開始は`2010-06-18T00:00:00Z`である。providerが
+表示する`2002-09-25T02:40:00Z`から有効開始までの価格は、欠損補間、推定、観測済み
+としての表示を行わない。AUDUSDも実取得で確認した有効開始
+`2003-05-12T00:00:00Z`を別途表示する。consumerはprovider表示開始を実データ開始と
+解釈してはならない。
 
 ## 6. OHLC `/api/v1/bars`
 
@@ -325,6 +395,12 @@ canonical 13の`instrument_key`:
 spy, iwm, efa, eem, vnq,
 shy, ief, tlt, tip, lqd,
 gld, eurusd, usdjpy
+```
+
+警告付き研究候補（publication gateを通過した系列だけ取得可）:
+
+```text
+audusd, usdcad, usdchf
 ```
 
 例:
@@ -553,6 +629,30 @@ response:
       "dump_size_bytes": 0,
       "dump_pg_restore_list_pass": true
     }
+  ],
+  "total_return_research_contracts": [
+    {
+      "contract_id": "etf11_fixed_window_20260712_v1",
+      "usage_mode": "fixed_window_research",
+      "source_dataset_id": "20260712T135236Z",
+      "price_basis": "etf_total_return",
+      "window": {
+        "first_session_date": "2004-11-18",
+        "last_session_date": "2024-06-28",
+        "freshness_required": false
+      }
+    },
+    {
+      "contract_id": "etf11_full_history_20260712_v1",
+      "usage_mode": "full_history_research",
+      "source_dataset_id": "20260712T135236Z",
+      "price_basis": "etf_total_return",
+      "window": {
+        "first_session_date": "2004-11-18",
+        "last_session_date": "2026-07-10",
+        "freshness_required": false
+      }
+    }
   ]
 }
 ```
@@ -591,6 +691,53 @@ responseのseriesは`price_basis=etf_total_return`、各rowの`value`はtotal-re
 `eligibility=eligible`は`quality_status=PASS`だけを返します。`eligibility=stored_complete`はWARN/NOT_EVALUATEDを含む可能性があり、`NON_ELIGIBLE_STORED_COMPLETE_DATA_MAY_BE_INCLUDED`を返します。
 
 mappingがない場合は`TOTAL_RETURN_MAPPING_NOT_FOUND`、未指定datasetが曖昧な場合は409 `SOURCE_DATASET_REQUIRED`、mapping・source dataの整合性が壊れている場合は503 `TOTAL_RETURN_INTEGRITY_FAILED`です。
+
+### 9.0.1 固定期間研究契約
+
+固定済みの過去期間をWFO等で使う場合は、current datasetの最新性ではなく、固定期間のidentity、coverage、quality、lineageを判定します。
+
+```bash
+curl --fail --get 'http://127.0.0.1:8766/api/v1/total-return-status' \
+  --data-urlencode 'instrument_key=LQD' \
+  --data-urlencode 'research_contract_id=etf11_fixed_window_20260712_v1'
+
+curl --fail --get 'http://127.0.0.1:8766/api/v1/total-return' \
+  --data-urlencode 'instrument_key=LQD' \
+  --data-urlencode 'start=2004-11-18T00:00:00Z' \
+  --data-urlencode 'end=2024-06-29T00:00:00Z' \
+  --data-urlencode 'usage_mode=fixed_window_research' \
+  --data-urlencode 'research_contract_id=etf11_fixed_window_20260712_v1' \
+  --data-urlencode 'limit=10000'
+```
+
+`fixed_window_research`では、`legacy/current` namespace、公開時刻、catalog上の`research_eligibility`ラベル、固定期間終了後のfreshnessは非blocking metadataです。これらはresponseから消さず、`non_blocking_metadata`とwarningに残します。代わりに、次の客観条件をfail-closedで検査します。
+
+- provider revisionまたは内容identityの不一致
+- instrument、1D horizon、`etf_total_return` price basisの不一致
+- source manifest、正規化content SHA、source-file lineageの不一致
+- 固定期間の行数、開始日、終了日、欠損、重複、非正値、時刻順序の異常
+- 未承認のprovider content anomaly
+- total-return定義が不明、または未調整価格をtotal-returnとして扱っている状態
+
+contract `etf11_fixed_window_20260712_v1`は、11 ETF共通で2004-11-18〜2024-06-28、各4,935行です。EEMだけは既存のprovider由来daily total-return outlierを値変更なしで保持するため`AVAILABLE_WITH_WARNINGS`、他10銘柄は`AVAILABLE`です。total-returnはSaxo native OHLCではなくYahoo Financeのadjusted close由来であるため、Saxo `DataVersion`を捏造しません。provider revision identityは銘柄別immutable raw SHA、source manifest SHA、正規化content SHA、APIのordered content SHAで固定します。
+
+`current_operations`は従来どおりcurrent datasetのfreshnessを判定します。固定期間研究のPASSを、live/shadowの最新性PASSへ読み替えてはいけません。
+
+### 9.0.2 Full-history共通研究契約
+
+WFO、Holdoutなどの実験境界はStrategy Analysis側のmanifestが決めます。DBは期間名を固定・隠蔽せず、同じ一般契約から`start` inclusive、`end` exclusiveで任意の部分期間を返します。
+
+```bash
+curl --fail --get 'http://127.0.0.1:8766/api/v1/total-return' \
+  --data-urlencode 'instrument_key=SPY' \
+  --data-urlencode 'start=2024-07-01T00:00:00Z' \
+  --data-urlencode 'end=2026-07-01T00:00:00Z' \
+  --data-urlencode 'usage_mode=full_history_research' \
+  --data-urlencode 'research_contract_id=etf11_full_history_20260712_v1' \
+  --data-urlencode 'limit=10000'
+```
+
+contract `etf11_full_history_20260712_v1`は11 ETF共通の2004-11-18〜2026-07-10、各5,443行をhash固定したGET-only契約です。2024-07-01〜2026-06-30を指定すると各501行を返します。専用Holdout契約、期間の秘匿、一回取得制限はありません。各銘柄のsource-file SHA-256、full-history ordered content SHA-256、source manifest、total-return定義を固定し、値の再取得・補正は行いません。EEMの既知2 outlierは値変更なしのwarningです。詳細は[Full-history共通研究公開](total_return_full_history_research_publication_20260730.md)を参照してください。
 
 ### 9.1 系列を検索
 
@@ -700,6 +847,7 @@ bars = [
 | 400 | `INVALID_REQUEST` | parameter、日時、limit、allow-list違反 | requestを修正。retryしない |
 | 404 | `NOT_FOUND` / `SERIES_NOT_FOUND` | pathまたはUI系列なし | ID・pathを再確認。retryしない |
 | 404 | `SNAPSHOT_NOT_FOUND` / `SNAPSHOT_SERIES_NOT_FOUND` | 固定snapshotまたは系列なし | ID・price basisを再確認。fallbackしない |
+| 409 | `SERIES_NOT_PUBLISHED` | 研究候補系列が`CANDIDATE`または`BLOCKED` | publication evidenceを確認。retryで回避せず再取得・品質gateを実施 |
 | 409 | `SNAPSHOT_LAYER_NOT_AVAILABLE` | 固定snapshotに要求layerなし | 新snapshot計画が必要。retryしない |
 | 405 | `READ_ONLY_API` | write methodを使用 | GETへ修正。retryしない |
 | 503 | `SNAPSHOT_NOT_VERIFIED` / `SNAPSHOT_INTEGRITY_FAILED` | manifest・DB内容の検証失敗 | 利用を停止し運用者が調査 |
@@ -763,6 +911,17 @@ consumerはParquet本体と対応manifestを一緒に保管し、利用前にSHA
 12. 戦略結果とデータ品質結果を別artifactとして報告する。
 
 ## 14. 現在の制約と将来拡張
+
+### FX研究候補のstaging公開
+
+`audusd`、`usdcad`、`usdchf`はcanonical 13とは別datasetで管理する。`catalog.series_publication_state`が公開gateであり、状態の意味は次のとおり。
+
+- `CANDIDATE`: catalog登録だけ。`GET /api/v1/bars`は409で閉じる。
+- `BLOCKED`: identity、取得、DataVersion、coverage、freshnessまたは品質gateが未合格。409で閉じる。
+- `STAGING`: 全履歴raw→curatedと品質gateがPASSした状態。staging consumerは`series-status`のpublication evidenceとmanifest hashを検証したうえで`bars`を取得できる。
+- `PUBLISHED`: watermarkが実際に前進した通常更新を異なる時点で2回連続PASSした状態。候補scheduler scopeの開始条件の一つとなる。
+
+候補の`series-status`は`components.publication`に状態、run ID、evidence manifest、連続PASS回数、最後に受け入れた完成足時刻を返す。`STAGING`は`PUBLICATION_STAGING` warningを保持し、正式な定期運用と誤認させない。coverageがWARNの場合は同componentのmanifest path/hashからgap分類を追跡する。APIは値補間、Bid/Ask交換、clamp、別provider fallbackを行わない。
 
 - APIの可用性SLAはない。ローカルprocessとして運用する。
 - 認証、TLS、CORS、remote接続は提供しない。

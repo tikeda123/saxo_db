@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "checked_at_utc": "2026-07-28T00:08:46Z",
+  "instrument_key": "usdjpy",
+  "environment": "SIM",
+  "horizon_minutes": 60,
+  "price_basis": "bid_ask_mid",
+  "accepted_data_version": 29738065,
+  "known_quarantined_data_version": 29738069,
+  "observed_provider_data_version": 29749254,
+  "status": "NEW_PROVIDER_DATA_VERSION_REVIEW_REQUIRED",
+  "provider_revision_corrected": "NOT_EVALUATED",
+  "scheduler_scope": "all_except_usdjpy_provider_quarantine_20260727",
+  "scheduler_included": false,
+  "current_publication_allowed": false,
+  "guarded_full_refetch": "ELIGIBLE_FOR_SEPARATE_OPERATOR_DECISION",
+  "guarded_full_refetch_started": false,
+  "probe": {
+    "http_method": "GET",
+    "endpoint": "/chart/v3/charts",
+    "count": 1,
+    "request_count": 1,
+    "artifact_relative_path": "data/acquisition/runs/20260728T000846Z-e815c9e4/instruments/usdjpy/data_version_probe.json",
+    "artifact_sha256": "2b459a1ac427779770978f7ae98e91b8f1cadad2b0d4542aebf17d764a39b9b4",
+    "artifact_size_bytes": 465
+  },
+  "safety": {
+    "database_mutations": 0,
+    "saxo_write_requests": 0,
+    "orders_or_prechecks_sent": 0,
+    "interpolation": false,
+    "bid_ask_swap": false,
+    "clamp": false,
+    "quarantine_released": false,
+    "external_support_message_sent": false
+  }
+}

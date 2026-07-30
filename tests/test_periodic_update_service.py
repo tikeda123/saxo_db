@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from market_db.connection import project_root
+from market_db.periodic_update import ACTIVE_SCOPE_PROFILE, CANDIDATE_READY_SCOPE_PROFILE
+import market_db.periodic_update_service as service_module
 from market_db.periodic_update_service import (
     _safe_child_environment,
     is_expected_process,
     managed_process_matches,
+    start_service,
 )
 from market_db.read_api_preflight import (
     ProcessInfo,
@@ -18,7 +21,7 @@ def process_info(command=None):
         1234,
         command or (
             f"{project_root()}/.venv/bin/python -m market_db.periodic_update "
-            "serve --callback-port 8764"
+            f"serve --callback-port 8764 --scope-profile {ACTIVE_SCOPE_PROFILE}"
         ),
         str(project_root().resolve()),
         "Fri Jul 24 12:00:00 2026",
@@ -27,26 +30,35 @@ def process_info(command=None):
 
 def test_periodic_service_identity_requires_repo_module_serve_and_port():
     valid = process_info()
-    assert is_expected_process(valid, callback_port=8764)
-    assert not is_expected_process(
-        process_info(valid.command.replace("serve", "status")), callback_port=8764
+    assert is_expected_process(
+        valid, callback_port=8764, scope_profile=ACTIVE_SCOPE_PROFILE
     )
     assert not is_expected_process(
-        process_info(valid.command.replace("8764", "8765")), callback_port=8764
+        process_info(valid.command.replace("serve", "status")), callback_port=8764,
+        scope_profile=ACTIVE_SCOPE_PROFILE,
     )
     assert not is_expected_process(
-        ProcessInfo(valid.pid, valid.command, "/tmp", valid.start_fingerprint), callback_port=8764
+        process_info(valid.command.replace("8764", "8765")), callback_port=8764,
+        scope_profile=ACTIVE_SCOPE_PROFILE,
+    )
+    assert not is_expected_process(
+        ProcessInfo(valid.pid, valid.command, "/tmp", valid.start_fingerprint),
+        callback_port=8764, scope_profile=ACTIVE_SCOPE_PROFILE,
+    )
+    assert not is_expected_process(
+        valid, callback_port=8764, scope_profile="all_managed_series_v1"
     )
 
 
 def test_managed_periodic_process_rejects_pid_reuse():
     info = process_info()
     state = {
-        "schema_version": 1,
+        "schema_version": 2,
         "owner": "saxo_db.periodic_update_service",
         "pid": info.pid,
         "cwd": info.cwd,
         "callback_port": 8764,
+        "scope_profile": ACTIVE_SCOPE_PROFILE,
         "start_fingerprint": info.start_fingerprint,
         "command_sha256": info.command_sha256,
     }
@@ -66,11 +78,12 @@ def test_process_start_fingerprint_is_locale_independent():
 def test_managed_periodic_process_accepts_semantically_equal_locale_fingerprint():
     info = process_info()
     state = {
-        "schema_version": 1,
+        "schema_version": 2,
         "owner": "saxo_db.periodic_update_service",
         "pid": info.pid,
         "cwd": info.cwd,
         "callback_port": 8764,
+        "scope_profile": ACTIVE_SCOPE_PROFILE,
         "start_fingerprint": "金 7/24 12:00:00 2026",
         "command_sha256": info.command_sha256,
     }
@@ -80,11 +93,12 @@ def test_managed_periodic_process_accepts_semantically_equal_locale_fingerprint(
 def test_periodic_process_identity_rejects_cwd_command_and_start_mismatch():
     info = process_info()
     base = {
-        "schema_version": 1,
+        "schema_version": 2,
         "owner": "saxo_db.periodic_update_service",
         "pid": info.pid,
         "cwd": info.cwd,
         "callback_port": 8764,
+        "scope_profile": ACTIVE_SCOPE_PROFILE,
         "start_fingerprint": info.start_fingerprint,
         "command_sha256": info.command_sha256,
     }
@@ -107,3 +121,20 @@ def test_periodic_child_environment_removes_market_credentials_but_keeps_oauth_a
     ))
     assert selected["SAXO_OAUTH_APP_KEY"] == "public-client-id"
     assert selected["LC_ALL"] == selected["LANG"] == "C"
+
+
+def test_candidate_scope_start_is_blocked_before_process_spawn_until_all_pairs_publish(monkeypatch):
+    monkeypatch.setattr(
+        service_module,
+        "candidate_scope_readiness",
+        lambda: {
+            "status": "BLOCKED_CANDIDATE_SCOPE_NOT_READY",
+            "candidate_states": {"audusd": {"publication_status": "STAGING"}},
+            "orders_or_prechecks_sent": 0,
+        },
+    )
+
+    result = start_service(scope_profile=CANDIDATE_READY_SCOPE_PROFILE)
+
+    assert result["status"] == "BLOCKED_CANDIDATE_SCOPE_NOT_READY"
+    assert result["readiness"]["orders_or_prechecks_sent"] == 0

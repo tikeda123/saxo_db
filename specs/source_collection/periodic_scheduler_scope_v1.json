@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "profile_id": "all_except_usdjpy_provider_quarantine_20260727",
+  "status": "ACTIVE_TEMPORARY",
+  "environment": "SIM",
+  "included_categories": [
+    {
+      "category": "equity_reit",
+      "instrument_keys": ["spy", "iwm", "efa", "eem", "vnq"],
+      "slot_kind": "equity_regular_1h",
+      "calendar_id": "XNYS_US_EQUITY"
+    },
+    {
+      "category": "bond_credit",
+      "instrument_keys": ["shy", "ief", "tlt", "tip", "lqd"],
+      "slot_kind": "bond_credit_regular_1h",
+      "calendar_id": "XNYS_US_EQUITY"
+    },
+    {
+      "category": "gold",
+      "instrument_keys": ["gld"],
+      "slot_kind": "gold_regular_1h",
+      "calendar_id": "XNYS_US_EQUITY"
+    },
+    {
+      "category": "fx",
+      "instrument_keys": ["eurusd"],
+      "slot_kind": "fx_hourly",
+      "calendar_id": "SBFX_24X5"
+    }
+  ],
+  "excluded_instruments": [
+    {
+      "instrument_key": "usdjpy",
+      "reason": "Saxo provider DataVersion 29738069 contains 245 crossed Bid/Ask extrema rows",
+      "status": "BLOCKED_PROVIDER_CONTENT_QUALITY",
+      "release_conditions": [
+        "provider-corrected DataVersion is confirmed",
+        "guarded full-refetch passes without value repair or gate relaxation",
+        "two consecutive normal runs pass"
+      ]
+    }
+  ],
+  "schedule_contract": {
+    "etf_calendar_id": "XNYS_US_EQUITY",
+    "etf_due_offset": "bar_end_plus_15_seconds",
+    "etf_deadline_offset": "bar_end_plus_3_minutes",
+    "fx_calendar_id": "SBFX_24X5",
+    "fx_due_minute_utc": 3,
+    "fx_deadline_minute_utc": 10,
+    "completed_bars_only": true,
+    "atomicity": "per_category_slot"
+  },
+  "publication_contract": {
+    "read_api_gate": "evaluate_each_series_status_independently",
+    "included_series_may_publish_only_after_their_own_quality_and_watermark_gates_pass": true,
+    "excluded_series_remains_visible_with_its_current_provider-quality blocker": true
+  },
+  "security": {
+    "allowed_saxo_methods": ["GET"],
+    "orders": 0,
+    "prechecks": 0,
+    "write_requests": 0,
+    "access_token_storage": "process_memory_only",
+    "refresh_credential_storage": "macos_keychain_only"
+  }
+}

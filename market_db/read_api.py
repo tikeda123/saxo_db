@@ -33,6 +33,14 @@ from .data_ui import (
 )
 from .instrument_reference import instrument_catalog_payload, reference_for_key
 from .inspect import QUERY_SPECS
+from .total_return_contract import (
+    TotalReturnContractError,
+    contract_for_request,
+    load_total_return_research_contracts,
+    public_contract,
+    validate_requested_window,
+)
+from .total_return_history import load_full_history_series, select_full_history_rows
 
 
 LOOPBACK_HOST = "127.0.0.1"
@@ -221,6 +229,12 @@ BAR_QUERIES: Mapping[str, BarQuery] = {
         WHERE i.market_key=%s
           AND b.time_utc >= %s AND b.time_utc < %s
           AND b.is_complete AND b.quality_status='PASS'
+          AND NOT EXISTS (
+              SELECT 1 FROM catalog.series_publication_state p
+              WHERE p.instrument_id=i.instrument_id AND p.horizon_minutes=60
+                AND p.price_basis=b.price_basis
+                AND p.publication_status NOT IN ('STAGING','PUBLISHED')
+          )
         ORDER BY b.time_utc, b.price_basis
         LIMIT %s
         """
@@ -237,6 +251,12 @@ BAR_QUERIES: Mapping[str, BarQuery] = {
         WHERE i.market_key=%s
           AND b.time_utc >= %s AND b.time_utc < %s
           AND b.is_complete AND b.quality_status='PASS'
+          AND NOT EXISTS (
+              SELECT 1 FROM catalog.series_publication_state p
+              WHERE p.instrument_id=i.instrument_id AND p.horizon_minutes=60
+                AND p.price_basis=b.price_basis
+                AND p.publication_status NOT IN ('STAGING','PUBLISHED')
+          )
         ORDER BY b.time_utc, b.price_basis
         LIMIT %s
         """
@@ -254,6 +274,12 @@ BAR_QUERIES: Mapping[str, BarQuery] = {
           AND b.derivation_version='db3_accepted_1h_calendar_v1'
           AND b.session_date >= %s AND b.session_date < %s
           AND b.is_complete AND b.quality_status='PASS'
+          AND NOT EXISTS (
+              SELECT 1 FROM catalog.series_publication_state p
+              WHERE p.instrument_id=i.instrument_id AND p.horizon_minutes=60
+                AND p.price_basis=b.price_basis
+                AND p.publication_status NOT IN ('STAGING','PUBLISHED')
+          )
         ORDER BY b.session_date, b.price_basis
         LIMIT %s
         """,
@@ -271,16 +297,24 @@ SERIES_STATUS_QUERIES = (
     (
         """
         SELECT i.instrument_id, i.market_key AS instrument_key, i.symbol, i.category,
+               i.asset_type,
                '1h'::TEXT AS layer, 60::SMALLINT AS horizon_minutes, %s::TEXT AS price_basis
         FROM catalog.instrument i
         WHERE i.market_key=%s AND i.active_to_utc IS NULL
-          AND EXISTS (
-              SELECT 1 FROM analytics.v_data_freshness f
-              WHERE f.instrument_id=i.instrument_id AND f.horizon_minutes=60
-                AND f.price_basis=%s
+          AND (
+              EXISTS (
+                  SELECT 1 FROM analytics.v_data_freshness f
+                  WHERE f.instrument_id=i.instrument_id AND f.horizon_minutes=60
+                    AND f.price_basis=%s
+              )
+              OR EXISTS (
+                  SELECT 1 FROM catalog.series_publication_state p
+                  WHERE p.instrument_id=i.instrument_id AND p.horizon_minutes=60
+                    AND p.price_basis=%s
+              )
           )
         """,
-        ("price_basis", "instrument_key", "price_basis"),
+        ("price_basis", "instrument_key", "price_basis", "price_basis"),
     ),
     (
         """
@@ -303,7 +337,30 @@ SERIES_STATUS_QUERIES = (
         SELECT e.*
         FROM quality.v_open_event e
         WHERE e.severity IN ('ERROR','CRITICAL')
-          AND (e.instrument_key=%s OR e.instrument_id IS NULL)
+          AND NOT (
+              e.rule_id='db3_atomic_run_gate'
+              AND EXISTS (
+                  SELECT 1
+                  FROM ops.v_ingestion_status source_revision_run
+                  WHERE source_revision_run.ingestion_run_id=e.ingestion_run_id
+                    AND source_revision_run.error_code IN (
+                        'BLOCKED_FULL_REFETCH_REQUIRED',
+                        'BLOCKED_BOUNDED_REVISION_REQUIRED',
+                        'BLOCKED_REVISION_SCOPE_UNRESOLVED_FULL_REFETCH_REQUIRED'
+                    )
+              )
+          )
+          AND (
+              e.instrument_key=%s
+              OR e.scope_kind IN ('GLOBAL','UNKNOWN','DATASET','LAYER')
+              OR (
+                  e.instrument_id IS NULL AND e.scope_kind='RUN'
+                  AND (
+                      NOT (e.scope_evidence ? 'selected_instrument_keys')
+                      OR (e.scope_evidence->'selected_instrument_keys') ? %s
+                  )
+              )
+          )
           AND (
               e.scope_kind='UNKNOWN'
               OR (
@@ -314,7 +371,7 @@ SERIES_STATUS_QUERIES = (
           )
         ORDER BY e.quality_event_id
         """,
-        ("instrument_key", "price_basis"),
+        ("instrument_key", "instrument_key", "price_basis"),
     ),
     (
         """
@@ -331,6 +388,31 @@ SERIES_STATUS_QUERIES = (
     (
         "SELECT quality_event_high_watermark FROM quality.v_event_high_watermark",
         (),
+    ),
+    (
+        """
+        SELECT p.publication_status,p.quality_status,p.coverage_status,
+               p.freshness_status,p.blocker_code,p.last_evaluated_run_id,
+               p.evidence_manifest_relative_path,p.evidence_manifest_sha256,
+               p.last_accepted_complete_time_utc,
+               p.consecutive_normal_passes,p.updated_at_utc,
+               p.consumer_availability_status,p.research_policy_id,
+               p.provider_advertised_start_utc,p.effective_coverage_start_utc,
+               p.coverage_limitation,p.warning_metadata_json,
+               p.policy_approved_at_utc,p.policy_approved_by
+        FROM catalog.series_publication_state p
+        JOIN catalog.instrument i USING (instrument_id)
+        WHERE i.market_key=%s AND p.horizon_minutes=60 AND p.price_basis=%s
+        """,
+        ("instrument_key", "price_basis"),
+    ),
+    (
+        """
+        SELECT r.*
+        FROM ops.v_data_version_revision_state r
+        WHERE r.instrument_key=%s AND r.horizon_minutes=60 AND r.price_basis=%s
+        """,
+        ("instrument_key", "price_basis"),
     ),
 )
 
@@ -461,6 +543,14 @@ LEFT JOIN LATERAL (
 ORDER BY c.source_dataset_id, c.external_series_key, d.date NULLS FIRST
 """
 
+TOTAL_RETURN_STATUS_QUERY = """
+SELECT *
+FROM analytics.v_total_return_research_series
+WHERE instrument_key=%s
+  AND source_dataset_id=%s
+  AND external_series_key=%s
+"""
+
 
 def parse_utc(value: str, field: str) -> datetime:
     try:
@@ -582,7 +672,17 @@ def series_status_payload(
     result_sets = reader.query_atomic(queries)
     if len(result_sets) != len(SERIES_STATUS_QUERIES):
         raise RuntimeError("atomic series status result count mismatch")
-    context_rows, identity_rows, coverage_rows, freshness_rows, events, run_rows, high_rows = result_sets
+    (
+        context_rows,
+        identity_rows,
+        coverage_rows,
+        freshness_rows,
+        events,
+        run_rows,
+        high_rows,
+        publication_rows,
+        revision_rows,
+    ) = result_sets
     if not identity_rows:
         return None
     if len(identity_rows) != 1:
@@ -593,6 +693,20 @@ def series_status_payload(
     coverage = coverage_rows[0] if coverage_rows else None
     freshness = freshness_rows[0] if freshness_rows else None
     latest_run = run_rows[0] if run_rows else None
+    publication = publication_rows[0] if publication_rows else None
+    revision = revision_rows[0] if revision_rows else None
+    if (
+        revision is None
+        and freshness is not None
+        and str(freshness.get("data_status")) == "STALE_DATA_VERSION"
+    ):
+        revision = {
+            "reconciliation_status": "DETECTED_LEGACY",
+            "availability_status": "BLOCKED",
+            "old_data_version": freshness.get("data_version"),
+            "new_data_version": None,
+            "reason_code": "REVISION_EVENT_PREDATES_BOUNDED_AUDIT_SCHEMA",
+        }
     current_blockers = [
         row for row in events
         if str(row.get("applicability") or "UNKNOWN").upper() in {"CURRENT", "UNKNOWN"}
@@ -606,7 +720,13 @@ def series_status_payload(
         str(row.get("applicability") or "UNKNOWN").upper() == "UNKNOWN"
         for row in current_blockers
     )
-    quality_status = "FAIL" if current_blockers else "PASS"
+    quality_status = "PASS"
+    if current_blockers or (
+        publication is not None and publication.get("quality_status") == "FAIL"
+    ):
+        quality_status = "FAIL"
+    elif publication is not None and publication.get("quality_status") == "WARN":
+        quality_status = "WARN"
     reasons: list[str] = []
     warnings: list[str] = []
     if coverage is None:
@@ -628,10 +748,93 @@ def series_status_payload(
         reasons.append("QUALITY_CURRENT_OR_UNKNOWN_BLOCKER")
     if latest_run is None or str(latest_run.get("status")) != "PASS":
         reasons.append("LATEST_INGESTION_RUN_NOT_PASS")
+    if publication is not None and publication.get("publication_status") in {
+        "CANDIDATE", "BLOCKED"
+    }:
+        reasons.append(f"PUBLICATION_{publication.get('publication_status') or 'UNKNOWN'}")
+        blocker_code = publication.get("blocker_code")
+        if blocker_code:
+            reasons.append(str(blocker_code))
+    elif publication is not None and publication.get("publication_status") == "STAGING":
+        warnings.append("PUBLICATION_STAGING")
+    if (
+        publication is not None
+        and publication.get("consumer_availability_status")
+        == "AVAILABLE_WITH_WARNINGS"
+    ):
+        warnings.append("USER_APPROVED_RESEARCH_WARNING_POLICY")
+        warning_metadata = publication.get("warning_metadata_json") or {}
+        if warning_metadata.get("known_provider_anomaly"):
+            warnings.append("KNOWN_PROVIDER_ANOMALY_VALUES_UNMODIFIED")
+        elif warning_metadata.get("observed_quarantined_extrema"):
+            warnings.append("PROVIDER_EXTREMA_ANOMALIES_EXCLUDED_UNMODIFIED")
+        if publication.get("effective_coverage_start_utc") != publication.get(
+            "provider_advertised_start_utc"
+        ):
+            warnings.append("EFFECTIVE_COVERAGE_START_LIMITATION")
+    if revision is not None:
+        revision_status = str(revision.get("reconciliation_status") or "UNKNOWN")
+        availability = str(revision.get("availability_status") or "BLOCKED")
+        if availability == "AVAILABLE_WITH_REVISION_WARNING":
+            warnings.append("REVISION_REVIEW_PENDING")
+            revision = {
+                **revision,
+                "last_accepted_data_version": (
+                    freshness.get("data_version") if freshness is not None else None
+                ),
+                "last_accepted_complete_time_utc": (
+                    freshness.get("latest_complete_time_utc")
+                    if freshness is not None else None
+                ),
+                "last_accepted_ingestion_run_id": (
+                    freshness.get("last_ingestion_run_id")
+                    if freshness is not None else None
+                ),
+                "provider_evidence_curated": False,
+                "review_pending": str(revision.get("review_status")) == "PENDING_REVIEW",
+            }
+        elif availability != "AVAILABLE":
+            reasons.append(f"REVISION_{revision_status}")
 
     high_watermark = (
         int(high_rows[0].get("quality_event_high_watermark") or 0) if high_rows else 0
     )
+    coverage_assessment = None
+    if (
+        str(series.get("asset_type")) == "FxSpot"
+        and coverage is not None
+        and str(coverage.get("coverage_status")) == "WARN"
+    ):
+        if publication is not None and publication.get("evidence_manifest_relative_path"):
+            coverage_assessment = {
+                "manifest": publication.get("evidence_manifest_relative_path"),
+                "manifest_sha256": publication.get("evidence_manifest_sha256"),
+                "warning_acceptance_reason": (
+                    "candidate full-history gaps are classified by retained raw/run evidence"
+                ),
+                "interpolation_performed": False,
+                "blocks_freshness_or_current_quality": False,
+                "provider_advertised_start_utc": publication.get(
+                    "provider_advertised_start_utc"
+                ),
+                "effective_coverage_start_utc": publication.get(
+                    "effective_coverage_start_utc"
+                ),
+                "limitation": publication.get("coverage_limitation"),
+                "research_policy_id": publication.get("research_policy_id"),
+            }
+        elif instrument_key.lower() in {"eurusd", "usdjpy"}:
+            coverage_assessment = {
+                "manifest": "manifests/fx_gap_classification/fx_gap_classification_manifest.json",
+                "classification_report": "manifests/fx_gap_classification/fx_gap_classification.json",
+                "summary_report": "manifests/fx_gap_classification/fx_gap_classification_summary.md",
+                "warning_acceptance_reason": (
+                    "historical missing slots are individually classified; source gaps and resolved "
+                    "quarantine remain visible and are not converted into prices"
+                ),
+                "interpolation_performed": False,
+                "blocks_freshness_or_current_quality": False,
+            }
     return {
         "api_version": API_VERSION,
         "contract_revision": CONTRACT_REVISION,
@@ -647,6 +850,17 @@ def series_status_payload(
             "quality_event_high_watermark": high_watermark,
         },
         "state": {
+            "availability_status": (
+                revision.get("availability_status")
+                if revision is not None
+                else publication.get("consumer_availability_status")
+                if publication is not None
+                else "AVAILABLE"
+            ),
+            "revision_review_status": (
+                revision.get("review_status") if revision is not None else None
+            ),
+            "freshness_basis": "LAST_ACCEPTED_CURATED",
             "coverage_status": coverage.get("coverage_status") if coverage else "NOT_EVALUATED",
             "freshness_status": freshness.get("freshness_status") if freshness else "NOT_EVALUATED",
             "quality_status": quality_status,
@@ -663,10 +877,93 @@ def series_status_payload(
         },
         "components": {
             "coverage": coverage,
+            "coverage_assessment": coverage_assessment,
             "freshness": freshness,
             "latest_ingestion_run": latest_run,
+            "publication": publication,
+            "revision": revision,
         },
     }
+
+
+def revision_service_status_payload(reader: QueryReader) -> dict[str, Any]:
+    rows = reader.query(
+        """
+        SELECT instrument_key,data_status,availability_status,
+               reconciliation_status,reason_code,policy_id,review_status,
+               last_accepted_data_version,last_accepted_complete_time_utc,
+               last_accepted_ingestion_run_id,latest_evidence_at_utc,
+               latest_provider_observed_time_utc,evidence_sample_count
+        FROM ops.v_series_revision_availability
+        WHERE horizon_minutes=60
+        ORDER BY instrument_key
+        """
+    )
+    warning_availability = {
+        "AVAILABLE_WITH_REVISION_WARNING",
+        "AVAILABLE_WITH_WARNINGS",
+    }
+    warning_rows = [
+        row for row in rows if row.get("availability_status") in warning_availability
+    ]
+    degraded = [
+        row
+        for row in rows
+        if row.get("availability_status") not in {"AVAILABLE", *warning_availability}
+        or (
+            row.get("data_status") != "ACTIVE"
+            and row.get("availability_status") not in warning_availability
+        )
+    ]
+    service_status = (
+        "PASS"
+        if not degraded
+        else "BLOCKED"
+        if rows and len(degraded) == len(rows)
+        else "PARTIALLY_DEGRADED"
+    )
+    return {
+        "api_version": API_VERSION,
+        "contract_revision": CONTRACT_REVISION,
+        "generated_at_utc": datetime.now(timezone.utc),
+        "service_status": service_status,
+        "managed_series_count": len(rows),
+        "available_series_count": len(rows) - len(degraded),
+        "warning_series_count": len(warning_rows),
+        "warning_series": warning_rows,
+        "degraded_series_count": len(degraded),
+        "degraded_series": degraded,
+        "all_series_stopped": bool(rows) and len(degraded) == len(rows),
+        "read_only": True,
+    }
+
+
+def candidate_publication_state(
+    reader: QueryReader, instrument_key: str
+) -> dict[str, Any] | None:
+    if instrument_key not in {"audusd", "usdcad", "usdchf"}:
+        return None
+    rows = reader.query(
+        """
+        SELECT p.publication_status,p.blocker_code,p.quality_status,
+               p.coverage_status,p.freshness_status,p.last_accepted_complete_time_utc,
+               p.consecutive_normal_passes,p.consumer_availability_status,
+               p.research_policy_id,p.provider_advertised_start_utc,
+               p.effective_coverage_start_utc,p.coverage_limitation,
+               p.warning_metadata_json,p.policy_approved_at_utc,p.policy_approved_by
+        FROM catalog.series_publication_state p
+        JOIN catalog.instrument i USING (instrument_id)
+        WHERE i.market_key=%s AND p.horizon_minutes=60
+          AND p.price_basis='bid_ask_mid'
+        """,
+        (instrument_key,),
+    )
+    if len(rows) != 1:
+        return {
+            "publication_status": "BLOCKED",
+            "blocker_code": "BLOCKED_PUBLICATION_STATE_MISSING",
+        }
+    return rows[0]
 
 
 def snapshot_bars_payload(
@@ -873,6 +1170,403 @@ def snapshot_bars_payload(
     }
 
 
+def total_return_status_payload(
+    reader: QueryReader,
+    *,
+    instrument_key: str,
+    research_contract_id: str | None,
+) -> dict[str, Any]:
+    if not instrument_key or len(instrument_key) > 64:
+        raise ValueError("instrument_key is required")
+    contract = contract_for_request(research_contract_id, instrument_key)
+    if contract["usage_mode"] == "full_history_research":
+        return _full_history_total_return_status_payload(
+            reader, instrument_key=instrument_key, contract=contract
+        )
+    ticker = instrument_key.upper()
+    result_sets = reader.query_atomic(
+        (
+            (TOTAL_RETURN_CONTEXT_QUERY, ()),
+            (
+                TOTAL_RETURN_STATUS_QUERY,
+                (
+                    instrument_key,
+                    contract["source_dataset_id"],
+                    ticker,
+                ),
+            ),
+        )
+    )
+    if len(result_sets) != 2 or len(result_sets[0]) != 1:
+        raise TotalReturnReadError("TOTAL_RETURN_INTEGRITY_FAILED", 503)
+    context = result_sets[0][0]
+    if (
+        context.get("database_name") != MARKET_DB
+        or context.get("role_name") != "saxo_app_reader"
+        or context.get("transaction_read_only") != "on"
+    ):
+        raise TotalReturnReadError("TOTAL_RETURN_INTEGRITY_FAILED", 503)
+    if len(result_sets[1]) != 1:
+        raise TotalReturnReadError("TOTAL_RETURN_MAPPING_NOT_FOUND", 404)
+    row = result_sets[1][0]
+
+    expected_window = contract["window"]
+    expected_identity = contract["identity"]
+    blockers: list[str] = []
+    if int(row.get("mapping_count") or 0) != 1:
+        blockers.append("INSTRUMENT_MAPPING_MISMATCH")
+    if row.get("external_series_key") != ticker or row.get("instrument_key") != instrument_key:
+        blockers.append("INSTRUMENT_IDENTITY_MISMATCH")
+    if row.get("dataset_kind") != "total_return" or row.get("price_basis") != "etf_total_return":
+        blockers.append("DATASET_OR_PRICE_BASIS_MISMATCH")
+    if int(row.get("canonical_horizon_minutes") or 0) != 1440:
+        blockers.append("HORIZON_MISMATCH")
+    if row.get("provider") != contract["catalog_provider"]:
+        blockers.append("PROVIDER_IDENTITY_MISMATCH")
+    if row.get("source_manifest_relative_path") != expected_identity["source_manifest_relative_path"]:
+        blockers.append("SOURCE_MANIFEST_PATH_MISMATCH")
+    if str(row.get("source_manifest_sha256") or "").strip() != expected_identity["source_manifest_sha256"]:
+        blockers.append("SOURCE_MANIFEST_SHA256_MISMATCH")
+    if int(row.get("row_count") or 0) != int(expected_window["rows_per_instrument"]):
+        blockers.append("LOCKED_WINDOW_ROW_COUNT_MISMATCH")
+    if json_value(row.get("min_session_date")) != expected_window["first_session_date"]:
+        blockers.append("LOCKED_WINDOW_START_MISMATCH")
+    if json_value(row.get("max_session_date")) != expected_window["last_session_date"]:
+        blockers.append("LOCKED_WINDOW_END_MISMATCH")
+    if int(row.get("duplicate_count") or 0) != 0:
+        blockers.append("DUPLICATE_SESSION_DATE")
+    if int(row.get("null_or_nonpositive_count") or 0) != 0:
+        blockers.append("NULL_OR_NONPOSITIVE_TOTAL_RETURN")
+    if int(row.get("quality_fail_count") or 0) != 0:
+        blockers.append("QUALITY_FAIL_ROWS_PRESENT")
+    if int(row.get("quality_not_evaluated_count") or 0) != 0:
+        blockers.append("QUALITY_NOT_EVALUATED_ROWS_PRESENT")
+    if int(row.get("missing_source_file_count") or 0) != 0:
+        blockers.append("RAW_LINEAGE_MISSING")
+    if int(row.get("source_dataset_lineage_mismatch_count") or 0) != 0:
+        blockers.append("RAW_LINEAGE_DATASET_MISMATCH")
+    source_file_hashes = sorted(str(value).strip() for value in (row.get("source_file_sha256_values") or []))
+    if source_file_hashes != [expected_identity["normalized_csv_sha256"]]:
+        blockers.append("NORMALIZED_CONTENT_SHA256_MISMATCH")
+
+    instrument_contract = contract["instruments"][ticker]
+    warn_rows = int(row.get("quality_warn_count") or 0)
+    approved_warnings = list(instrument_contract["approved_warning_codes"])
+    expected_warn_rows = int(
+        (instrument_contract.get("warning_evidence") or {}).get("quality_warn_rows") or 0
+    )
+    if warn_rows != expected_warn_rows:
+        blockers.append("PROVIDER_WARNING_COUNT_MISMATCH")
+    if warn_rows and not approved_warnings:
+        blockers.append("UNREVIEWED_PROVIDER_CONTENT_ANOMALY")
+    warnings = approved_warnings if not blockers else []
+    warnings.append("CATALOG_RESEARCH_ELIGIBILITY_LABEL_NOT_A_FIXED_WINDOW_GATE")
+    warnings.append("FRESHNESS_BEYOND_LOCKED_WINDOW_NOT_REQUIRED")
+
+    availability = "BLOCKED" if blockers else instrument_contract["availability"]
+    return {
+        "api_version": API_VERSION,
+        "contract_revision": CONTRACT_REVISION,
+        "generated_at_utc": context["read_at_utc"],
+        "consistency": {
+            "snapshot_marker": context["snapshot_marker"],
+            "transaction_read_only": context["transaction_read_only"],
+        },
+        "research_contract": public_contract(contract),
+        "series": {
+            "instrument_id": row.get("instrument_id"),
+            "instrument_key": instrument_key,
+            "external_series_key": ticker,
+            "source_dataset_id": contract["source_dataset_id"],
+            "provider": contract["series_provider"],
+            "price_basis": "etf_total_return",
+            "horizon_minutes": 1440,
+        },
+        "state": {
+            "availability_status": availability,
+            "quality_status": "BLOCKED" if blockers else (
+                "PASS_WITH_WARNINGS" if instrument_contract["availability"] == "AVAILABLE_WITH_WARNINGS" else "PASS"
+            ),
+            "coverage_status": "BLOCKED" if blockers else "PASS_LOCKED_WINDOW",
+            "freshness_status": "NOT_APPLICABLE_FIXED_WINDOW",
+            "current_blockers": blockers,
+            "warnings": warnings,
+        },
+        "evidence": {
+            "row_count": row.get("row_count"),
+            "first_session_date": row.get("min_session_date"),
+            "last_session_date": row.get("max_session_date"),
+            "duplicate_count": row.get("duplicate_count"),
+            "null_or_nonpositive_count": row.get("null_or_nonpositive_count"),
+            "quality_fail_count": row.get("quality_fail_count"),
+            "quality_not_evaluated_count": row.get("quality_not_evaluated_count"),
+            "quality_warn_count": warn_rows,
+            "source_file_count": row.get("source_file_count"),
+            "source_file_sha256_values": source_file_hashes,
+            "source_manifest_sha256": expected_identity["source_manifest_sha256"],
+            "normalized_content_sha256": expected_identity["normalized_csv_sha256"],
+            "ordered_time_status": "PASS_PRIMARY_KEY_AND_ASCENDING_API_ORDER",
+            "provider_data_version": "NOT_APPLICABLE_NON_SAXO_TOTAL_RETURN_SOURCE",
+        },
+        "non_blocking_metadata": {
+            "legacy_or_current_namespace": row.get("is_current"),
+            "catalog_research_eligibility": row.get("research_eligibility"),
+            "publication_timestamp": "NOT_A_FIXED_WINDOW_GATE",
+        },
+    }
+
+
+def _full_history_context(
+    reader: QueryReader,
+    *,
+    instrument_key: str,
+    contract: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], list[str]]:
+    ticker = instrument_key.upper()
+    result_sets = reader.query_atomic(
+        (
+            (TOTAL_RETURN_CONTEXT_QUERY, ()),
+            (
+                TOTAL_RETURN_STATUS_QUERY,
+                (instrument_key, contract["source_dataset_id"], ticker),
+            ),
+        )
+    )
+    if len(result_sets) != 2 or len(result_sets[0]) != 1:
+        raise TotalReturnReadError("TOTAL_RETURN_INTEGRITY_FAILED", 503)
+    context = result_sets[0][0]
+    if (
+        context.get("database_name") != MARKET_DB
+        or context.get("role_name") != "saxo_app_reader"
+        or context.get("transaction_read_only") != "on"
+    ):
+        raise TotalReturnReadError("TOTAL_RETURN_INTEGRITY_FAILED", 503)
+    if len(result_sets[1]) != 1:
+        raise TotalReturnReadError("TOTAL_RETURN_MAPPING_NOT_FOUND", 404)
+    row = result_sets[1][0]
+    blockers: list[str] = []
+    if int(row.get("mapping_count") or 0) != 1:
+        blockers.append("INSTRUMENT_MAPPING_MISMATCH")
+    if row.get("external_series_key") != ticker or row.get("instrument_key") != instrument_key:
+        blockers.append("INSTRUMENT_IDENTITY_MISMATCH")
+    if row.get("dataset_kind") != "total_return" or row.get("price_basis") != "etf_total_return":
+        blockers.append("DATASET_OR_PRICE_BASIS_MISMATCH")
+    if int(row.get("canonical_horizon_minutes") or 0) != 1440:
+        blockers.append("HORIZON_MISMATCH")
+    if row.get("provider") != contract["catalog_provider"]:
+        blockers.append("PROVIDER_IDENTITY_MISMATCH")
+    identity = contract["identity"]
+    if row.get("source_manifest_relative_path") != identity["source_manifest_relative_path"]:
+        blockers.append("SOURCE_MANIFEST_PATH_MISMATCH")
+    if str(row.get("source_manifest_sha256") or "").strip() != identity["source_manifest_sha256"]:
+        blockers.append("SOURCE_MANIFEST_SHA256_MISMATCH")
+    try:
+        history = load_full_history_series(contract, ticker)
+    except TotalReturnContractError as exc:
+        raise TotalReturnReadError(str(exc), 503) from exc
+    return context, row, history, blockers
+
+
+def _full_history_total_return_status_payload(
+    reader: QueryReader,
+    *,
+    instrument_key: str,
+    contract: Mapping[str, Any],
+) -> dict[str, Any]:
+    context, row, history, blockers = _full_history_context(
+        reader, instrument_key=instrument_key, contract=contract
+    )
+    ticker = instrument_key.upper()
+    instrument_contract = contract["instruments"][ticker]
+    warnings = list(instrument_contract["approved_warning_codes"]) if not blockers else []
+    warnings.extend(
+        [
+            "FROZEN_RESEARCH_SOURCE_FRESHNESS_NOT_REQUIRED",
+            "STRATEGY_MANIFEST_OWNS_DATE_BOUNDARIES",
+        ]
+    )
+    availability = "BLOCKED" if blockers else instrument_contract["availability"]
+    return {
+        "api_version": API_VERSION,
+        "contract_revision": CONTRACT_REVISION,
+        "generated_at_utc": context["read_at_utc"],
+        "consistency": {
+            "snapshot_marker": context["snapshot_marker"],
+            "transaction_read_only": context["transaction_read_only"],
+            "state_revision": history["ordered_content_sha256"],
+        },
+        "research_contract": public_contract(contract),
+        "series": {
+            "instrument_id": row.get("instrument_id"),
+            "instrument_key": instrument_key,
+            "symbol": row.get("symbol"),
+            "category": row.get("category"),
+            "external_series_key": ticker,
+            "source_dataset_id": contract["source_dataset_id"],
+            "provider": contract["series_provider"],
+            "dataset_name": row.get("dataset_name"),
+            "price_basis": contract["price_basis"],
+            "horizon_minutes": contract["horizon_minutes"],
+        },
+        "mapping": {
+            "mapping_kind": row.get("mapping_kind"),
+            "mapping_reason": row.get("mapping_reason"),
+            "approved_at_utc": row.get("approved_at_utc"),
+            "approved_by": row.get("approved_by"),
+        },
+        "state": {
+            "availability_status": availability,
+            "quality_status": "BLOCKED" if blockers else (
+                "PASS_WITH_WARNINGS"
+                if instrument_contract["availability"] == "AVAILABLE_WITH_WARNINGS"
+                else "PASS"
+            ),
+            "coverage_status": "BLOCKED" if blockers else "PASS_FULL_AVAILABLE_HISTORY",
+            "freshness_status": "NOT_APPLICABLE_FROZEN_RESEARCH_SOURCE",
+            "current_blockers": blockers,
+            "warnings": warnings,
+        },
+        "evidence": {
+            "row_count": history["row_count"],
+            "first_session_date": history["first_session_date"],
+            "last_session_date": history["last_session_date"],
+            "duplicate_count": history["duplicate_count"],
+            "null_or_nonpositive_count": history["null_or_nonpositive_count"],
+            "quality_fail_count": 0,
+            "quality_not_evaluated_count": 0,
+            "quality_warn_count": history["quality_warn_count"],
+            "source_file_count": 1,
+            "source_file_sha256_values": [history["source_file_sha256"]],
+            "source_manifest_sha256": contract["identity"]["source_manifest_sha256"],
+            "ordered_content_sha256": history["ordered_content_sha256"],
+            "ordered_time_status": history["ordered_time_status"],
+            "provider_data_version": "NOT_APPLICABLE_NON_SAXO_TOTAL_RETURN_SOURCE",
+            "automatic_value_corrections": 0,
+        },
+        "non_blocking_metadata": {
+            "legacy_or_current_namespace": row.get("is_current"),
+            "catalog_research_eligibility": row.get("research_eligibility"),
+            "publication_timestamp": "NOT_A_FULL_HISTORY_RESEARCH_GATE",
+            "experiment_window": "SELECTED_BY_STRATEGY_MANIFEST",
+        },
+    }
+
+
+def _full_history_total_return_payload(
+    reader: QueryReader,
+    *,
+    instrument_key: str,
+    start: datetime,
+    end: datetime,
+    source_dataset_id: str | None,
+    limit: int,
+    eligibility: str,
+    research_contract_id: str | None,
+    contract: Mapping[str, Any],
+    cursor_payload: Mapping[str, Any] | None,
+    cursor_codec: CursorCodec | None,
+) -> dict[str, Any]:
+    validate_requested_window(contract, start.date(), end.date())
+    if source_dataset_id not in {None, contract["source_dataset_id"]}:
+        raise ValueError("source_dataset_id does not match research contract")
+    source_dataset_id = contract["source_dataset_id"]
+    expected_query = {
+        "instrument_key": instrument_key,
+        "start": json_value(start),
+        "end": json_value(end),
+        "source_dataset_id": source_dataset_id,
+        "limit": limit,
+        "eligibility": eligibility,
+        "usage_mode": "full_history_research",
+        "research_contract_id": research_contract_id,
+    }
+    if cursor_payload is not None:
+        if (
+            cursor_payload.get("kind") != "total-return"
+            or cursor_payload.get("query") != expected_query
+            or cursor_payload.get("source_dataset_id") != source_dataset_id
+        ):
+            raise CursorError("CURSOR_QUERY_MISMATCH", 409)
+        try:
+            after_date = date.fromisoformat(str(cursor_payload["last_session_date"]))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise CursorError("CURSOR_INVALID", 400) from exc
+    else:
+        after_date = None
+
+    status = _full_history_total_return_status_payload(
+        reader, instrument_key=instrument_key, contract=contract
+    )
+    if status["state"]["current_blockers"]:
+        raise TotalReturnReadError("TOTAL_RETURN_CONTRACT_QUALITY_FAILED", 503)
+    state_revision = status["consistency"]["state_revision"]
+    if cursor_payload is not None and cursor_payload.get("state_revision") != state_revision:
+        raise CursorError("CURSOR_EXPIRED", 409)
+    try:
+        history = load_full_history_series(contract, instrument_key)
+    except TotalReturnContractError as exc:
+        raise TotalReturnReadError(str(exc), 503) from exc
+    matching = select_full_history_rows(
+        history, start=start.date(), end=end.date(), after_date=after_date
+    )
+    if not matching:
+        raise TotalReturnReadError("TOTAL_RETURN_MAPPING_NOT_FOUND", 404)
+    truncated = len(matching) > limit
+    response_rows = matching[:limit]
+    next_cursor = None
+    if truncated and cursor_codec is not None:
+        next_cursor = cursor_codec.encode(
+            {
+                "version": 1,
+                "kind": "total-return",
+                "query": expected_query,
+                "source_dataset_id": source_dataset_id,
+                "state_revision": state_revision,
+                "last_session_date": response_rows[-1]["session_date"],
+            }
+        )
+    return {
+        "api_version": API_VERSION,
+        "contract_revision": CONTRACT_REVISION,
+        "generated_at_utc": status["generated_at_utc"],
+        "consistency": {
+            "read_at_utc": status["generated_at_utc"],
+            "snapshot_marker": status["consistency"]["snapshot_marker"],
+            "transaction_read_only": status["consistency"]["transaction_read_only"],
+            "mapping_count": 1,
+            "state_revision": state_revision,
+        },
+        "series": status["series"],
+        "mapping": status["mapping"],
+        "query": {
+            "instrument_key": instrument_key,
+            "start": start,
+            "end": end,
+            "source_dataset_id": source_dataset_id,
+            "limit": limit,
+            "eligibility": eligibility,
+            "usage_mode": "full_history_research",
+            "research_contract_id": contract["contract_id"],
+        },
+        "source": {
+            "research_eligibility": "FULL_HISTORY_RESEARCH",
+            "parity_status": "PASS",
+            "usage_mode": "full_history_research",
+            "research_contract_id": contract["contract_id"],
+            "freshness_required": False,
+            "total_return_definition": contract["total_return_definition"],
+            "source_file_sha256": history["source_file_sha256"],
+            "full_history_ordered_content_sha256": history["ordered_content_sha256"],
+        },
+        "warnings": status["state"]["warnings"],
+        "row_count": len(response_rows),
+        "truncated": truncated,
+        "next_cursor": next_cursor,
+        "ordered_content_sha256": ordered_content_sha256(response_rows),
+        "rows": response_rows,
+    }
+
+
 def total_return_payload(
     reader: QueryReader,
     *,
@@ -882,6 +1576,8 @@ def total_return_payload(
     source_dataset_id: str | None,
     limit: int,
     eligibility: str,
+    usage_mode: str = "current_operations",
+    research_contract_id: str | None = None,
     cursor_payload: Mapping[str, Any] | None = None,
     cursor_codec: CursorCodec | None = None,
 ) -> dict[str, Any]:
@@ -891,8 +1587,43 @@ def total_return_payload(
         raise ValueError("start must be earlier than end")
     if source_dataset_id is not None and len(source_dataset_id) > 128:
         raise ValueError("source_dataset_id is too long")
+    if usage_mode not in {
+        "current_operations",
+        "fixed_window_research",
+        "full_history_research",
+    }:
+        raise ValueError(
+            "usage_mode must be current_operations, fixed_window_research, or full_history_research"
+        )
     if eligibility not in {"eligible", "stored_complete"}:
         raise ValueError("eligibility must be eligible or stored_complete")
+
+    contract: dict[str, Any] | None = None
+    query_eligibility = eligibility
+    if usage_mode in {"fixed_window_research", "full_history_research"}:
+        contract = contract_for_request(research_contract_id, instrument_key)
+        if contract["usage_mode"] != usage_mode:
+            raise ValueError("usage_mode does not match research contract")
+    if usage_mode == "fixed_window_research":
+        validate_requested_window(contract, start.date(), end.date())
+        if source_dataset_id not in {None, contract["source_dataset_id"]}:
+            raise ValueError("source_dataset_id does not match research contract")
+        source_dataset_id = contract["source_dataset_id"]
+        query_eligibility = "stored_complete"
+    elif usage_mode == "full_history_research":
+        return _full_history_total_return_payload(
+            reader,
+            instrument_key=instrument_key,
+            start=start,
+            end=end,
+            source_dataset_id=source_dataset_id,
+            limit=limit,
+            eligibility=eligibility,
+            research_contract_id=research_contract_id,
+            contract=contract,
+            cursor_payload=cursor_payload,
+            cursor_codec=cursor_codec,
+        )
 
     if cursor_payload is not None:
         cursor_source_dataset_id = cursor_payload.get("source_dataset_id")
@@ -906,6 +1637,8 @@ def total_return_payload(
             "source_dataset_id": source_dataset_id,
             "limit": limit,
             "eligibility": eligibility,
+            "usage_mode": usage_mode,
+            "research_contract_id": research_contract_id,
         }
         if (
             cursor_payload.get("kind") != "total-return"
@@ -931,8 +1664,8 @@ def total_return_payload(
                     source_dataset_id,
                     start.date(),
                     end.date(),
-                    eligibility,
-                    eligibility,
+                    query_eligibility,
+                    query_eligibility,
                     after_date,
                     after_date,
                     limit + 1,
@@ -985,6 +1718,22 @@ def total_return_payload(
         if eligibility == "stored_complete"
         else []
     )
+    if contract is not None:
+        instrument_contract = contract["instruments"][instrument_key.upper()]
+        allowed_warning_codes = list(instrument_contract["approved_warning_codes"])
+        unexpected_statuses = {
+            str(row.get("quality_status"))
+            for row in response_rows
+            if row.get("quality_status") not in {"PASS", "WARN"}
+        }
+        if unexpected_statuses:
+            raise TotalReturnReadError("TOTAL_RETURN_CONTRACT_QUALITY_FAILED", 503)
+        if any(row.get("quality_status") == "WARN" for row in response_rows) and not allowed_warning_codes:
+            raise TotalReturnReadError("TOTAL_RETURN_CONTRACT_QUALITY_FAILED", 503)
+        warning_codes = allowed_warning_codes + [
+            "FIXED_WINDOW_FRESHNESS_NOT_REQUIRED",
+            "CATALOG_ELIGIBILITY_LABEL_RETAINED_AS_METADATA",
+        ]
     next_cursor = None
     if truncated and selected_rows and cursor_codec is not None and len(state_revision) == 64:
         next_cursor = cursor_codec.encode(
@@ -998,6 +1747,8 @@ def total_return_payload(
                     "source_dataset_id": mapping["source_dataset_id"],
                     "limit": limit,
                     "eligibility": eligibility,
+                    "usage_mode": usage_mode,
+                    "research_contract_id": research_contract_id,
                 },
                 "source_dataset_id": mapping["source_dataset_id"],
                 "state_revision": state_revision,
@@ -1038,10 +1789,16 @@ def total_return_payload(
             "source_dataset_id": source_dataset_id,
             "limit": limit,
             "eligibility": eligibility,
+            "usage_mode": usage_mode,
+            "research_contract_id": research_contract_id,
         },
         "source": {
             "research_eligibility": mapping["research_eligibility"],
             "parity_status": "PASS",
+            "usage_mode": usage_mode,
+            "research_contract_id": None if contract is None else contract["contract_id"],
+            "freshness_required": True if contract is None else False,
+            "total_return_definition": None if contract is None else contract["total_return_definition"],
         },
         "warnings": warning_codes,
         "row_count": len(response_rows),
@@ -1139,7 +1896,7 @@ def create_app(
         try:
             limit = parse_limit(request.args.get("limit"), MAX_OPERATION_ROWS)
             rows = operation_rows(selected_reader, command, limit)
-        except ValueError:
+        except (TotalReturnContractError, ValueError):
             return jsonify({"status": "FAILED", "error_code": "INVALID_REQUEST"}), 400
         return jsonify(
             json_value(
@@ -1169,11 +1926,29 @@ def create_app(
             return jsonify({"status": "FAILED", "error_code": "SERIES_NOT_FOUND"}), 404
         return jsonify(json_value(payload))
 
+    @app.get("/api/v1/service-status")
+    def service_status():
+        return jsonify(json_value(revision_service_status_payload(selected_reader)))
+
     @app.get("/api/v1/bars")
     def bars():
         try:
             instrument_key = request.args.get("instrument_key", "").strip().lower()
             layer = request.args.get("layer", "").strip().lower()
+            publication = candidate_publication_state(selected_reader, instrument_key)
+            if publication is not None and publication.get("publication_status") not in {
+                "STAGING", "PUBLISHED"
+            }:
+                return jsonify(
+                    json_value(
+                        {
+                            "status": "BLOCKED",
+                            "error_code": "SERIES_NOT_PUBLISHED",
+                            "instrument_key": instrument_key,
+                            "publication": publication,
+                        }
+                    )
+                ), 409
             start = parse_utc(request.args.get("start", ""), "start")
             end = parse_utc(request.args.get("end", ""), "end")
             limit = parse_limit(request.args.get("limit"), MAX_BAR_ROWS)
@@ -1251,6 +2026,10 @@ def create_app(
                 ),
                 limit=parse_limit(request.args.get("limit"), MAX_TOTAL_RETURN_ROWS),
                 eligibility=request.args.get("eligibility", "eligible").strip().lower(),
+                usage_mode=request.args.get("usage_mode", "current_operations").strip().lower(),
+                research_contract_id=(
+                    request.args.get("research_contract_id", "").strip() or None
+                ),
                 cursor_payload=cursor_payload,
                 cursor_codec=cursor_codec,
             )
@@ -1258,7 +2037,23 @@ def create_app(
             return jsonify({"status": "FAILED", "error_code": exc.code}), exc.http_status
         except TotalReturnReadError as exc:
             return jsonify({"status": "FAILED", "error_code": exc.code}), exc.http_status
-        except ValueError:
+        except (TotalReturnContractError, ValueError):
+            return jsonify({"status": "FAILED", "error_code": "INVALID_REQUEST"}), 400
+        return jsonify(json_value(payload))
+
+    @app.get("/api/v1/total-return-status")
+    def total_return_status():
+        try:
+            payload = total_return_status_payload(
+                selected_reader,
+                instrument_key=request.args.get("instrument_key", "").strip().lower(),
+                research_contract_id=(
+                    request.args.get("research_contract_id", "").strip() or None
+                ),
+            )
+        except TotalReturnReadError as exc:
+            return jsonify({"status": "FAILED", "error_code": exc.code}), exc.http_status
+        except (TotalReturnContractError, ValueError):
             return jsonify({"status": "FAILED", "error_code": "INVALID_REQUEST"}), 400
         return jsonify(json_value(payload))
 
@@ -1284,7 +2079,22 @@ def create_app(
             ORDER BY frozen_at_utc DESC, snapshot_id DESC
             """
         )
-        return jsonify(json_value({"datasets": datasets, "snapshots": snapshots}))
+        try:
+            research_contracts = [
+                public_contract(contract)
+                for contract in load_total_return_research_contracts()
+            ]
+        except TotalReturnContractError:
+            research_contracts = []
+        return jsonify(
+            json_value(
+                {
+                    "datasets": datasets,
+                    "snapshots": snapshots,
+                    "total_return_research_contracts": research_contracts,
+                }
+            )
+        )
 
     @app.get("/api/v1/layer-counts")
     def layer_counts():

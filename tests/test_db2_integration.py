@@ -46,7 +46,14 @@ def test_db2_market_counts_and_source_lineage():
                 "WHERE r.trigger='DB2_LEGACY_IMPORT'"
             )
             assert int(cursor.fetchone()[0]) == 90_894
-            cursor.execute("SELECT COUNT(*) FROM curated.etf_total_return_daily")
+            cursor.execute(
+                """
+                SELECT COUNT(*) FROM curated.etf_total_return_daily tr
+                JOIN catalog.source_dataset ds USING (source_dataset_id)
+                WHERE ds.dataset_kind='total_return'
+                  AND ds.research_eligibility='development_cutoff_only'
+                """
+            )
             assert int(cursor.fetchone()[0]) == 54_285
             cursor.execute(
                 "SELECT COUNT(*), SUM(sf.row_count) FROM ops.source_file sf "
@@ -80,7 +87,16 @@ def test_curated_and_quality_semantics():
             assert total > 0
             assert incomplete <= 13
             assert failed == 0
-            cursor.execute("SELECT quality_status, COUNT(*) FROM curated.etf_total_return_daily GROUP BY quality_status ORDER BY 1")
+            cursor.execute(
+                """
+                SELECT tr.quality_status,COUNT(*)
+                FROM curated.etf_total_return_daily tr
+                JOIN catalog.source_dataset ds USING (source_dataset_id)
+                WHERE ds.dataset_kind='total_return'
+                  AND ds.research_eligibility='development_cutoff_only'
+                GROUP BY tr.quality_status ORDER BY 1
+                """
+            )
             assert cursor.fetchall() == [("PASS", 54_283), ("WARN", 2)]
             cursor.execute("SELECT COUNT(*) FROM quality.event WHERE status='OPEN' AND rule_id='source_series_quality_gate'")
             assert int(cursor.fetchone()[0]) == 5

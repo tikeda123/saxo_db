@@ -18,6 +18,11 @@ from typing import Any, Callable, Iterable
 from urllib.parse import parse_qs, urlsplit
 
 from .connection import project_root
+from .periodic_update import (
+    ACTIVE_SCOPE_PROFILE,
+    CANDIDATE_READY_SCOPE_PROFILE,
+    candidate_scope_readiness,
+)
 from .periodic_update_service import start_service as start_periodic_service
 from .periodic_update_service import status_service as periodic_service_status
 from .periodic_update_service import stop_service as stop_periodic_service
@@ -38,6 +43,17 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def operator_periodic_scope_profile() -> str:
+    """Select the candidate scope only after its persisted activation gate passes."""
+
+    readiness = candidate_scope_readiness()
+    return (
+        CANDIDATE_READY_SCOPE_PROFILE
+        if readiness.get("status") == "PASS"
+        else ACTIVE_SCOPE_PROFILE
+    )
+
+
 def sanitized_line(value: str, token: str) -> str:
     selected = value.replace(token, "<redacted>") if token else value
     selected = _BEARER_PATTERN.sub("Bearer <redacted>", selected)
@@ -48,6 +64,14 @@ def child_environment(token: str) -> dict[str, str]:
     selected = os.environ.copy()
     selected.pop(TOKEN_ENVIRONMENT_KEY, None)
     selected[TOKEN_ENVIRONMENT_KEY] = token
+    return selected
+
+
+def oauth_child_environment() -> dict[str, str]:
+    """Inherit the AppKey but never hand a static access token to the OAuth job."""
+
+    selected = os.environ.copy()
+    selected.pop(TOKEN_ENVIRONMENT_KEY, None)
     return selected
 
 
@@ -80,15 +104,41 @@ class ReconcileJobManager:
         if not token or len(token) > 8_192 or any(ord(character) < 32 for character in token):
             raise InvalidAccessToken("有効なSaxo SIM tokenを入力してください。")
 
+        return self._start(
+            command=self._command,
+            environment=child_environment(token),
+            redaction_token=token,
+        )
+
+    def start_oauth(self, *, callback_port: int) -> dict[str, Any]:
+        if not 1_024 <= callback_port <= 65_535:
+            raise ValueError("callback port must be between 1024 and 65535")
+        return self._start(
+            command=(
+                *self._command,
+                "--auth-mode", "keychain",
+                "--callback-port", str(callback_port),
+            ),
+            environment=oauth_child_environment(),
+            redaction_token="",
+        )
+
+    def _start(
+        self,
+        *,
+        command: Iterable[str],
+        environment: dict[str, str],
+        redaction_token: str,
+    ) -> dict[str, Any]:
+        selected_command = tuple(command)
         with self._lock:
             if self._current is not None and self._current["status"] == "RUNNING":
                 raise JobAlreadyRunning("reconcile jobは既に実行中です。")
             job_id = f"db3-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{secrets.token_hex(4)}"
-            child_env = child_environment(token)
             process = self._popen_factory(
-                list(self._command),
+                list(selected_command),
                 cwd=self._cwd,
-                env=child_env,
+                env=environment,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -96,7 +146,6 @@ class ReconcileJobManager:
                 bufsize=1,
                 shell=False,
             )
-            child_env.pop(TOKEN_ENVIRONMENT_KEY, None)
             self._current = {
                 "job_id": job_id,
                 "status": "RUNNING",
@@ -109,7 +158,7 @@ class ReconcileJobManager:
             }
             worker = threading.Thread(
                 target=self._collect,
-                args=(job_id, process, token),
+                args=(job_id, process, redaction_token),
                 name=f"saxo-db-{job_id}",
                 daemon=True,
             )
@@ -208,7 +257,7 @@ def operator_html(csrf_token: str, script_nonce: str) -> bytes:
 </head>
 <body>
 <main>
-  <header><span class="badge">SIM / GET ONLY / LOOPBACK</span><h1>DB3 Reconciliation Operator</h1><p>DataVersion復旧、必要なfull-refetch、通常run連続2回を一つの固定jobで実行します。</p></header>
+  <header><span class="badge">SIM / GET ONLY / LOOPBACK</span><h1>DB3 Acquisition Operator</h1><p>定期取得と認証を管理します。DataVersion変更は警告として記録され、この画面から自動reconcileしません。</p></header>
   <section class="card">
     <h2>データ管理・可視化</h2>
     <p>管理中の商品、時系列データの意味、期間、品質、チャートを確認できます。</p>
@@ -217,6 +266,7 @@ def operator_html(csrf_token: str, script_nonce: str) -> bytes:
   <section class="card">
     <h2>無人定期更新</h2>
     <div class="notice">OAuthではrefresh credentialだけをmacOS Keychainへ保存します。access tokenはscheduler processのメモリだけで使用します。</div>
+    <div class="notice">現在の一時scopeはEURUSDとETF 11系列です。USDJPYはprovider品質問題の訂正版DataVersion確認まで取得対象外です。</div>
     <p>認証: <strong id="auth-state">確認中</strong> ／ scheduler: <strong id="periodic-state">確認中</strong></p>
     <button id="oauth-start" type="button">Saxo OAuth接続</button>
     <button id="periodic-start" type="button">定期更新を開始</button>
@@ -224,9 +274,14 @@ def operator_html(csrf_token: str, script_nonce: str) -> bytes:
     <p id="periodic-message" aria-live="polite"></p>
   </section>
   <section class="card">
-    <div class="notice">tokenはこのjobの子process環境だけで使用し、ファイル、DB、ログ、cookie、localStorageへ保存しません。</div>
-    <p><label for="token">Saxo SIM 24時間token</label><input id="token" type="password" autocomplete="new-password" spellcheck="false" autocapitalize="off"></p>
-    <button id="start" type="button">AI運用用 reconcile を開始</button>
+    <div class="notice">revisionの確認とデータ置換は分離されています。Read APIで警告と証跡をreviewし、承認記録後に専用CLIのapplyを明示実行してください。</div>
+    <button id="oauth-reconcile" type="button" disabled>自動reconcileは無効です</button>
+    <p id="oauth-reconcile-message" aria-live="polite">DataVersion検知だけではschedulerや系列を停止しません。</p>
+  </section>
+  <section class="card">
+    <div class="notice">汎用token入力によるreconcileもreview-first policyでは無効です。</div>
+    <p><label for="token">Saxo SIM token（reconcile用途は無効）</label><input id="token" type="password" autocomplete="new-password" spellcheck="false" autocapitalize="off" disabled></p>
+    <button id="start" type="button" disabled>自動reconcileは無効です</button>
     <p id="message" aria-live="polite"></p>
   </section>
   <section class="card">
@@ -248,6 +303,8 @@ const oauthStart = document.querySelector('#oauth-start');
 const periodicStart = document.querySelector('#periodic-start');
 const periodicStop = document.querySelector('#periodic-stop');
 const periodicMessage = document.querySelector('#periodic-message');
+const oauthReconcile = document.querySelector('#oauth-reconcile');
+const oauthReconcileMessage = document.querySelector('#oauth-reconcile-message');
 let pollTimer = null;
 
 function render(job) {{
@@ -255,7 +312,8 @@ function render(job) {{
   dot.className = `dot ${{job.status.toLowerCase()}}`;
   output.textContent = (job.output || []).join('\\n') || 'sanitized outputを待機しています。';
   output.scrollTop = output.scrollHeight;
-  startButton.disabled = job.status === 'RUNNING';
+  startButton.disabled = true;
+  oauthReconcile.disabled = true;
   if (job.status !== 'RUNNING' && pollTimer) {{ clearInterval(pollTimer); pollTimer = null; }}
 }}
 
@@ -310,6 +368,22 @@ periodicStop.addEventListener('click', async () => {{
     periodicMessage.textContent = `scheduler stop: ${{result.status}}`;
     await readOperationalStatus();
   }} catch (error) {{ periodicMessage.className='error'; periodicMessage.textContent=error.message; }}
+}});
+
+oauthReconcile.addEventListener('click', async () => {{
+  oauthReconcile.disabled = true;
+  oauthReconcileMessage.className = '';
+  oauthReconcileMessage.textContent = 'OAuth credentialから固定reconcile jobを登録しています…';
+  try {{
+    const result = await postOperation('/api/reconcile/oauth');
+    render(result);
+    oauthReconcileMessage.textContent = 'jobを開始しました。token値は保存・表示されません。';
+    if (!pollTimer) pollTimer = setInterval(readStatus, 2000);
+  }} catch (error) {{
+    oauthReconcileMessage.className='error';
+    oauthReconcileMessage.textContent=error.message;
+    oauthReconcile.disabled = false;
+  }}
 }});
 
 startButton.addEventListener('click', async () => {{
@@ -398,6 +472,9 @@ class OperatorState:
             raise SaxoAuthError("AUTHORIZATION_DENIED")
         return self.oauth_manager.complete_authorization(pending, code)
 
+    def start_reconcile_with_oauth(self) -> dict[str, Any]:
+        raise SaxoAuthError("REVISION_REVIEW_REQUIRED_USE_EXPLICIT_APPLY")
+
 
 def make_handler(state: OperatorState) -> type[BaseHTTPRequestHandler]:
     class OperatorRequestHandler(BaseHTTPRequestHandler):
@@ -475,7 +552,7 @@ def make_handler(state: OperatorState) -> type[BaseHTTPRequestHandler]:
 
         def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API.
             allowed_paths = {
-                "/api/reconcile", "/api/oauth/start",
+                "/api/reconcile", "/api/reconcile/oauth", "/api/oauth/start",
                 "/api/periodic/start", "/api/periodic/stop",
             }
             if self.path not in allowed_paths:
@@ -501,6 +578,13 @@ def make_handler(state: OperatorState) -> type[BaseHTTPRequestHandler]:
             if not 1 <= content_length <= MAX_REQUEST_BYTES:
                 self._json(413, {"error": "invalid request size"})
                 return
+            if self.path in {"/api/reconcile", "/api/reconcile/oauth"}:
+                self.rfile.read(content_length)
+                self._json(
+                    409,
+                    {"error": "REVISION_REVIEW_REQUIRED_USE_EXPLICIT_APPLY"},
+                )
+                return
             if self.path != "/api/reconcile":
                 try:
                     payload = json.loads(self.rfile.read(content_length))
@@ -508,8 +592,13 @@ def make_handler(state: OperatorState) -> type[BaseHTTPRequestHandler]:
                         raise ValueError
                     if self.path == "/api/oauth/start":
                         result = state.begin_oauth()
+                    elif self.path == "/api/reconcile/oauth":
+                        result = state.start_reconcile_with_oauth()
                     elif self.path == "/api/periodic/start":
-                        result = start_periodic_service(callback_port=state.port)
+                        result = start_periodic_service(
+                            callback_port=state.port,
+                            scope_profile=operator_periodic_scope_profile(),
+                        )
                     else:
                         result = stop_periodic_service()
                 except (json.JSONDecodeError, UnicodeDecodeError, ValueError):

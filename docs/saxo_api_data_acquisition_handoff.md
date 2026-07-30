@@ -193,7 +193,7 @@ Authorization header、cookie、request object全体、account fieldは保存し
 4. SHA-256、size、row count、request metadataをmanifestへ追加する。
 5. `Data[].Time`の最古timestampを`oldest`とする。
 6. 次ページは`Mode=UpTo, Time=oldest`で取得する。
-7. `UpTo`は境界sampleを再度含むため、`Uic + AssetType + Horizon + Time + price_basis`で重複排除する。
+7. `UpTo`は境界sampleを再度含むため、`Uic + AssetType + Horizon + Time + price_basis`で重複排除する。同一DataVersionでも次の古いpage末尾は部分形成値を返す場合があるため、request順で最初に取得した完成側sampleを保持し、後続境界sampleで上書きしない。両方のraw responseとSHA-256は保持する。
 8. 次のいずれかで停止する。
    - `Data`が空
    - 最古timestampが前ページから進まない
@@ -261,19 +261,19 @@ watermarkがない場合はinitial full acquisitionへrouteする。DB2直後は
 
 ## 10. `DataVersion`とhistorical correction
 
-Saxo公式Chart仕様では、`DataVersion`が変化した場合、そのinstrument/time horizonの全samplesを無効化して再取得する必要がある。
+Saxo公式Chart資料は、`DataVersion`が変化した場合、そのinstrument/time horizonの全samplesを無効化して再取得するよう記載している。本プロジェクトではprovider訂正の可能性を無視せず、future defaultを[`data_version_warning_review_policy_20260728.md`](data_version_warning_review_policy_20260728.md)とする。検知・証跡・警告と、review・実データ置換を分離し、検知だけではオンライン停止や自動再取得を行わない。
 
 処理規則:
 
 1. responseの`DataVersion`を`ops.watermark.data_version`と比較する。
 2. 同じ場合は通常のoverlap更新を続ける。
-3. 変化した場合は通常runを`BLOCKED_FULL_REFETCH_REQUIRED`で停止する。
-4. 対象instrumentの研究readを`STALE_DATA_VERSION`として一時停止する。
-5. 60分足全履歴を専用revision runで再取得する。
-6. 旧curatedと全期間比較し、変更rowをraw revisionとquality eventへ記録する。
-7. 全期間の品質gateがPASSした後だけcurated、derived、watermarkを一括更新する。
+3. 変化した場合は取得済みChart JSONをrevision evidenceとして隔離保存し、accepted curatedとの限定sample差分を記録する。
+4. eventを`REVIEW_PENDING / PENDING_REVIEW`、系列を`AVAILABLE_WITH_REVISION_WARNING`として公開する。watermarkは`ACTIVE`のaccepted versionを維持する。
+5. schedulerはslotをwarning付きPASSとして終了し、他instrumentを含め通常継続する。自動bounded reconcileとfull-refetchを行わない。
+6. operatorがevidenceをreviewし、current維持またはapply承認をreviewer・note・時刻とともに記録する。
+7. `APPROVE_APPLY`済みeventへ明示`apply`した場合だけ、再比較・guard後に対象instrumentのcurated、derived、watermarkをatomic更新する。
 
-DataVersion変化を「最新数十本だけの更新」で済ませない。ETFのsplit等で過去OHLC全体が変更される可能性がある。
+限定sampleは警告の重要度判断用であり、置換範囲の自動決定ではない。ETFのsplit等を示す広域変更でも自動applyせず、reviewで必要な追加調査と取引停止判断を行う。
 
 ### 10.1 full-refetch時の限定FX極値隔離
 

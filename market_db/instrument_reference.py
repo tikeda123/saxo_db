@@ -26,8 +26,9 @@ ALLOWED_OFFICIAL_SOURCE_HOSTS = frozenset(
 )
 EXPECTED_INSTRUMENT_KEYS = frozenset(
     {
-        "eem", "efa", "eurusd", "gld", "gold", "icom", "ief", "iwm", "lqd",
-        "shy", "spy", "tip", "tlt", "us500", "usdjpy", "us_treasury", "vnq", "wti",
+        "audusd", "eem", "efa", "eurusd", "gld", "gold", "icom", "ief", "iwm",
+        "lqd", "shy", "spy", "tip", "tlt", "us500", "usdcad", "usdchf",
+        "usdjpy", "us_treasury", "vnq", "wti",
     }
 )
 

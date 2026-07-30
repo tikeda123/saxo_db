@@ -1,0 +1,310 @@
+{
+  "acquisition": {
+    "database_ingestion_run_id": 824,
+    "endpoint": "/chart/v3/charts",
+    "environment": "SIM",
+    "http_method": "GET",
+    "orders_or_prechecks_sent": 0,
+    "parameters": {
+      "AssetType": "FxSpot",
+      "Count": 1200,
+      "FieldGroups": "Data,DisplayAndFormat,ChartInfo",
+      "Horizon": 60,
+      "Mode": "UpTo",
+      "Uic": 42
+    },
+    "request_count": 89,
+    "run_id": "20260727T070513Z-5786a3c7",
+    "write_request_count": 0
+  },
+  "classification": {
+    "forming_bar_caused_crossed_extrema": false,
+    "local_normalization_caused_crossed_extrema": false,
+    "provider_raw_content_anomaly": true,
+    "separate_local_page_merge_defect_found_and_fixed": true,
+    "session_boundary_exclusion_resolves_all": false
+  },
+  "content_quality": {
+    "by_field": {
+      "High": 123,
+      "Low": 122
+    },
+    "by_new_york_hour": {
+      "0": 4,
+      "1": 5,
+      "10": 12,
+      "11": 5,
+      "12": 7,
+      "13": 8,
+      "14": 17,
+      "15": 5,
+      "16": 19,
+      "17": 25,
+      "18": 35,
+      "19": 11,
+      "2": 8,
+      "20": 9,
+      "21": 9,
+      "22": 6,
+      "23": 9,
+      "3": 8,
+      "4": 10,
+      "5": 5,
+      "6": 5,
+      "7": 3,
+      "8": 9,
+      "9": 11
+    },
+    "by_year": {
+      "2010": 25,
+      "2011": 22,
+      "2012": 4,
+      "2013": 14,
+      "2014": 10,
+      "2015": 29,
+      "2016": 30,
+      "2017": 27,
+      "2018": 3,
+      "2019": 1,
+      "2020": 6,
+      "2021": 3,
+      "2022": 13,
+      "2023": 16,
+      "2024": 24,
+      "2025": 13,
+      "2026": 5
+    },
+    "crossed_extrema_unique_rows": 245,
+    "crossed_open_or_close_rows": 0,
+    "delta_equal_tick_size_rows": 164,
+    "delta_max": "0.294",
+    "delta_median": "0.001",
+    "delta_min": "0.001",
+    "earliest_crossed_time_utc": "2010-06-25T13:00:00Z",
+    "latest_crossed_time_utc": "2026-07-01T20:00:00Z",
+    "mid_ohlc_violation_rows": 0,
+    "nonpositive_rows": 0,
+    "outside_verified_calendar_expected_rows": 48,
+    "side_ask_ohlc_violation_rows": 0,
+    "side_bid_ohlc_violation_rows": 0,
+    "verified_calendar_expected_rows": 197
+  },
+  "generated_at_utc": "2026-07-27T08:18:52.198981Z",
+  "instrument": {
+    "asset_type": "FxSpot",
+    "horizon_minutes": 60,
+    "instrument_key": "usdjpy",
+    "price_basis": "bid_ask_mid",
+    "symbol": "USDJPY",
+    "tick_size": "0.001",
+    "uic": 42
+  },
+  "old_new_lineage": {
+    "new_anomaly_times_present_in_old_curated": 236,
+    "new_raw_data_version": 29738069,
+    "old_curated_crossed_rows_at_same_times": 0,
+    "old_curated_data_version_max": 29738065,
+    "old_curated_data_version_min": 29738065,
+    "previous_quarantine_overlap_rows": 9
+  },
+  "offline_replay_after_boundary_merge_fix": {
+    "latest_bar_is_complete": false,
+    "orders_or_prechecks_sent": 0,
+    "rejected_occurrences": 245,
+    "rejected_unique_rows": 245,
+    "status": "PASS_REPRODUCED_FAIL_CLOSED",
+    "unique_accepted_rows": 102317,
+    "validation_error_code": "FX_EXTREMA_QUARANTINE_ROW_LIMIT_EXCEEDED"
+  },
+  "operator_state": {
+    "managed": false,
+    "retry_without_provider_data_version_change": false,
+    "safe_to_publish_usdjpy_current": false,
+    "scheduler": "STOPPED"
+  },
+  "quarantine_contract": {
+    "decision": "REJECT_WHOLE_RUN_AND_ROLLBACK",
+    "forbidden_repairs": [
+      "swap",
+      "interpolate",
+      "clamp",
+      "overwrite",
+      "mix_old_and_new_data_versions"
+    ],
+    "maximum_fraction": 0.0001,
+    "maximum_unique_rows": 10,
+    "observed_unique_rows": 245,
+    "policy_id": "db3_bounded_fx_extrema_quarantine_v1"
+  },
+  "raw_integrity": {
+    "chart_info_variants": [
+      [
+        60,
+        0,
+        "2002-09-25T02:40:00Z"
+      ]
+    ],
+    "chart_pages": 86,
+    "chart_pages_sha256_verified": 86,
+    "chart_total_size_bytes": 19481992,
+    "data_versions": [
+      29738069
+    ],
+    "display_and_format_variants": [
+      [
+        "USDJPY",
+        2,
+        "Normal",
+        null
+      ]
+    ],
+    "run_manifest_relative_path": "data/acquisition/runs/20260727T070513Z-5786a3c7/run_manifest.json",
+    "run_manifest_sha256": "c18e72f3c5896c9aeafceeb7752729d70642fc41fc845b73db94fd7de789ece3",
+    "sensitive_keys_found": []
+  },
+  "representative_largest_deltas": [
+    {
+      "artifact_relative_path": "data/acquisition/runs/20260727T070513Z-5786a3c7/instruments/usdjpy/chart_0058.json",
+      "payload_sha256": "a3479dff6ba6201a7722db790c17f4744385f9c9f22aae0c61374329b6d2a3c1",
+      "time_utc": "2015-10-28T18:00:00Z",
+      "violations": [
+        {
+          "ask": "120.038",
+          "bid": "120.332",
+          "delta": "0.294",
+          "field": "Low"
+        }
+      ]
+    },
+    {
+      "artifact_relative_path": "data/acquisition/runs/20260727T070513Z-5786a3c7/instruments/usdjpy/chart_0058.json",
+      "payload_sha256": "a3479dff6ba6201a7722db790c17f4744385f9c9f22aae0c61374329b6d2a3c1",
+      "time_utc": "2015-10-30T03:00:00Z",
+      "violations": [
+        {
+          "ask": "120.311",
+          "bid": "120.479",
+          "delta": "0.168",
+          "field": "Low"
+        }
+      ]
+    },
+    {
+      "artifact_relative_path": "data/acquisition/runs/20260727T070513Z-5786a3c7/instruments/usdjpy/chart_0058.json",
+      "payload_sha256": "a3479dff6ba6201a7722db790c17f4744385f9c9f22aae0c61374329b6d2a3c1",
+      "time_utc": "2015-09-20T19:00:00Z",
+      "violations": [
+        {
+          "ask": "119.744",
+          "bid": "119.855",
+          "delta": "0.111",
+          "field": "Low"
+        }
+      ]
+    },
+    {
+      "artifact_relative_path": "data/acquisition/runs/20260727T070513Z-5786a3c7/instruments/usdjpy/chart_0058.json",
+      "payload_sha256": "a3479dff6ba6201a7722db790c17f4744385f9c9f22aae0c61374329b6d2a3c1",
+      "time_utc": "2015-09-04T12:00:00Z",
+      "violations": [
+        {
+          "ask": "118.601",
+          "bid": "118.683",
+          "delta": "0.082",
+          "field": "Low"
+        }
+      ]
+    },
+    {
+      "artifact_relative_path": "data/acquisition/runs/20260727T070513Z-5786a3c7/instruments/usdjpy/chart_0058.json",
+      "payload_sha256": "a3479dff6ba6201a7722db790c17f4744385f9c9f22aae0c61374329b6d2a3c1",
+      "time_utc": "2015-09-06T19:00:00Z",
+      "violations": [
+        {
+          "ask": "118.794",
+          "bid": "118.835",
+          "delta": "0.041",
+          "field": "Low"
+        }
+      ]
+    },
+    {
+      "artifact_relative_path": "data/acquisition/runs/20260727T070513Z-5786a3c7/instruments/usdjpy/chart_0053.json",
+      "payload_sha256": "1f92c0f0ca61c58773ca9f76a60d49fba8589aff267b0a78d377f26decc921b4",
+      "time_utc": "2016-09-02T20:00:00Z",
+      "violations": [
+        {
+          "ask": "103.914",
+          "bid": "103.947",
+          "delta": "0.033",
+          "field": "Low"
+        }
+      ]
+    },
+    {
+      "artifact_relative_path": "data/acquisition/runs/20260727T070513Z-5786a3c7/instruments/usdjpy/chart_0055.json",
+      "payload_sha256": "f3936f46e5bc2e89a12f84772966d9b8e64a416beb061d56a4602acbe2645c4a",
+      "time_utc": "2016-04-08T20:00:00Z",
+      "violations": [
+        {
+          "ask": "108.031",
+          "bid": "108.057",
+          "delta": "0.026",
+          "field": "Low"
+        }
+      ]
+    },
+    {
+      "artifact_relative_path": "data/acquisition/runs/20260727T070513Z-5786a3c7/instruments/usdjpy/chart_0054.json",
+      "payload_sha256": "24aa7eaee0339148512eed948cbf6dedbe96d24ad2b5799101fd2cc7cd28f0eb",
+      "time_utc": "2016-06-05T19:00:00Z",
+      "violations": [
+        {
+          "ask": "106.508",
+          "bid": "106.525",
+          "delta": "0.017",
+          "field": "Low"
+        }
+      ]
+    },
+    {
+      "artifact_relative_path": "data/acquisition/runs/20260727T070513Z-5786a3c7/instruments/usdjpy/chart_0055.json",
+      "payload_sha256": "f3936f46e5bc2e89a12f84772966d9b8e64a416beb061d56a4602acbe2645c4a",
+      "time_utc": "2016-04-10T21:00:00Z",
+      "violations": [
+        {
+          "ask": "108.134",
+          "bid": "108.149",
+          "delta": "0.015",
+          "field": "High"
+        }
+      ]
+    },
+    {
+      "artifact_relative_path": "data/acquisition/runs/20260727T070513Z-5786a3c7/instruments/usdjpy/chart_0056.json",
+      "payload_sha256": "a1522e740da32da17331a6b3828759647da315152bc6b3026b2c96f0ae93b3eb",
+      "time_utc": "2016-02-28T18:00:00Z",
+      "violations": [
+        {
+          "ask": "113.794",
+          "bid": "113.806",
+          "delta": "0.012",
+          "field": "Low"
+        }
+      ]
+    }
+  ],
+  "sample_audit": {
+    "earliest_time_utc": "2010-06-18T00:00:00Z",
+    "inclusive_boundary_duplicate_occurrences": 81,
+    "inclusive_boundary_numeric_conflicts": 81,
+    "latest_sample_crossed": false,
+    "latest_sample_is_forming": true,
+    "latest_time_utc": "2026-07-27T07:00:00Z",
+    "merge_policy_after_remediation": "retain_first_seen_full_sample; preserve raw responses unchanged",
+    "raw_observations": 102643,
+    "unique_sample_times": 102562
+  },
+  "schema_version": 1,
+  "status": "BLOCKED_PROVIDER_CONTENT_QUALITY"
+}

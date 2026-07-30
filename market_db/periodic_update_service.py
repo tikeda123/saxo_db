@@ -15,8 +15,15 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .connection import project_root
-from .periodic_update import load_state as load_scheduler_state
-from .periodic_update import runtime_dir
+from .periodic_update import (
+    ACTIVE_SCOPE_PROFILE,
+    CANDIDATE_READY_SCOPE_PROFILE,
+    SCHEDULER_SCOPES,
+    candidate_scope_readiness,
+    load_state as load_scheduler_state,
+    runtime_dir,
+    scheduler_scope,
+)
 from .read_api_preflight import (
     ProcessInfo,
     SystemReadinessProbe,
@@ -103,7 +110,9 @@ def _safe_child_environment() -> dict[str, str]:
     return selected
 
 
-def is_expected_process(info: ProcessInfo | None, *, callback_port: int) -> bool:
+def is_expected_process(
+    info: ProcessInfo | None, *, callback_port: int, scope_profile: str
+) -> bool:
     if info is None or info.cwd != str(project_root().resolve()):
         return False
     try:
@@ -119,15 +128,20 @@ def is_expected_process(info: ProcessInfo | None, *, callback_port: int) -> bool
         tokens[index:index + 2] == ["--callback-port", str(callback_port)]
         for index in range(max(0, len(tokens) - 1))
     )
-    return module_match and serve_match and port_match
+    scope_match = any(
+        tokens[index:index + 2] == ["--scope-profile", scope_profile]
+        for index in range(max(0, len(tokens) - 1))
+    )
+    return module_match and serve_match and port_match and scope_match
 
 
 def managed_process_matches(state: dict[str, Any] | None, info: ProcessInfo | None) -> bool:
     if state is None or info is None:
         return False
     port = state.get("callback_port")
+    scope_profile = state.get("scope_profile")
     return (
-        state.get("schema_version") == 1
+        state.get("schema_version") == 2
         and state.get("owner") == "saxo_db.periodic_update_service"
         and state.get("pid") == info.pid
         and state.get("cwd") == info.cwd
@@ -136,7 +150,10 @@ def managed_process_matches(state: dict[str, Any] | None, info: ProcessInfo | No
         )
         and state.get("command_sha256") == info.command_sha256
         and isinstance(port, int)
-        and is_expected_process(info, callback_port=port)
+        and isinstance(scope_profile, str)
+        and is_expected_process(
+            info, callback_port=port, scope_profile=scope_profile
+        )
     )
 
 
@@ -199,7 +216,24 @@ def _auth_readiness(callback_port: int) -> dict[str, Any]:
         }
 
 
-def start_service(*, callback_port: int = DEFAULT_CALLBACK_PORT) -> dict[str, Any]:
+def start_service(
+    *,
+    callback_port: int = DEFAULT_CALLBACK_PORT,
+    scope_profile: str = ACTIVE_SCOPE_PROFILE,
+) -> dict[str, Any]:
+    try:
+        scope = scheduler_scope(scope_profile)
+    except ValueError:
+        return _result("start", "BLOCKED_UNKNOWN_SCOPE_PROFILE", idempotent=False)
+    if scope_profile == CANDIDATE_READY_SCOPE_PROFILE:
+        readiness = candidate_scope_readiness()
+        if readiness.get("status") != "PASS":
+            return _result(
+                "start",
+                "BLOCKED_CANDIDATE_SCOPE_NOT_READY",
+                idempotent=False,
+                readiness=readiness,
+            )
     probe = SystemReadinessProbe()
     previous = _load_service_state()
     if previous is not None:
@@ -207,7 +241,16 @@ def start_service(*, callback_port: int = DEFAULT_CALLBACK_PORT) -> dict[str, An
         info = probe.process_info(pid) if isinstance(pid, int) else None
         if managed_process_matches(previous, info):
             previous = _migrate_matched_start_fingerprint(previous, info)
-            return _result("start", "PASS", idempotent=True, pid=pid, scheduler=load_scheduler_state())
+            if previous.get("scope_profile") != scope_profile:
+                return _result(
+                    "start", "BLOCKED_SCOPE_MISMATCH", idempotent=False,
+                    active_scope_profile=previous.get("scope_profile"),
+                    requested_scope_profile=scope_profile,
+                )
+            return _result(
+                "start", "PASS", idempotent=True, pid=pid,
+                scope=scope.public_dict(), scheduler=load_scheduler_state(),
+            )
         if info is not None:
             return _result("start", "BLOCKED_STALE_PID", idempotent=False)
         _remove_service_state()
@@ -222,6 +265,7 @@ def start_service(*, callback_port: int = DEFAULT_CALLBACK_PORT) -> dict[str, An
     command = [
         sys.executable, "-m", "market_db.periodic_update", "serve",
         "--callback-port", str(callback_port),
+        "--scope-profile", scope_profile,
     ]
     descriptor = os.open(log_path(), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     try:
@@ -240,15 +284,19 @@ def start_service(*, callback_port: int = DEFAULT_CALLBACK_PORT) -> dict[str, An
         return _result("start", "FAILED_SERVICE_START", idempotent=False)
 
     info = _wait_process(probe, process.pid)
-    if info is None or not is_expected_process(info, callback_port=callback_port):
+    if info is None or not is_expected_process(
+        info, callback_port=callback_port, scope_profile=scope_profile
+    ):
         process.terminate()
         return _result("start", "FAILED_SERVICE_IDENTITY", idempotent=False)
     service_state = {
-        "schema_version": 1,
+        "schema_version": 2,
         "owner": "saxo_db.periodic_update_service",
         "pid": info.pid,
         "cwd": info.cwd,
         "callback_port": callback_port,
+        "scope_profile": scope_profile,
+        "scheduler_scope": scope.public_dict(),
         "start_fingerprint": info.start_fingerprint,
         "command_sha256": info.command_sha256,
         "started_at_utc": _utc_now(),
@@ -266,7 +314,7 @@ def start_service(*, callback_port: int = DEFAULT_CALLBACK_PORT) -> dict[str, An
         ):
             return _result(
                 "start", "PASS", idempotent=False, pid=process.pid,
-                auth=auth, scheduler=scheduler,
+                auth=auth, scope=scope.public_dict(), scheduler=scheduler,
             )
         if process.poll() is not None:
             break
@@ -319,9 +367,17 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Manage unattended Saxo periodic updates")
     parser.add_argument("operation", choices=("start", "status", "stop"))
     parser.add_argument("--callback-port", type=int, default=DEFAULT_CALLBACK_PORT)
+    parser.add_argument(
+        "--scope-profile",
+        choices=tuple(SCHEDULER_SCOPES),
+        default=ACTIVE_SCOPE_PROFILE,
+    )
     args = parser.parse_args(list(argv) if argv is not None else None)
     if args.operation == "start":
-        result = start_service(callback_port=args.callback_port)
+        result = start_service(
+            callback_port=args.callback_port,
+            scope_profile=args.scope_profile,
+        )
     elif args.operation == "stop":
         result = stop_service()
     else:

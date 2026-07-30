@@ -187,7 +187,7 @@ AI側にtokenをchatやtool引数で渡さずlive gateを実行する場合は�
 .venv/bin/python -m market_db.operator_ui
 ```
 
-`http://127.0.0.1:8765/`を開き、ユーザーがpassword欄へSaxo SIM tokenを入力する。以降はAIが画面の開始ボタン、進捗、完了状態を操作・監視できる。UIが起動するのは固定コマンド`.venv/bin/python -m market_db.incremental_update reconcile`相当だけで、任意command、instrument key、shell文字列を受け付けない。
+`http://127.0.0.1:8765/`はOAuthとschedulerの管理に使う。review-first policyではpassword欄と汎用reconcile endpointを無効化し、`REVISION_REVIEW_REQUIRED_USE_EXPLICIT_APPLY`で拒否する。DataVersion warningは8766のRead APIで証跡を確認し、reviewer・note付きのapprovalを別操作で記録した後だけ、event IDとinstrumentを固定した`data_version_reconcile apply`を使う。任意command、任意shell文字列、未承認eventは受け付けない。
 
 安全境界:
 
@@ -202,7 +202,7 @@ token入力前の画面表示、空入力拒否、`/health`、`IDLE` statusは�
 
 ### 10.2 OAuth・無人定期更新
 
-定期運用では24時間tokenを使わずOAuth PKCEを使用する。Developer PortalのSIMアプリに`http://localhost:8765/saxo/oauth/callback`を登録し、AppKeyをoperator UIの起動環境へ設定する。AppKeyはOAuth client IDでありtokenではないが、Gitへ固定しない。
+定期運用では24時間tokenを使わずOAuth PKCEを使用する。Developer PortalのSIMアプリには`http://localhost/saxo/oauth/callback`（portなし）を登録し、AppKeyをoperator UIの起動環境へ設定する。実行時callbackは`http://localhost:8765/saxo/oauth/callback`であり、SaxoのPKCE仕様に従って登録済みdomain/pathへ任意portで戻す。AppKeyはOAuth client IDでありtokenではないが、Gitへ固定しない。
 
 ```bash
 export SAXO_OAUTH_APP_KEY='<SIM application key>'
@@ -214,8 +214,10 @@ export SAXO_OAUTH_APP_KEY='<SIM application key>'
 ```bash
 .venv/bin/python -m market_db.saxo_auth login --callback-port 8765
 .venv/bin/python -m market_db.saxo_auth status --callback-port 8765
-.venv/bin/python -m market_db.periodic_update schedule
-.venv/bin/python -m market_db.periodic_update_service start --callback-port 8765
+.venv/bin/python -m market_db.periodic_update schedule \
+  --scope-profile all_except_usdjpy_provider_quarantine_20260727
+.venv/bin/python -m market_db.periodic_update_service start --callback-port 8765 \
+  --scope-profile all_except_usdjpy_provider_quarantine_20260727
 .venv/bin/python -m market_db.periodic_update_service status
 ```
 
@@ -223,13 +225,48 @@ export SAXO_OAUTH_APP_KEY='<SIM application key>'
 
 - refresh credentialとPKCE verifierだけをmacOS Keychainへ保存する。
 - access tokenはscheduler process memoryだけで保持する。
-- SPY、IWM、EFA、EEM、VNQ、EURUSDだけをSLA優先profileとして取得する。
+- OAuth reconcileは各normal/full-refetch step前にaccess tokenを取得し、full-refetch前は強制refreshする。20分access tokenを13系列の全reconcileへ固定しない。
+- 一時scope `all_except_usdjpy_provider_quarantine_20260727`はEURUSDとETF 11系列だけを有効にし、USDJPYを`BLOCKED_PROVIDER_CONTENT_QUALITY`として除外する。正本は`specs/source_collection/periodic_scheduler_scope_v1.json`、実行値はservice／scheduler stateの`scheduler_scope`で照合する。
+- XNYS regular slotは株式・REIT（SPY、IWM、EFA、EEM、VNQ）、債券・Credit（SHY、IEF、TLT、TIP、LQD）、Gold（GLD）をinstrument lane別transactionで取得する。あるinstrumentのblockerで同category内の他instrumentも停止しない。
+- FX hourly slotはSBFX 24x5 calendarでEURUSDだけを取得する。USDJPYは訂正版DataVersion確認、guard付きfull-refetch PASS、通常run連続2回PASSまでscheduleへ戻さない。
+- USDJPYの隔離中監視は全履歴取得ではなく、専用の`usdjpy_version_watch`を使う。`status`はDB read-only、`probe`はSaxo Chartを`Count=1`で1回だけGETする。同じ既知quarantine DataVersionならrawを追加保存せず、新versionだけをisolated provider evidenceとして保存する。curated、raw DB、watermark、publicationは変更せず、full-refetchも開始しない。
+
+```bash
+.venv/bin/python -m market_db.usdjpy_version_watch status
+.venv/bin/python -m market_db.usdjpy_version_watch probe \
+  --auth-mode keychain --callback-port 8765
+```
+
+`NEW_PROVIDER_DATA_VERSION_REVIEW_REQUIRED`はfull-refetchの自動許可ではない。sanitized evidenceをreviewし、対象USDJPYだけのguarded full-refetch実行可否を別途承認する。
 - ETFはDBのXNYS sessionで各完成可能1H終了15秒後に開始し、第1barは10:33 ETをdeadlineとする。
 - EURUSDは毎UTC時03分に開始し、時10分をdeadlineとする。
 - expected watermark未到達は`DATA_NOT_READY`とし、data quality FAILにしない。
-- 401は強制refresh後1回再試行する。DataVersion変更は対象1系列だけguard付きfull-refetchする。
+- 401は強制refresh後1回再試行する。network、429、`DATA_NOT_READY`は最大4 attemptで打ち切る。
+- DataVersion変更単独はterminal blockerではない。future policyでは`REVIEW_PENDING` eventと限定sample evidenceを保存し、schedulerはslotを警告付き`PASS`として終了して次laneへ進む。`RUNNING_DEGRADED`、category停止、service停止へ遷移しない。
+- 新versionのChart JSONはimmutable revision evidenceとして保持するが、明示applyまではstaging、raw market revision、curated、watermark、4H/1Dへ書き込まない。accepted freshnessはwatermark基準、新provider evidence時刻は別fieldとして表示する。
+- reviewとapplyは別操作である。旧`run` commandとOperator UIの汎用reconcileは使用しない。詳細は[`data_version_warning_review_policy_20260728.md`](data_version_warning_review_policy_20260728.md)を参照する。
+
+```bash
+.venv/bin/python -m market_db.data_version_reconcile review \
+  --revision-event-id <event-id> --decision APPROVE_APPLY \
+  --reviewer '<operator-id>' --note '<承認根拠>'
+.venv/bin/python -m market_db.data_version_reconcile apply \
+  --instrument-key eurusd --revision-event-id <event-id> \
+  --confirm APPLY_RECONCILE --auth-mode keychain --callback-port 8765
+```
+
+- full-refetch PASS後は同じ明示scopeでschedulerを再開し、通常slotのwatermark gate PASSを確認する。canonical全体reconcileでprovider隔離中のUSDJPYを巻き込まない。
 - `.runtime/periodic_update/`のstate/logは0600、Git管理外で、token値を含めない。
 - `total_return.status=BLOCKED_SOURCE_PROVIDER_NOT_CONFIGURED`の間はtotal-return jobをscheduleしない。
+
+FX gap分類:
+
+```bash
+.venv/bin/python -m market_db.fx_gap_report \
+  --output-dir manifests/fx_gap_classification
+```
+
+`SBFX_24X5`のverified完成足slotとcurated 1Hをanti-joinし、raw revision、成功run範囲、quarantine eventを同一repeatable-read snapshotで照合する。JSON/CSVには全missing timestamp、cause、owner、必要証拠、blocking判定を残す。日曜17時以降New Yorkは月曜FX sessionの正規開始なので、曜日だけでweekend closureに分類しない。価格の補間、forward fill、別provider、反対sideからの生成は禁止する。
 
 停止とcredential削除:
 
@@ -240,7 +277,7 @@ export SAXO_OAUTH_APP_KEY='<SIM application key>'
 
 `logout`はKeychainのrefresh credentialを削除する。DB、raw artifact、ingestion run、watermarkを削除しない。LaunchAgentは実credentialと3取引日のSLA受入が完了するまでinstallしない。
 
-手動canonical runは13系列すべて、S6V5A定期runは固定6系列を単一transactionで処理する。Etfは最新完成実バーから20本、FxSpotは72本をoverlapし、境界を含む`Mode=From`結果を重複排除する。raw JSONは`data/acquisition/runs/<run-id>/`へatomic保存するがGit管理外で、AccountKey、ClientKey、TradableOn等は除去する。smoke response bodyは保存しない。
+手動canonical runは13系列すべて、S6V5A定期runは固定6系列を単一transactionで処理する。Etfは最新完成実バーから20本、FxSpotは72本をoverlapし、境界を含む`Mode=From`結果を重複排除する。full-refetchの`Mode=UpTo`境界で値が異なる重複sampleが返る場合は、request順で最初に取得した完成側sampleを保持し、次の古いpage末尾の部分形成sampleで上書きしない。両raw JSONは変更せず保持する。raw JSONは`data/acquisition/runs/<run-id>/`へatomic保存するがGit管理外で、AccountKey、ClientKey、TradableOn等は除去する。smoke response bodyは保存しない。
 
 正常時はraw revision、curated latest、watermark、4H/1D、run statusが同時にcommitされる。品質失敗時はこれらをrollbackし、取得済みraw artifact、sanitized error code、OPEN quality eventだけを残す。直後の2回目runは、新しい完成足がなければ新規行0、形成中sampleの変化は最大1行/銘柄までを許容する。
 
@@ -252,19 +289,21 @@ export SAXO_OAUTH_APP_KEY='<SIM application key>'
 - `BLOCKED_RATE_LIMIT`: 有限retry後も429。runを連打せずreset後に再実行する。
 - `FAILED_NETWORK`: timeout・接続切断等がGET限定の1/2/4秒・最大4attempt retry後も継続した。Saxo疎通を確認し、同じsession-only tokenで`reconcile`を再実行する。
 - `BLOCKED_INSTRUMENT_DRIFT`: UIC、AssetType、Symbol、Currency不一致。自動代替しない。
-- `BLOCKED_FULL_REFETCH_REQUIRED`: DataVersion変化。通常runを続けず、出力とrun manifestの`failed_instrument_key`で対象銘柄を確認する。
+- `DATA_VERSION_REVISION_REVIEW_PENDING`: DataVersion変化を検知し、証跡を保存した非停止warning。current curated、水位、派生足は不変。Read APIのrevision eventをreviewする。
+- `BLOCKED_REVISION_SCOPE_UNRESOLVED_FULL_REFETCH_REQUIRED`: 96→384→1200本で訂正境界を限定できない。対象instrumentだけをguard付きfull refetchへ送る。
 
 DataVersion block後の対象1銘柄だけ、guard付きfull refetchを使える。`data_status=STALE_DATA_VERSION`でない場合、procedureは削除前に拒否する。取得履歴が既存最古時刻まで届かなければtransactionをrollbackする。
 
 ```bash
 python3 -m market_db.inspect freshness --format json
-python3 -m market_db.incremental_update full-refetch --instrument-key spy
+python3 -m market_db.data_version_reconcile review --revision-event-id <event-id> \
+  --decision KEEP_CURRENT --reviewer '<operator-id>' --note '<判断根拠>'
 python3 -m market_db.incremental_update run
 python3 -m market_db.incremental_update reconcile
 python3 -m market_db.incremental_update status
 ```
 
-`full-refetch`は`Mode=UpTo`で全ページを取得し、old raw revisionを保持したままcuratedを再構築する。手動DELETE、watermarkの直接更新、DataVersion差の無視は禁止する。
+通常の第一選択はreconcileではなく、警告証跡のreviewである。DataVersion差を無視せず記録する一方、review承認前にcuratedを変更しない。`apply`は`APPROVE_APPLY`済みevent、instrument、old/new version、accepted watermarkが一致する場合だけ使う。手動DELETE、watermarkの直接更新、自動full-refetchは禁止する。
 `status`はread-only transactionで通常runの状態別件数とwatermark状態別件数だけを返し、DBを変更しない。
 
 FxSpotのfull-refetchでは、過去のHigh/Low極値だけに交差があるrowを最大10件かつ全unique観測の0.01%以下に限って自動隔離する。これは値の修正ではない。raw JSONとSHA-256を保持し、rowをraw revision・curated・派生足から除外し、成功runの`rejected_rows`と`db3_fx_crossed_extrema_quarantine`の解決済みWARNへ記録する。最新sample、Open/Close交差、欠損、OHLC違反、件数・比率超過、重複矛盾は全runをFAILする。operatorはBid/Askのswap、補間、clamp、手動DELETEで回避してはならない。
@@ -278,9 +317,64 @@ python3 -m market_db.inspect quality --format json
 
 run JSONの`rejected_rows`、quality eventのtimestamp・元Bid/Ask・raw artifact相対path・payload SHA-256を照合する。WARNが解決済みのためopen event viewに出ない場合は、対象runのmanifestとDBの`ops.ingestion_run`を基準にし、任意SQLを一般readerへ許可しない。
 
-複数銘柄で`DataVersion`が変化している場合は、tokenを保持する同一terminalまたはlocal operator UIで`reconcile`を1回起動する。開始時点で既に`STALE_DATA_VERSION`のwatermarkがあれば先に復旧する。通常runが`BLOCKED_FULL_REFETCH_REQUIRED`を返した場合は、`failed_instrument_key`の1銘柄にguard付き`full-refetch`を実行する。競合runにより`BLOCKED_CANONICAL_WATERMARK_SET`となった場合もSTALE watermarkを再読込する。同一銘柄の再変化、別の停止code、refetch失敗では直ちに停止する。全銘柄の復旧後はcanonical 13の通常runを連続2回`PASS`させる。各内部runは独立したmanifestを保持し、進捗はtokenを含まないJSONとして表示する。処理は全履歴再構築を含むため長時間になり得るが、tokenをfileやDBへ保存しない。
+複数銘柄で`DataVersion`が変化しても、各instrumentのwarning eventとevidence sampleを独立して追記し、schedulerは全laneを継続する。applyが必要と判断されたeventだけを1銘柄ずつ明示承認し、Keychainのrotating refresh credentialからaccess tokenをprocess memoryへ取得する。各runは独立したmanifestを保持し、tokenをfileやDBへ保存しない。
 
 `manifests/db3_implementation_manifest.json`の派生足件数はoffline実装時点の固定証跡であり、live DBの恒久的な件数制約ではない。validatorはmanifestに非空・quality FAIL 0のbaselineが記録されていることを検査し、現在DBについては別途、派生足が非空・quality FAIL 0・canonical watermark整合であることを検査する。正常な増分取得やfull-refetchで行数が変化しても、固定baselineとの不一致だけを理由にoffline gateをFAILにしない。
+
+### 10.3 FX研究候補のオンボーディング
+
+AUDUSD、USDCAD、USDCHFはcanonical 13およびUSDJPY復旧とは分離した候補datasetで扱う。migration `0026`適用後も初期状態は`CANDIDATE`で、candidate schedulerは起動しない。
+
+状態確認:
+
+```bash
+.venv/bin/python -m market_db.fx_candidate_onboarding status
+```
+
+全履歴取得は1ペアずつ行う。既存EURUSD/ETF slotの直前を避け、正規schedulerがRUNNING、AUTH_READY、orders/prechecks=0であることを先に確認する。
+
+```bash
+.venv/bin/python -m market_db.periodic_update_service status
+.venv/bin/python -m market_db.fx_candidate_onboarding onboard \
+  --instrument-key audusd --auth-mode keychain --callback-port 8765
+```
+
+`onboard`はSaxo GETだけを用い、UpTo全pageをimmutable rawへ保存してから、単一DataVersion、page境界、UTC順序、重複、null、非正値、Bid/Ask両side OHLC、交差、coverage/gap、freshness、open quality eventを検査する。PASSしたペアだけ`STAGING`となる。認証・HTTP・timeoutはinterface/operationalであり、content quality FAILへ読み替えない。
+
+通常更新の受入は一度のコマンドで1回だけ行う。同時刻の再実行は合格回数に数えず、`latest_complete_time_utc`が前回受入時刻より前進した場合だけ連続PASSを加算する。
+
+```bash
+.venv/bin/python -m market_db.fx_candidate_onboarding accept \
+  --instrument-key audusd --auth-mode keychain --callback-port 8765
+```
+
+1回目は`STAGING / consecutive_normal_passes=1`、別の完成1Hが公開された後の2回目で`PUBLISHED / 2`となる。未前進は`DATA_NOT_READY_CANDIDATE_WATERMARK_NOT_ADVANCED`として保留し、quality FAILにしない。1ペアの失敗はそのinstrumentだけを`BLOCKED`にし、EURUSD、ETF11、他候補、USDJPYへ波及させない。
+
+全3ペアが`PUBLISHED / 2`、consumer availability
+`AVAILABLE_WITH_WARNINGS`、承認済みresearch policy、quality WARN、coverage WARN、
+freshness PASS、blockerなしの場合だけ、dormant profile
+`all_except_usdjpy_with_fx_research_candidates_20260727`を開始候補にできる。
+ここでWARNは一般的な品質gate緩和ではなく、ユーザー承認済みの限定契約がDBと
+Read APIへ一致している場合だけ認める。候補は`fx_research_candidates_hourly`の
+単一instrument slot（UTC時06分due、15分deadline）で分離される。既存active
+profileを自動で切り替えず、USDJPYを含めない。
+
+現在の研究契約では、AUDUSDの既知extrema 14件をrawのまま保持し、curatedから
+無補間で除外する。14件のfingerprint、件数、期間、High/Low fieldのいずれかが
+変わった場合は自動で再reviewへ戻す。USDCAD/USDCHFのeffective coverage startは
+`2010-06-18T00:00:00Z`で、provider表示の2002年からの空白を補間しない。AUDUSDの
+effective startは実取得で確認した`2003-05-12T00:00:00Z`である。
+
+`SAXO_OAUTH_APP_KEY`が実行processにない場合は`AUTH_CONFIG_MISSING`でDB変更前に停止する。値をchat・logへ出さず、必要ならAppKeyを保持しているterminalから次のprocess環境へ設定する。refresh credentialやaccess tokenはlaunchdへ設定しない。
+
+Operator UIの「定期更新を開始」は、3候補の永続化済みactivation gateがPASSなら
+candidate profileを選び、未達なら従来のUSDJPY除外profileを選ぶ。画面操作だけで
+gateを上書きできない。CLIでcandidate profileを明示しても、service startとdaemon
+startの両方が同じgateを再検証する。
+
+```bash
+launchctl setenv SAXO_OAUTH_APP_KEY "$SAXO_OAUTH_APP_KEY"
+```
 
 ## 11. DB4 Read API・backup・export
 

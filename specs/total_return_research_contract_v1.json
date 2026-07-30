@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "contract_id": "etf11_fixed_window_20260712_v1",
+  "status": "ACTIVE",
+  "usage_mode": "fixed_window_research",
+  "source_dataset_id": "20260712T135236Z",
+  "catalog_provider": "Yahoo Finance and FRED",
+  "series_provider": "Yahoo Finance chart endpoint",
+  "dataset_kind": "total_return",
+  "price_basis": "etf_total_return",
+  "horizon_minutes": 1440,
+  "currency": "USD",
+  "window": {
+    "first_session_date": "2004-11-18",
+    "last_session_date": "2024-06-28",
+    "rows_per_instrument": 4935,
+    "freshness_required": false,
+    "freshness_status": "NOT_APPLICABLE_FIXED_WINDOW"
+  },
+  "identity": {
+    "provider_data_version_applicable": false,
+    "provider_revision_identity": "immutable_raw_sha256_per_instrument",
+    "source_manifest_relative_path": "manifests/etf11_source_dataset_manifest.json",
+    "source_manifest_sha256": "57377bcd1ca13eaf5b9150ac77c2929efed3a177f9dcdd4bed6fb83ed8db2758",
+    "quality_evidence_relative_path": "manifests/etf11_quality_gate.json",
+    "quality_evidence_sha256": "7902f4cf56eec7101b8d60c776060764335603c44a2473bbb63d63f92eb2899d",
+    "normalized_csv_relative_path": "data/import/daily/curated_etf_total_return/etf_daily.csv",
+    "normalized_csv_sha256": "429c59d891f11b2d25475a17bab4306088b77454fb8af3a88bd01ad7dbdc4998"
+  },
+  "total_return_definition": {
+    "definition_id": "yahoo_adjusted_close_normalized_100_v1",
+    "description": "Provider adjusted close normalized to 100; provider dividends and splits are retained for audit and are not added a second time.",
+    "unadjusted_price_masquerading_as_total_return": false
+  },
+  "non_blocking_metadata": [
+    "legacy_or_current_namespace",
+    "publication_timestamp",
+    "catalog_research_eligibility_label",
+    "freshness_beyond_locked_window"
+  ],
+  "blocking_gates": [
+    "provider_revision_or_content_identity_mismatch",
+    "instrument_or_horizon_mismatch",
+    "raw_or_derived_lineage_mismatch",
+    "corrupt_missing_duplicate_or_ordered_time_anomaly",
+    "unreviewed_provider_content_anomaly",
+    "unknown_total_return_definition"
+  ],
+  "instruments": {
+    "SPY": {"availability": "AVAILABLE", "approved_warning_codes": []},
+    "IWM": {"availability": "AVAILABLE", "approved_warning_codes": []},
+    "EFA": {"availability": "AVAILABLE", "approved_warning_codes": []},
+    "EEM": {
+      "availability": "AVAILABLE_WITH_WARNINGS",
+      "approved_warning_codes": ["PROVIDER_DAILY_TOTAL_RETURN_OUTLIER_RETAINED_UNMODIFIED"],
+      "warning_evidence": {"quality_warn_rows": 2, "automatic_corrections": 0}
+    },
+    "VNQ": {"availability": "AVAILABLE", "approved_warning_codes": []},
+    "SHY": {"availability": "AVAILABLE", "approved_warning_codes": []},
+    "IEF": {"availability": "AVAILABLE", "approved_warning_codes": []},
+    "TLT": {"availability": "AVAILABLE", "approved_warning_codes": []},
+    "TIP": {"availability": "AVAILABLE", "approved_warning_codes": []},
+    "LQD": {"availability": "AVAILABLE", "approved_warning_codes": []},
+    "GLD": {"availability": "AVAILABLE", "approved_warning_codes": []}
+  }
+}

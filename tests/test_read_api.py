@@ -345,7 +345,9 @@ def test_snapshot_bars_fail_closed_for_layer_unknown_snapshot_and_integrity():
     assert response.get_json()["error_code"] == "SNAPSHOT_SERIES_NOT_FOUND"
 
 
-def _total_return_responses(*, mapping_count=1, quality_status="PASS"):
+def _total_return_responses(
+    *, mapping_count=1, quality_status="PASS", ticker="IWM", instrument_key="iwm"
+):
     read_at = datetime(2026, 7, 20, tzinfo=timezone.utc)
     return [
         [{
@@ -357,19 +359,20 @@ def _total_return_responses(*, mapping_count=1, quality_status="PASS"):
         }],
         [{
             "source_dataset_id": "20260712T135236Z",
-            "external_series_key": "IWM",
+            "external_series_key": ticker,
             "instrument_id": 6,
             "mapping_kind": "TICKER_EXACT",
             "mapping_reason": "explicit review",
             "approved_at_utc": read_at,
             "approved_by": "codex-dmi3-20260720",
-            "instrument_key": "iwm",
-            "symbol": "IWM:arcx",
+            "instrument_key": instrument_key,
+            "symbol": f"{ticker}:arcx",
             "category": "equity_reit",
             "dataset_name": "ETF11 curated total-return daily",
             "provider": "Yahoo Finance and FRED",
             "price_basis": "etf_total_return",
             "research_eligibility": "development_cutoff_only",
+            "state_revision": "5" * 64,
             "mapping_count": mapping_count,
             "session_date": datetime(2024, 6, 28, tzinfo=timezone.utc).date(),
             "value": Decimal("205.125000000000"),
@@ -440,13 +443,178 @@ def test_total_return_stored_complete_is_explicitly_warned_and_invalid_eligibili
     assert invalid.get_json() == {"error_code": "INVALID_REQUEST", "status": "FAILED"}
 
 
+def _total_return_status_responses(
+    *, instrument_key="lqd", ticker="LQD", row_count=4935, quality_warn_count=0
+):
+    read_at = datetime(2026, 7, 29, tzinfo=timezone.utc)
+    return [
+        [{
+            "read_at_utc": read_at,
+            "snapshot_marker": "50:60:",
+            "database_name": "saxo_market",
+            "role_name": "saxo_app_reader",
+            "transaction_read_only": "on",
+        }],
+        [{
+            "source_dataset_id": "20260712T135236Z",
+            "external_series_key": ticker,
+            "instrument_id": 12,
+            "mapping_kind": "TICKER_EXACT",
+            "mapping_reason": "explicit review",
+            "approved_at_utc": read_at,
+            "approved_by": "codex-dmi3-20260720",
+            "instrument_key": instrument_key,
+            "symbol": f"{ticker}:arcx",
+            "category": "us_treasury_credit",
+            "dataset_name": "ETF11 curated total-return daily",
+            "provider": "Yahoo Finance and FRED",
+            "dataset_kind": "total_return",
+            "price_basis": "etf_total_return",
+            "canonical_horizon_minutes": 1440,
+            "research_eligibility": "development_cutoff_only",
+            "source_manifest_relative_path": "manifests/etf11_source_dataset_manifest.json",
+            "source_manifest_sha256": "57377bcd1ca13eaf5b9150ac77c2929efed3a177f9dcdd4bed6fb83ed8db2758",
+            "is_current": False,
+            "mapping_count": 1,
+            "row_count": row_count,
+            "min_session_date": datetime(2004, 11, 18, tzinfo=timezone.utc).date(),
+            "max_session_date": datetime(2024, 6, 28, tzinfo=timezone.utc).date(),
+            "duplicate_count": 0,
+            "null_or_nonpositive_count": 0,
+            "quality_fail_count": 0,
+            "quality_not_evaluated_count": 0,
+            "quality_warn_count": quality_warn_count,
+            "source_file_count": 1,
+            "missing_source_file_count": 0,
+            "source_dataset_lineage_mismatch_count": 0,
+            "source_file_sha256_values": [
+                "429c59d891f11b2d25475a17bab4306088b77454fb8af3a88bd01ad7dbdc4998"
+            ],
+        }],
+    ]
+
+
+def test_total_return_status_uses_locked_window_contract_not_namespace_or_freshness():
+    reader = FakeReader(_total_return_status_responses())
+    response = create_app(reader).test_client().get(
+        "/api/v1/total-return-status?instrument_key=lqd"
+        "&research_contract_id=etf11_fixed_window_20260712_v1"
+    )
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["state"]["availability_status"] == "AVAILABLE"
+    assert payload["state"]["coverage_status"] == "PASS_LOCKED_WINDOW"
+    assert payload["state"]["freshness_status"] == "NOT_APPLICABLE_FIXED_WINDOW"
+    assert payload["state"]["current_blockers"] == []
+    assert payload["non_blocking_metadata"] == {
+        "catalog_research_eligibility": "development_cutoff_only",
+        "legacy_or_current_namespace": False,
+        "publication_timestamp": "NOT_A_FIXED_WINDOW_GATE",
+    }
+    assert payload["evidence"]["provider_data_version"] == (
+        "NOT_APPLICABLE_NON_SAXO_TOTAL_RETURN_SOURCE"
+    )
+
+
+def test_total_return_status_keeps_objective_lineage_and_coverage_gates():
+    reader = FakeReader(_total_return_status_responses(row_count=4934))
+    response = create_app(reader).test_client().get(
+        "/api/v1/total-return-status?instrument_key=lqd"
+    )
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["state"]["availability_status"] == "BLOCKED"
+    assert payload["state"]["current_blockers"] == [
+        "LOCKED_WINDOW_ROW_COUNT_MISMATCH"
+    ]
+
+
+def test_total_return_status_blocks_eem_warning_count_drift():
+    reader = FakeReader(
+        _total_return_status_responses(
+            ticker="EEM", instrument_key="eem", quality_warn_count=3
+        )
+    )
+    response = create_app(reader).test_client().get(
+        "/api/v1/total-return-status?instrument_key=eem"
+    )
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["state"]["availability_status"] == "BLOCKED"
+    assert payload["state"]["current_blockers"] == [
+        "PROVIDER_WARNING_COUNT_MISMATCH"
+    ]
+
+
+def test_total_return_fixed_window_contract_includes_reviewed_eem_warning_unchanged():
+    reader = FakeReader(
+        _total_return_responses(
+            quality_status="WARN", ticker="EEM", instrument_key="eem"
+        )
+    )
+    response = create_app(reader).test_client().get(
+        "/api/v1/total-return?instrument_key=eem"
+        "&start=2024-06-28T00:00:00Z&end=2024-06-29T00:00:00Z"
+        "&usage_mode=fixed_window_research"
+        "&research_contract_id=etf11_fixed_window_20260712_v1"
+    )
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["source"]["usage_mode"] == "fixed_window_research"
+    assert payload["source"]["freshness_required"] is False
+    assert payload["rows"][0]["quality_status"] == "WARN"
+    assert "PROVIDER_DAILY_TOTAL_RETURN_OUTLIER_RETAINED_UNMODIFIED" in payload["warnings"]
+
+
+def test_total_return_full_history_contract_returns_strategy_selected_range():
+    reader = FakeReader(_total_return_status_responses())
+    response = create_app(reader).test_client().get(
+        "/api/v1/total-return?instrument_key=lqd"
+        "&start=2024-07-01T00:00:00Z&end=2026-07-01T00:00:00Z"
+        "&limit=10000&usage_mode=full_history_research"
+        "&research_contract_id=etf11_full_history_20260712_v1"
+    )
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["source"]["usage_mode"] == "full_history_research"
+    assert payload["source"]["research_contract_id"] == (
+        "etf11_full_history_20260712_v1"
+    )
+    assert payload["source"]["freshness_required"] is False
+    assert payload["row_count"] == 501
+    assert payload["rows"][0]["session_date"] == "2024-07-01"
+    assert payload["rows"][-1]["session_date"] == "2026-06-30"
+    assert payload["rows"][0]["price_basis"] == "etf_total_return"
+    assert "STRATEGY_MANIFEST_OWNS_DATE_BOUNDARIES" in payload["warnings"]
+
+
+def test_total_return_full_history_status_is_read_only_and_not_freshness_blocked():
+    reader = FakeReader(_total_return_status_responses())
+    response = create_app(reader).test_client().get(
+        "/api/v1/total-return-status?instrument_key=lqd"
+        "&research_contract_id=etf11_full_history_20260712_v1"
+    )
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["consistency"]["transaction_read_only"] == "on"
+    assert payload["state"]["availability_status"] == "AVAILABLE"
+    assert payload["state"]["quality_status"] == "PASS"
+    assert payload["state"]["coverage_status"] == "PASS_FULL_AVAILABLE_HISTORY"
+    assert payload["state"]["freshness_status"] == (
+        "NOT_APPLICABLE_FROZEN_RESEARCH_SOURCE"
+    )
+    assert payload["state"]["current_blockers"] == []
+    assert payload["evidence"]["row_count"] == 5443
+    assert payload["evidence"]["automatic_value_corrections"] == 0
+
+
 def _series_status_responses(events=None):
     read_at = datetime(2026, 7, 20, tzinfo=timezone.utc)
     return [
         [{"read_at_utc": read_at, "snapshot_marker": "10:20:"}],
         [{
             "instrument_id": 9, "instrument_key": "spy", "symbol": "SPY:arcx",
-            "category": "equity_reit", "layer": "1h", "horizon_minutes": 60,
+            "category": "equity_reit", "asset_type": "Stock", "layer": "1h", "horizon_minutes": 60,
             "price_basis": "native_ohlc",
         }],
         [{"coverage_status": "PASS", "actual_rows": 100}],
@@ -457,6 +625,8 @@ def _series_status_responses(events=None):
         list(events or []),
         [{"ingestion_run_id": 105, "status": "PASS"}],
         [{"quality_event_high_watermark": 395032}],
+        [],
+        [],
     ]
 
 
@@ -486,9 +656,15 @@ def test_series_status_uses_one_atomic_read_and_exposes_component_revisions():
     assert len(reader.calls) == 1
     assert reader.calls[0][0] == "ATOMIC"
     atomic_queries = reader.calls[0][1]
-    assert len(atomic_queries) == 7
+    assert len(atomic_queries) == 9
     assert "e.scope_kind='UNKNOWN'" in atomic_queries[4][0]
+    assert "selected_instrument_keys" in atomic_queries[4][0]
     assert "e.affected_layer='curated'" in atomic_queries[4][0]
+    assert "BLOCKED_BOUNDED_REVISION_REQUIRED" in atomic_queries[4][0]
+    assert "ops.v_ingestion_status" in atomic_queries[4][0]
+    assert atomic_queries[4][1] == ("spy", "spy", "native_ohlc")
+    assert "v_data_version_revision_state" in atomic_queries[8][0]
+    assert payload["components"]["revision"] is None
 
 
 def test_series_status_unknown_event_and_stale_data_fail_closed():
@@ -510,6 +686,318 @@ def test_series_status_unknown_event_and_stale_data_fail_closed():
         "FRESHNESS_STALE", "QUALITY_CURRENT_OR_UNKNOWN_BLOCKER"
     ]
     assert payload["state"]["eligibility_warnings"] == ["COVERAGE_WARN"]
+
+
+def test_series_status_synthesizes_legacy_revision_state_for_stale_watermark():
+    responses = _series_status_responses()
+    responses[3][0]["data_status"] = "STALE_DATA_VERSION"
+    responses[3][0]["freshness_status"] = "FAIL"
+    payload = series_status_payload(
+        FakeReader(responses), instrument_key="spy", layer="1h", price_basis="native_ohlc"
+    )
+
+    assert payload is not None
+    assert payload["components"]["revision"] == {
+        "reconciliation_status": "DETECTED_LEGACY",
+        "availability_status": "BLOCKED",
+        "old_data_version": 42,
+        "new_data_version": None,
+        "reason_code": "REVISION_EVENT_PREDATES_BOUNDED_AUDIT_SCHEMA",
+    }
+    assert "REVISION_DETECTED_LEGACY" in payload["state"]["eligibility_reasons"]
+
+
+def test_service_status_reports_partial_degradation_without_global_stop():
+    reader = FakeReader([[
+        {"instrument_key": "eurusd", "data_status": "ACTIVE", "availability_status": "AVAILABLE"},
+        {"instrument_key": "spy", "data_status": "STALE_DATA_VERSION", "availability_status": "BLOCKED"},
+    ]])
+    response = create_app(reader).test_client().get("/api/v1/service-status")
+    assert response.status_code == 200
+    assert response.get_json()["service_status"] == "PARTIALLY_DEGRADED"
+    assert response.get_json()["available_series_count"] == 1
+    assert response.get_json()["degraded_series_count"] == 1
+    assert response.get_json()["all_series_stopped"] is False
+
+
+def test_revision_warning_remains_available_and_does_not_degrade_service():
+    responses = _series_status_responses()
+    responses[8] = [{
+        "revision_event_id": 51,
+        "reconciliation_status": "REVIEW_PENDING",
+        "availability_status": "AVAILABLE_WITH_REVISION_WARNING",
+        "old_data_version": 42,
+        "new_data_version": 43,
+        "policy_id": "data_version_revision_warning_v2",
+        "review_status": "PENDING_REVIEW",
+        "reason_code": "DATA_VERSION_CHANGED_REVIEW_PENDING",
+        "latest_evidence_at_utc": datetime(2026, 7, 20, 1, tzinfo=timezone.utc),
+        "latest_provider_observed_time_utc": datetime(2026, 7, 20, 0, tzinfo=timezone.utc),
+    }]
+    payload = series_status_payload(
+        FakeReader(responses), instrument_key="spy", layer="1h", price_basis="native_ohlc"
+    )
+
+    assert payload is not None
+    assert payload["state"]["availability_status"] == "AVAILABLE_WITH_REVISION_WARNING"
+    assert payload["state"]["revision_review_status"] == "PENDING_REVIEW"
+    assert payload["state"]["eligibility_status"] == "ELIGIBLE_WITH_WARNINGS"
+    assert payload["state"]["eligibility_warnings"] == ["REVISION_REVIEW_PENDING"]
+    assert payload["components"]["revision"]["last_accepted_data_version"] == 42
+    assert payload["components"]["revision"]["provider_evidence_curated"] is False
+
+    reader = FakeReader([[
+        {"instrument_key": "eurusd", "data_status": "ACTIVE", "availability_status": "AVAILABLE"},
+        {
+            "instrument_key": "spy", "data_status": "ACTIVE",
+            "availability_status": "AVAILABLE_WITH_REVISION_WARNING",
+            "reconciliation_status": "REVIEW_PENDING", "review_status": "PENDING_REVIEW",
+        },
+    ]])
+    response = create_app(reader).test_client().get("/api/v1/service-status")
+    result = response.get_json()
+    assert result["service_status"] == "PASS"
+    assert result["available_series_count"] == 2
+    assert result["degraded_series_count"] == 0
+    assert result["warning_series_count"] == 1
+
+
+def test_research_warning_remains_available_and_does_not_degrade_service():
+    reader = FakeReader([[
+        {"instrument_key": "eurusd", "data_status": "ACTIVE", "availability_status": "AVAILABLE"},
+        {
+            "instrument_key": "audusd",
+            "data_status": "ACTIVE",
+            "availability_status": "AVAILABLE_WITH_WARNINGS",
+        },
+        {
+            "instrument_key": "usdjpy",
+            "data_status": "STALE_DATA_VERSION",
+            "availability_status": "BLOCKED",
+        },
+    ]])
+
+    result = create_app(reader).test_client().get("/api/v1/service-status").get_json()
+
+    assert result["service_status"] == "PARTIALLY_DEGRADED"
+    assert result["available_series_count"] == 2
+    assert result["warning_series_count"] == 1
+    assert result["warning_series"][0]["instrument_key"] == "audusd"
+    assert result["degraded_series_count"] == 1
+    assert result["degraded_series"][0]["instrument_key"] == "usdjpy"
+
+
+def test_fx_series_status_links_nonblocking_gap_classification_without_hiding_warn():
+    responses = _series_status_responses()
+    responses[1][0].update({
+        "instrument_id": 12,
+        "instrument_key": "eurusd",
+        "symbol": "EURUSD",
+        "asset_type": "FxSpot",
+        "price_basis": "bid_ask_mid",
+    })
+    responses[2][0]["coverage_status"] = "WARN"
+    payload = series_status_payload(
+        FakeReader(responses), instrument_key="eurusd", layer="1h", price_basis="bid_ask_mid"
+    )
+
+    assert payload is not None
+    assert payload["state"]["coverage_status"] == "WARN"
+    assert payload["state"]["eligibility_status"] == "ELIGIBLE_WITH_WARNINGS"
+    assessment = payload["components"]["coverage_assessment"]
+    assert assessment["interpolation_performed"] is False
+    assert assessment["blocks_freshness_or_current_quality"] is False
+    assert assessment["manifest"].endswith("fx_gap_classification_manifest.json")
+    assert assessment["classification_report"].endswith("fx_gap_classification.json")
+
+
+def test_candidate_series_status_exposes_bounded_provider_extrema_warning():
+    responses = _series_status_responses()
+    responses[1][0].update({
+        "instrument_id": 20,
+        "instrument_key": "usdcad",
+        "symbol": "USDCAD",
+        "asset_type": "FxSpot",
+        "price_basis": "bid_ask_mid",
+    })
+    responses[2][0]["coverage_status"] = "WARN"
+    responses[7] = [{
+        "publication_status": "STAGING",
+        "quality_status": "WARN",
+        "coverage_status": "WARN",
+        "freshness_status": "PASS",
+        "blocker_code": None,
+        "last_evaluated_run_id": 106,
+        "evidence_manifest_relative_path": "data/acquisition/runs/candidate/run_manifest.json",
+        "evidence_manifest_sha256": "b" * 64,
+        "consecutive_normal_passes": 0,
+        "consumer_availability_status": "AVAILABLE_WITH_WARNINGS",
+        "research_policy_id": "fx_research_candidate_user_approved_warnings_v1",
+        "provider_advertised_start_utc": datetime(
+            2002, 9, 25, 2, 40, tzinfo=timezone.utc
+        ),
+        "effective_coverage_start_utc": datetime(
+            2010, 6, 18, tzinfo=timezone.utc
+        ),
+        "coverage_limitation": "No earlier prices are synthesized.",
+        "warning_metadata_json": {
+            "observed_quarantined_extrema": {
+                "unique_rows": 6,
+                "values_modified": False,
+            }
+        },
+    }]
+
+    payload = series_status_payload(
+        FakeReader(responses),
+        instrument_key="usdcad",
+        layer="1h",
+        price_basis="bid_ask_mid",
+    )
+
+    assert payload is not None
+    assert "PROVIDER_EXTREMA_ANOMALIES_EXCLUDED_UNMODIFIED" in (
+        payload["state"]["eligibility_warnings"]
+    )
+
+
+def test_candidate_series_status_exposes_staging_publication_evidence():
+    responses = _series_status_responses()
+    responses[1][0].update({
+        "instrument_id": 19,
+        "instrument_key": "audusd",
+        "symbol": "AUDUSD",
+        "asset_type": "FxSpot",
+        "price_basis": "bid_ask_mid",
+    })
+    responses[2][0]["coverage_status"] = "WARN"
+    responses[7] = [{
+        "publication_status": "STAGING",
+        "quality_status": "PASS",
+        "coverage_status": "WARN",
+        "freshness_status": "PASS",
+        "blocker_code": None,
+        "last_evaluated_run_id": 105,
+        "evidence_manifest_relative_path": "data/acquisition/runs/candidate/run_manifest.json",
+        "evidence_manifest_sha256": "a" * 64,
+        "consecutive_normal_passes": 0,
+    }]
+    payload = series_status_payload(
+        FakeReader(responses), instrument_key="audusd", layer="1h", price_basis="bid_ask_mid"
+    )
+
+    assert payload is not None
+    assert payload["state"]["eligibility_status"] == "ELIGIBLE_WITH_WARNINGS"
+    assert "PUBLICATION_STAGING" in payload["state"]["eligibility_warnings"]
+    assert payload["components"]["publication"]["publication_status"] == "STAGING"
+    assert payload["components"]["coverage_assessment"]["manifest_sha256"] == "a" * 64
+
+
+def test_candidate_series_status_exposes_user_approved_warning_contract():
+    responses = _series_status_responses()
+    responses[1][0].update({
+        "instrument_id": 19,
+        "instrument_key": "audusd",
+        "symbol": "AUDUSD",
+        "asset_type": "FxSpot",
+        "price_basis": "bid_ask_mid",
+    })
+    responses[2][0]["coverage_status"] = "WARN"
+    responses[7] = [{
+        "publication_status": "STAGING",
+        "quality_status": "WARN",
+        "coverage_status": "WARN",
+        "freshness_status": "PASS",
+        "blocker_code": None,
+        "last_evaluated_run_id": 105,
+        "evidence_manifest_relative_path": "data/acquisition/runs/candidate/run_manifest.json",
+        "evidence_manifest_sha256": "a" * 64,
+        "consecutive_normal_passes": 0,
+        "consumer_availability_status": "AVAILABLE_WITH_WARNINGS",
+        "research_policy_id": "fx_research_candidate_user_approved_warnings_v1",
+        "provider_advertised_start_utc": datetime(
+            2002, 9, 25, 2, 40, tzinfo=timezone.utc
+        ),
+        "effective_coverage_start_utc": datetime(
+            2003, 5, 12, tzinfo=timezone.utc
+        ),
+        "coverage_limitation": "No earlier prices are synthesized.",
+        "warning_metadata_json": {
+            "known_provider_anomaly": {
+                "approved_unique_rows": 14,
+                "values_modified": False,
+            }
+        },
+    }]
+    payload = series_status_payload(
+        FakeReader(responses),
+        instrument_key="audusd",
+        layer="1h",
+        price_basis="bid_ask_mid",
+    )
+
+    assert payload is not None
+    assert payload["state"]["availability_status"] == "AVAILABLE_WITH_WARNINGS"
+    assert payload["state"]["quality_status"] == "WARN"
+    assert payload["state"]["eligibility_status"] == "ELIGIBLE_WITH_WARNINGS"
+    assert "KNOWN_PROVIDER_ANOMALY_VALUES_UNMODIFIED" in payload["state"][
+        "eligibility_warnings"
+    ]
+    assessment = payload["components"]["coverage_assessment"]
+    assert assessment["effective_coverage_start_utc"] == datetime(
+        2003, 5, 12, tzinfo=timezone.utc
+    )
+    assert assessment["interpolation_performed"] is False
+
+
+def test_candidate_series_status_exists_before_first_bar_and_is_blocked():
+    responses = _series_status_responses()
+    responses[1][0].update({
+        "instrument_id": 19,
+        "instrument_key": "audusd",
+        "symbol": "AUDUSD",
+        "asset_type": "FxSpot",
+        "price_basis": "bid_ask_mid",
+    })
+    responses[2] = []
+    responses[3] = []
+    responses[5] = []
+    responses[7] = [{
+        "publication_status": "CANDIDATE",
+        "quality_status": "NOT_EVALUATED",
+        "coverage_status": "NOT_EVALUATED",
+        "freshness_status": "NOT_EVALUATED",
+        "blocker_code": "BLOCKED_CANDIDATE_ONBOARDING_REQUIRED",
+        "consecutive_normal_passes": 0,
+    }]
+
+    payload = series_status_payload(
+        FakeReader(responses), instrument_key="audusd", layer="1h", price_basis="bid_ask_mid"
+    )
+
+    assert payload is not None
+    assert payload["state"]["eligibility_status"] == "BLOCKED"
+    assert "PUBLICATION_CANDIDATE" in payload["state"]["eligibility_reasons"]
+    assert "BLOCKED_CANDIDATE_ONBOARDING_REQUIRED" in payload["state"]["eligibility_reasons"]
+
+
+def test_candidate_bars_fail_closed_before_staging():
+    reader = FakeReader([[{
+        "publication_status": "BLOCKED",
+        "blocker_code": "BLOCKED_CANDIDATE_QUALITY_GATE",
+        "quality_status": "FAIL",
+        "coverage_status": "NOT_EVALUATED",
+        "freshness_status": "NOT_EVALUATED",
+        "consecutive_normal_passes": 0,
+    }]])
+    response = create_app(reader).test_client().get(
+        "/api/v1/bars?instrument_key=audusd&layer=1h"
+        "&start=2026-07-01T00:00:00Z&end=2026-07-02T00:00:00Z"
+    )
+
+    assert response.status_code == 409
+    assert response.get_json()["error_code"] == "SERIES_NOT_PUBLISHED"
+    assert len(reader.calls) == 1
 
 
 def test_series_status_rejects_unsupported_layer_and_returns_not_found():
@@ -687,7 +1175,7 @@ def test_dmi4_manifest_requires_cursor_binding_parity_and_contract_evidence():
     payload = {
         "phase": "DMI4",
         "status": "PASS",
-        "contract_revision": "1.2",
+            "contract_revision": "1.2",
         "cursor": {
             "codec": "HMAC-SHA256",
             "query_bound": True,
@@ -751,7 +1239,7 @@ def test_dmi5_manifest_requires_non_data_lifecycle_and_zero_mutation_evidence():
         },
         "contract": {
             "host": "127.0.0.1", "port": 8766, "api_version": 1,
-            "contract_revision": "1.2", "role_name": "saxo_app_reader",
+                "contract_revision": "1.2", "role_name": "saxo_app_reader",
             "transaction_read_only": "on", "statement_timeout": "30s",
         },
         "mutation_invariant": {

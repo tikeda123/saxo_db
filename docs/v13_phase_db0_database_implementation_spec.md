@@ -379,9 +379,9 @@ DB3ではSaxo Chart APIからcanonical 1Hだけを更新する。raw 4Hの増分
 
 HTTP 429とtimeout・接続切断等の一時的network例外は、GETだけを1/2/4秒待機・最大4attemptで有限retryする。4回失敗時はそれぞれ`BLOCKED_RATE_LIMIT`または`FAILED_NETWORK`で停止する。注文API、precheck、portfolio endpointは呼び出さない。
 
-DB3実装では上記をcanonical 13全体の単一transactionとして固定した。取得済みraw JSONはtransaction外で先にatomic保存し、DB失敗時にも監査原本として残すが、token、AccountKey、ClientKey、TradableOn、Authorizationは保存しない。通常runはEtf 20本・FxSpot 72本の実バーoverlapを使い、Saxoの境界包含を前提に重複排除する。
+DB3実装では上記をcanonical 13全体の単一transactionとして固定した。取得済みraw JSONはtransaction外で先にatomic保存し、DB失敗時にも監査原本として残すが、token、AccountKey、ClientKey、TradableOn、Authorizationは保存しない。通常runはEtf 20本・FxSpot 72本の実バーoverlapを使い、Saxoの境界包含を前提に重複排除する。`Mode=UpTo`の同一timestamp境界sampleに値差がある場合、request順で最初に取得した完成側sampleを保持し、後続の古いpage末尾にある部分形成sampleで上書きしない。両方のraw responseとSHA-256は不変で保持する。
 
-`DataVersion`がwatermarkと異なる場合は対象instrumentを`STALE_DATA_VERSION`へ移し、通常run全体をrollbackする。復旧は対象1銘柄の`manual_db3_full_refetch`だけに限定する。`Mode=UpTo`で既存最古時刻以前まで取得できたことを確認し、`STALE_DATA_VERSION`・RUNNING・専用triggerを検査するsecurity-definer procedureだけがcurated置換を許可する。old raw revisionと削除observationsのquality auditは保持する。
+`DataVersion`がwatermarkと異なる場合は対象instrumentを`STALE_DATA_VERSION`へ移し、そのinstrumentの通常runをrollbackする。復旧は最初に`manual_db3_bounded_revision`で96→384→1200本を比較し、16本連続の完成済み安定anchorで限定できた範囲だけをsecurity-definer procedure経由で置換する。境界不明、上限超過、広域変更疑い、OHLC/BidAsk違反の場合だけ対象1銘柄の`manual_db3_full_refetch`へ移る。old raw revisionと削除observationsのquality auditは保持する。
 
 専用full-refetchに限り、過去FxSpotの`High`または`Low`極値にだけ`Bid > Ask`があるunique rowを、最大10件かつ全unique観測rowの0.01%以下で隔離できる。最新形成中sample、Open/Close交差、欠損、OHLC違反、受理rowとのtimestamp競合、重複page間の値矛盾は対象外とし、全runをFAILする。隔離時もswap・interpolate・clamp・上書きをせず、raw JSON、SHA-256、相対path、時刻、元Bid/Askを保持する。該当rowは`raw.market_bar_revision`、curated、derivedへ入れず、`ops.ingestion_run.rejected_rows`と`db3_fx_crossed_extrema_quarantine`の解決済みWARNへ監査記録する。いずれかの上限・scopeを外れた場合、DB barとwatermarkを変更しない。
 

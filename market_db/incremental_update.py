@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Mapping
 
 from psycopg.types.json import Jsonb
 
@@ -21,6 +21,7 @@ from .instrument_registry import (
     CanonicalInstrument,
     InstrumentDriftError,
     load_canonical_instruments,
+    load_research_candidate_instruments,
     validate_detail,
 )
 from .normalize_bars import (
@@ -32,14 +33,25 @@ from .normalize_bars import (
     normalize_chart_page_quarantining_fx_extrema,
 )
 from .raw_artifacts import ArtifactRecord, RunArtifacts, utc_run_id
+from .saxo_auth import DEFAULT_CALLBACK_PORT, OAuthConfig, SaxoAuthError, SaxoOAuthManager
 from .saxo_client import SaxoAPIError, SaxoClient
 
 
 DATASET_ID = "v13_saxo_sim_chart_60m_incremental_v1"
 SPEC_RELATIVE_PATH = Path("specs/source_collection/v13_db3_incremental_collection.json")
+CANDIDATE_DATASET_ID = "saxo_sim_fx_research_candidates_60m_v1"
+CANDIDATE_SPEC_RELATIVE_PATH = Path(
+    "specs/source_collection/fx_research_candidates_v1.json"
+)
+CANDIDATE_INSTRUMENT_KEYS = ("audusd", "usdcad", "usdchf")
+CANDIDATE_RESEARCH_WARNING_POLICY_ID = (
+    "fx_research_candidate_user_approved_warnings_v1"
+)
 MAX_QUARANTINED_FX_EXTREMA_ROWS = 10
 MAX_QUARANTINED_FX_EXTREMA_RATE = Decimal("0.0001")
 FX_EXTREMA_QUARANTINE_POLICY_ID = "db3_bounded_fx_extrema_quarantine_v1"
+REVISION_WARNING_POLICY_ID = "data_version_revision_warning_v2"
+REVISION_WARNING_CODE = "DATA_VERSION_REVISION_REVIEW_PENDING"
 S6V5A_PRIORITY_INSTRUMENT_KEYS = ("spy", "iwm", "efa", "eem", "vnq", "eurusd")
 
 
@@ -65,21 +77,69 @@ def _sha256(path: Path) -> str:
 def select_instruments(instrument_keys: Iterable[str] | None = None) -> tuple[CanonicalInstrument, ...]:
     """Select a stable canonical subset without accepting symbol substitution."""
 
-    registry = load_canonical_instruments()
+    canonical = load_canonical_instruments()
     if instrument_keys is None:
-        return registry
+        return canonical
     requested = tuple(str(key).strip().lower() for key in instrument_keys)
     if not requested or any(not key for key in requested) or len(set(requested)) != len(requested):
         raise ValueError("instrument keys must be a non-empty unique canonical subset")
-    by_key = {item.key: item for item in registry}
+    candidates = load_research_candidate_instruments()
+    by_key = {item.key: item for item in (*canonical, *candidates)}
     unknown = sorted(set(requested) - set(by_key))
     if unknown:
-        raise ValueError("instrument keys contain a non-canonical key")
+        raise ValueError("instrument keys contain an unreviewed key")
+    selected_candidate = set(requested) & set(CANDIDATE_INSTRUMENT_KEYS)
+    if selected_candidate and selected_candidate != set(requested):
+        raise ValueError("canonical and research-candidate instruments must run separately")
     return tuple(by_key[key] for key in requested)
 
 
-def _ensure_dataset(cursor: Any) -> None:
-    manifest_path = project_root() / SPEC_RELATIVE_PATH
+def _dataset_contract(
+    registry: Iterable[CanonicalInstrument],
+) -> tuple[str, Path, str, str]:
+    keys = {item.key for item in registry}
+    if keys and keys <= set(CANDIDATE_INSTRUMENT_KEYS):
+        return (
+            CANDIDATE_DATASET_ID,
+            CANDIDATE_SPEC_RELATIVE_PATH,
+            "Saxo SIM FX research candidates 60m chart",
+            "SIM_RESEARCH_CANDIDATE",
+        )
+    if keys & set(CANDIDATE_INSTRUMENT_KEYS):
+        raise ValueError("candidate dataset cannot be mixed with the canonical dataset")
+    return (
+        DATASET_ID,
+        SPEC_RELATIVE_PATH,
+        "Saxo SIM canonical 13 incremental 60m chart",
+        "operational_market_data_not_frozen_research_input",
+    )
+
+
+def _ensure_dataset(
+    cursor: Any,
+    *,
+    dataset_id: str = DATASET_ID,
+    spec_relative_path: Path = SPEC_RELATIVE_PATH,
+    dataset_name: str = "Saxo SIM canonical 13 incremental 60m chart",
+    research_eligibility: str = "operational_market_data_not_frozen_research_input",
+    instrument_count: int = 13,
+) -> None:
+    manifest_path = project_root() / spec_relative_path
+    metadata = {
+        "instrument_count": instrument_count,
+        "horizon_minutes": 60,
+        "write_endpoints": 0,
+    }
+    if dataset_id == CANDIDATE_DATASET_ID:
+        metadata.update(
+            {
+                "instrument_count": len(CANDIDATE_INSTRUMENT_KEYS),
+                "research_warning_policy_id": CANDIDATE_RESEARCH_WARNING_POLICY_ID,
+                "consumer_availability_status": "AVAILABLE_WITH_WARNINGS",
+                "value_repair": False,
+                "interpolation": False,
+            }
+        )
     cursor.execute(
         """
         INSERT INTO catalog.source_dataset (
@@ -88,9 +148,9 @@ def _ensure_dataset(cursor: Any) -> None:
             freshness_grace_seconds, authoritative_layer, research_eligibility,
             active, source_manifest_relative_path, source_manifest_sha256, metadata_json
         ) VALUES (
-            %s,'Saxo SIM canonical 13 incremental 60m chart','Saxo OpenAPI','SIM',
+            %s,%s,'Saxo OpenAPI','SIM',
             'raw_market','asset_specific',60,3600,7200,'raw',
-            'operational_market_data_not_frozen_research_input',TRUE,%s,%s,%s
+            %s,TRUE,%s,%s,%s
         )
         ON CONFLICT (source_dataset_id) DO UPDATE SET
             dataset_name=EXCLUDED.dataset_name,
@@ -100,10 +160,12 @@ def _ensure_dataset(cursor: Any) -> None:
             metadata_json=EXCLUDED.metadata_json
         """,
         (
-            DATASET_ID,
-            str(SPEC_RELATIVE_PATH),
+            dataset_id,
+            dataset_name,
+            research_eligibility,
+            str(spec_relative_path),
             _sha256(manifest_path),
-            Jsonb({"canonical_instruments": 13, "horizon_minutes": 60, "write_endpoints": 0}),
+            Jsonb(metadata),
         ),
     )
 
@@ -249,27 +311,106 @@ def _create_run(
     trigger: str = "manual_db3",
 ) -> int:
     manifest_path = f"data/acquisition/runs/{run_id}/run_manifest.json"
-    requested = [
-        {"uic": item.uic, "asset_type": item.asset_type, "horizon_minutes": 60}
-        for item in registry
-    ]
+    dataset_id, spec_path, dataset_name, eligibility = _dataset_contract(registry)
     with connect("saxo_ingest", MARKET_DB, application_name="saxo_db_incremental_start") as conn:
-        with conn.cursor() as cursor:
-            _ensure_dataset(cursor)
-            cursor.execute(
-                """
-                INSERT INTO ops.ingestion_run (
-                    trigger, environment, status, requested_series,
-                    run_manifest_relative_path, last_success_step, metadata_json
-                ) VALUES (%s,'SIM','RUNNING',%s,%s,'run_registered',%s)
-                RETURNING ingestion_run_id
-                """,
-                (trigger, Jsonb(requested), manifest_path, Jsonb({"acquisition_run_id": run_id})),
-            )
-            return int(cursor.fetchone()[0])
+        with conn.transaction():
+            with conn.cursor() as cursor:
+                _ensure_dataset(
+                    cursor,
+                    dataset_id=dataset_id,
+                    spec_relative_path=spec_path,
+                    dataset_name=dataset_name,
+                    research_eligibility=eligibility,
+                    instrument_count=len(registry),
+                )
+                cursor.execute(
+                    """
+                    SELECT instrument_id, lower(market_key), uic, asset_type, price_basis
+                    FROM catalog.instrument i
+                    LEFT JOIN LATERAL (
+                        SELECT w.price_basis
+                        FROM ops.watermark w
+                        WHERE w.instrument_id=i.instrument_id AND w.horizon_minutes=60
+                        ORDER BY w.price_basis
+                        LIMIT 1
+                    ) selected_basis ON TRUE
+                    WHERE i.provider='Saxo OpenAPI' AND i.environment='SIM'
+                      AND i.active_to_utc IS NULL
+                    """
+                )
+                database_scope = {
+                    (int(uic), str(asset_type)): {
+                        "instrument_id": int(instrument_id),
+                        "instrument_key": str(key),
+                        "uic": int(uic),
+                        "asset_type": str(asset_type),
+                        "price_basis": None if price_basis is None else str(price_basis),
+                    }
+                    for instrument_id, key, uic, asset_type, price_basis in cursor.fetchall()
+                }
+                requested = []
+                for item in registry:
+                    scope = database_scope.get((item.uic, item.asset_type))
+                    if scope is None or scope["instrument_key"] != item.key:
+                        raise RuntimeError("BLOCKED_RUN_SCOPE_INSTRUMENT_MISMATCH")
+                    if scope["price_basis"] is not None and scope["price_basis"] != item.price_basis:
+                        raise RuntimeError("BLOCKED_RUN_SCOPE_PRICE_BASIS_MISMATCH")
+                    requested.append(
+                        {**scope, "price_basis": item.price_basis, "horizon_minutes": 60}
+                    )
+
+                cursor.execute(
+                    """
+                    INSERT INTO ops.ingestion_run (
+                        trigger, environment, status, requested_series,
+                        run_manifest_relative_path, last_success_step, metadata_json
+                    ) VALUES (%s,'SIM','RUNNING',%s,%s,'run_registered',%s)
+                    RETURNING ingestion_run_id
+                    """,
+                    (
+                        trigger,
+                        Jsonb(requested),
+                        manifest_path,
+                        Jsonb(
+                            {
+                                "acquisition_run_id": run_id,
+                                "selected_instrument_keys": [row["instrument_key"] for row in requested],
+                                "selected_instrument_ids": [row["instrument_id"] for row in requested],
+                                "scope_contract": "ops.ingestion_run_instrument_scope_v1",
+                            }
+                        ),
+                    ),
+                )
+                database_run_id = int(cursor.fetchone()[0])
+                cursor.executemany(
+                    """
+                    INSERT INTO ops.ingestion_run_instrument_scope (
+                        ingestion_run_id,instrument_id,instrument_key,uic,asset_type,
+                        horizon_minutes,price_basis
+                    ) VALUES (%s,%s,%s,%s,%s,60,%s)
+                    """,
+                    [
+                        (
+                            database_run_id,
+                            row["instrument_id"],
+                            row["instrument_key"],
+                            row["uic"],
+                            row["asset_type"],
+                            row["price_basis"],
+                        )
+                        for row in requested
+                    ],
+                )
+                return database_run_id
 
 
-def _register_sources(cursor: Any, run_id: int, artifacts: list[ArtifactRecord]) -> dict[str, int]:
+def _register_sources(
+    cursor: Any,
+    run_id: int,
+    artifacts: list[ArtifactRecord],
+    *,
+    dataset_id: str = DATASET_ID,
+) -> dict[str, int]:
     result: dict[str, int] = {}
     for artifact in artifacts:
         cursor.execute(
@@ -289,11 +430,116 @@ def _register_sources(cursor: Any, run_id: int, artifacts: list[ArtifactRecord])
                 artifact.sha256,
                 artifact.size_bytes,
                 artifact.row_count,
-                DATASET_ID,
+                dataset_id,
             ),
         )
         result[artifact.relative_path] = int(cursor.fetchone()[0])
     return result
+
+
+def _revision_bar_content(bar: NormalizedBar) -> tuple[Any, ...]:
+    """Return the value identity used for a warning-only revision sample."""
+
+    return (
+        bar.open,
+        bar.high,
+        bar.low,
+        bar.close,
+        bar.open_bid,
+        bar.high_bid,
+        bar.low_bid,
+        bar.close_bid,
+        bar.open_ask,
+        bar.high_ask,
+        bar.low_ask,
+        bar.close_ask,
+        bar.volume,
+        bar.market_trading_state,
+        bar.is_complete,
+    )
+
+
+def compare_revision_sample(
+    provider_bars: Iterable[NormalizedBar],
+    stored_bars: Mapping[datetime, tuple[tuple[Any, ...], int | None]],
+) -> dict[str, Any]:
+    """Compare one retained incremental sample without deciding or applying a repair."""
+
+    ordered = tuple(sorted(provider_bars, key=lambda item: item.time_utc))
+    if not ordered:
+        raise BarQualityError("REVISION_EMPTY_PROVIDER_SAMPLE")
+    if len({item.time_utc for item in ordered}) != len(ordered):
+        raise BarQualityError("REVISION_NON_UNIQUE_PROVIDER_SAMPLE")
+    provider_by_time = {item.time_utc: item for item in ordered}
+    matched_rows = 0
+    content_difference_rows = 0
+    version_only_rows = 0
+    new_rows = 0
+    for bar in ordered:
+        stored = stored_bars.get(bar.time_utc)
+        if stored is None:
+            new_rows += 1
+            continue
+        matched_rows += 1
+        stored_content, stored_version = stored
+        if _revision_bar_content(bar) != stored_content:
+            content_difference_rows += 1
+        elif stored_version != bar.data_version:
+            version_only_rows += 1
+    lower = ordered[0].time_utc
+    upper = ordered[-1].time_utc
+    removed_rows = sum(
+        lower <= time_utc <= upper and time_utc not in provider_by_time
+        for time_utc in stored_bars
+    )
+    completed = [bar.time_utc for bar in ordered if bar.is_complete]
+    return {
+        "comparison_from_utc": lower,
+        "comparison_to_utc": upper,
+        "provider_rows": len(ordered),
+        "matched_rows": matched_rows,
+        "content_difference_rows": content_difference_rows,
+        "version_only_rows": version_only_rows,
+        "new_rows": new_rows,
+        "removed_rows": removed_rows,
+        "latest_provider_complete_time_utc": max(completed) if completed else None,
+    }
+
+
+def _load_revision_sample(
+    state: InstrumentState,
+    price_basis: str,
+    provider_bars: Iterable[NormalizedBar],
+) -> dict[str, Any]:
+    selected = tuple(provider_bars)
+    lower = min(bar.time_utc for bar in selected)
+    upper = max(bar.time_utc for bar in selected)
+    with connect(
+        "saxo_ingest", MARKET_DB, application_name="saxo_db_revision_warning_compare"
+    ) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SET TRANSACTION READ ONLY")
+            cursor.execute(
+                """
+                SELECT time_utc,open,high,low,close,
+                       open_bid,high_bid,low_bid,close_bid,
+                       open_ask,high_ask,low_ask,close_ask,
+                       volume,market_trading_state,is_complete,data_version
+                FROM curated.market_bar
+                WHERE instrument_id=%s AND horizon_minutes=60 AND price_basis=%s
+                  AND time_utc BETWEEN %s AND %s
+                ORDER BY time_utc
+                """,
+                (state.instrument_id, price_basis, lower, upper),
+            )
+            stored = {
+                row[0]: (
+                    tuple(row[1:-1]),
+                    None if row[-1] is None else int(row[-1]),
+                )
+                for row in cursor.fetchall()
+            }
+    return compare_revision_sample(selected, stored)
 
 
 def _stage(cursor: Any, run_id: int, acquired: list[AcquiredInstrument], sources: dict[str, int]) -> None:
@@ -350,6 +596,8 @@ def _stage(cursor: Any, run_id: int, acquired: list[AcquiredInstrument], sources
 def _validate_full_refetch_quarantine(
     accepted_times: Iterable[datetime],
     rejected_rows: Iterable[RejectedBar],
+    *,
+    approved_exception: Mapping[str, Any] | None = None,
 ) -> tuple[RejectedBar, ...]:
     """Validate and deduplicate the narrowly scoped FX-extrema quarantine."""
     accepted = set(accepted_times)
@@ -366,23 +614,72 @@ def _validate_full_refetch_quarantine(
         rejected_by_time[rejected.time_utc] = rejected
 
     unique_rejected = tuple(rejected_by_time[key] for key in sorted(rejected_by_time))
-    if len(unique_rejected) > MAX_QUARANTINED_FX_EXTREMA_ROWS:
-        raise BarQualityError("FX_EXTREMA_QUARANTINE_ROW_LIMIT_EXCEEDED")
     if not unique_rejected:
+        if approved_exception is not None:
+            raise BarQualityError("FX_EXTREMA_APPROVED_EXCEPTION_MISMATCH")
         return ()
 
     observed_times = accepted | set(rejected_by_time)
     if any(rejected.time_utc == max(observed_times) for rejected in unique_rejected):
         raise BarQualityError("FX_EXTREMA_QUARANTINE_LATEST_SAMPLE_INELIGIBLE")
     rejected_rate = Decimal(len(unique_rejected)) / Decimal(len(observed_times))
-    if rejected_rate > MAX_QUARANTINED_FX_EXTREMA_RATE:
-        raise BarQualityError("FX_EXTREMA_QUARANTINE_RATE_LIMIT_EXCEEDED")
+    if approved_exception is not None:
+        evidence = [
+            {
+                "time_utc": rejected.time_utc.isoformat().replace("+00:00", "Z"),
+                "violations": [
+                    {
+                        "field": violation.field,
+                        "bid": str(violation.bid),
+                        "ask": str(violation.ask),
+                    }
+                    for violation in rejected.violations
+                ],
+            }
+            for rejected in unique_rejected
+        ]
+        content_sha256 = hashlib.sha256(
+            json.dumps(
+                evidence, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            ).encode("utf-8")
+        ).hexdigest()
+        fields = {
+            violation.field
+            for rejected in unique_rejected
+            for violation in rejected.violations
+        }
+        allowed_fields = {str(value) for value in approved_exception.get("allowed_fields", ())}
+        first_time = unique_rejected[0].time_utc.isoformat().replace("+00:00", "Z")
+        last_time = unique_rejected[-1].time_utc.isoformat().replace("+00:00", "Z")
+        matches = (
+            int(approved_exception.get("unique_rows", -1)) == len(unique_rejected)
+            and fields
+            and fields <= allowed_fields
+            and approved_exception.get("affected_from_utc") == first_time
+            and approved_exception.get("affected_to_utc") == last_time
+            and approved_exception.get("content_sha256") == content_sha256
+            and approved_exception.get("values_modified") is False
+            and approved_exception.get("exact_baseline_required_for_exception") is True
+        )
+        if not matches:
+            raise BarQualityError("FX_EXTREMA_APPROVED_EXCEPTION_MISMATCH")
+    else:
+        if len(unique_rejected) > MAX_QUARANTINED_FX_EXTREMA_ROWS:
+            raise BarQualityError("FX_EXTREMA_QUARANTINE_ROW_LIMIT_EXCEEDED")
+        if rejected_rate > MAX_QUARANTINED_FX_EXTREMA_RATE:
+            raise BarQualityError("FX_EXTREMA_QUARANTINE_RATE_LIMIT_EXCEEDED")
     return unique_rejected
 
 
-def _quarantined_row_evidence(rejected: RejectedBar) -> dict[str, Any]:
+def _quarantined_row_evidence(
+    rejected: RejectedBar,
+    *,
+    policy_id: str = FX_EXTREMA_QUARANTINE_POLICY_ID,
+    approved_exception: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     return {
-        "policy_id": FX_EXTREMA_QUARANTINE_POLICY_ID,
+        "policy_id": policy_id,
+        "user_approved_research_exception": approved_exception is not None,
         "time_utc": rejected.time_utc.isoformat().replace("+00:00", "Z"),
         "error_code": rejected.error_code,
         "violations": [
@@ -406,24 +703,48 @@ def _commit_acquired(
     *,
     full_replace_instrument_id: int | None = None,
     quarantined_rows: tuple[RejectedBar, ...] = (),
+    dataset_id: str = DATASET_ID,
+    bootstrap_watermark: bool = False,
+    approved_quarantine_exception: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    candidate_bootstrap_quarantine = (
+        bootstrap_watermark
+        and dataset_id == CANDIDATE_DATASET_ID
+        and len(acquired) == 1
+        and acquired[0].registry.asset_type == "FxSpot"
+    )
+    quarantine_instrument_id = (
+        full_replace_instrument_id
+        if full_replace_instrument_id is not None
+        else acquired[0].state.instrument_id
+        if candidate_bootstrap_quarantine
+        else None
+    )
     if quarantined_rows and (
-        full_replace_instrument_id is None
+        quarantine_instrument_id is None
         or len(acquired) != 1
         or acquired[0].registry.asset_type != "FxSpot"
-        or acquired[0].state.instrument_id != full_replace_instrument_id
+        or acquired[0].state.instrument_id != quarantine_instrument_id
     ):
         raise BarQualityError("FX_EXTREMA_QUARANTINE_SCOPE_VIOLATION")
     quarantined_rows = _validate_full_refetch_quarantine(
         (bar.time_utc for item in acquired for bar in item.bars),
         quarantined_rows,
+        approved_exception=approved_quarantine_exception,
+    )
+    quarantine_policy_id = str(
+        (approved_quarantine_exception or {}).get(
+            "policy_id", FX_EXTREMA_QUARANTINE_POLICY_ID
+        )
     )
     with connect("saxo_ingest", MARKET_DB, application_name="saxo_db_incremental_commit") as conn:
         with conn.transaction():
             with conn.cursor() as cursor:
                 cursor.execute("SELECT pg_advisory_xact_lock(hashtext('saxo_db_db3_incremental'))")
                 cursor.execute("DELETE FROM staging.market_bar WHERE ingestion_run_id=%s", (run_id,))
-                sources = _register_sources(cursor, run_id, chart_artifacts)
+                sources = _register_sources(
+                    cursor, run_id, chart_artifacts, dataset_id=dataset_id
+                )
                 _stage(cursor, run_id, acquired, sources)
 
                 for rejected in quarantined_rows:
@@ -439,14 +760,25 @@ def _commit_acquired(
                             %s,%s,60,%s,'db3_fx_crossed_extrema_quarantine','WARN',%s,
                             'raw source retained; row excluded without swapping, interpolation, clamping, or correction',
                             'RESOLVED',clock_timestamp(),'db3_incremental_update',
-                            'bounded manual full-refetch quarantine accepted by frozen DB3 policy'
+                            %s
                         )
                         """,
                         (
                             run_id,
-                            full_replace_instrument_id,
+                            quarantine_instrument_id,
                             rejected.time_utc,
-                            Jsonb(_quarantined_row_evidence(rejected)),
+                            Jsonb(
+                                _quarantined_row_evidence(
+                                    rejected,
+                                    policy_id=quarantine_policy_id,
+                                    approved_exception=approved_quarantine_exception,
+                                )
+                            ),
+                            (
+                                'user-approved SIM research exception; exact AUDUSD anomaly baseline matched'
+                                if approved_quarantine_exception is not None
+                                else 'bounded reviewed FX extrema quarantine accepted by frozen DB3 policy'
+                            ),
                         ),
                     )
 
@@ -600,30 +932,56 @@ def _commit_acquired(
                     latest_seen = max(bar.time_utc for bar in item.bars)
                     latest_complete = max(bar.time_utc for bar in item.bars if bar.is_complete)
                     data_version = next((bar.data_version for bar in item.bars if bar.data_version is not None), None)
-                    cursor.execute(
-                        """
-                        UPDATE ops.watermark SET
-                            latest_seen_time_utc=%s,
-                            latest_complete_time_utc=%s,
-                            data_version=%s,
-                            last_ingestion_run_id=%s,
-                            data_status='ACTIVE',
-                            updated_at_utc=clock_timestamp()
-                        WHERE instrument_id=%s AND horizon_minutes=60 AND price_basis=%s
-                        """,
-                        (
-                            latest_seen,
-                            latest_complete,
-                            data_version,
-                            run_id,
-                            item.state.instrument_id,
-                            item.registry.price_basis,
-                        ),
-                    )
+                    if bootstrap_watermark:
+                        cursor.execute(
+                            """
+                            INSERT INTO ops.watermark (
+                                instrument_id,horizon_minutes,price_basis,
+                                latest_seen_time_utc,latest_complete_time_utc,data_version,
+                                last_ingestion_run_id,data_status,updated_at_utc
+                            ) VALUES (%s,60,%s,%s,%s,%s,%s,'ACTIVE',clock_timestamp())
+                            ON CONFLICT (instrument_id,horizon_minutes,price_basis) DO NOTHING
+                            """,
+                            (
+                                item.state.instrument_id,
+                                item.registry.price_basis,
+                                latest_seen,
+                                latest_complete,
+                                data_version,
+                                run_id,
+                            ),
+                        )
+                    else:
+                        cursor.execute(
+                            """
+                            UPDATE ops.watermark SET
+                                latest_seen_time_utc=%s,
+                                latest_complete_time_utc=%s,
+                                data_version=%s,
+                                last_ingestion_run_id=%s,
+                                data_status='ACTIVE',
+                                updated_at_utc=clock_timestamp()
+                            WHERE instrument_id=%s AND horizon_minutes=60 AND price_basis=%s
+                            """,
+                            (
+                                latest_seen,
+                                latest_complete,
+                                data_version,
+                                run_id,
+                                item.state.instrument_id,
+                                item.registry.price_basis,
+                            ),
+                        )
                     if cursor.rowcount != 1:
                         raise RuntimeError("FAILED_WATERMARK_UPDATE")
 
-                derived_counts = rebuild(cursor)
+                # The transaction only changes the acquired instruments.  A
+                # singleton scheduler lane must not rewrite derived rows for
+                # the other managed series.
+                derived_counts = rebuild(
+                    cursor,
+                    instrument_ids=(item.state.instrument_id for item in acquired),
+                )
                 cursor.execute("DELETE FROM staging.market_bar WHERE ingestion_run_id=%s", (run_id,))
                 cursor.execute(
                     """
@@ -646,7 +1004,7 @@ def _commit_acquired(
                                 "raw_rows": raw_rows,
                                 "derived": derived_counts,
                                 "quarantine_policy_id": (
-                                    FX_EXTREMA_QUARANTINE_POLICY_ID if quarantined_rows else None
+                                    quarantine_policy_id if quarantined_rows else None
                                 ),
                             }
                         ),
@@ -661,7 +1019,12 @@ def _commit_acquired(
         "raw_rows": raw_rows,
         "rejected_rows": len(quarantined_rows),
         "quarantined_fx_extrema": [
-            _quarantined_row_evidence(rejected) for rejected in quarantined_rows
+            _quarantined_row_evidence(
+                rejected,
+                policy_id=quarantine_policy_id,
+                approved_exception=approved_quarantine_exception,
+            )
+            for rejected in quarantined_rows
         ],
         "removed_rows": removed_rows,
         "revision_rows": revision_rows,
@@ -670,6 +1033,8 @@ def _commit_acquired(
 
 
 def _error_code(exc: Exception) -> str:
+    if isinstance(exc, SaxoAuthError):
+        return exc.code
     if isinstance(exc, SaxoAPIError):
         return exc.code
     if isinstance(exc, InstrumentDriftError):
@@ -679,6 +1044,29 @@ def _error_code(exc: Exception) -> str:
     if isinstance(exc, ValueError) and str(exc) == "SAXO_ACCESS_TOKEN is required":
         return "BLOCKED_LIVE_SIM_TOKEN"
     return f"FAILED_{type(exc).__name__.upper()}"
+
+
+def _records_quality_event(code: str) -> bool:
+    """Keep interface/availability incidents out of content-quality blockers."""
+
+    if (
+        code.startswith("AUTH_")
+        or code.startswith("FAILED_HTTP_")
+        or code.startswith("BLOCKED_TOKEN")
+        or code.startswith("BLOCKED_PERMISSION")
+        or code.startswith("BLOCKED_REVISION_")
+    ):
+        return False
+    return code not in {
+        "BLOCKED_FULL_REFETCH_REQUIRED",
+        "BLOCKED_BOUNDED_REVISION_REQUIRED",
+        "BLOCKED_RATE_LIMIT",
+        "FAILED_NETWORK",
+        "FAILED_SERVICE_UNAVAILABLE",
+        "FAILED_INVALID_JSON",
+        "FAILED_JSON_NOT_OBJECT",
+        "INSUFFICIENT_INCREMENTAL_CHART_DATA",
+    }
 
 
 def _failed_instrument_context(status: str, instrument_key: str | None) -> dict[str, str]:
@@ -691,34 +1079,128 @@ def _record_failure(
     run_id: int,
     code: str,
     chart_artifacts: list[ArtifactRecord],
-    failed_instrument_id: int | None,
+    failed_instrument_keys: Iterable[str] | None,
+    *,
+    revision_detection: Mapping[str, Any] | None = None,
+    dataset_id: str = DATASET_ID,
+    spec_relative_path: Path = SPEC_RELATIVE_PATH,
+    dataset_name: str = "Saxo SIM canonical 13 incremental 60m chart",
+    research_eligibility: str = "operational_market_data_not_frozen_research_input",
 ) -> None:
     status = "BLOCKED" if code.startswith("BLOCKED") else "FAILED"
+    selected_failed_key_tuple = tuple(str(key) for key in failed_instrument_keys or ())
     with connect("saxo_ingest", MARKET_DB, application_name="saxo_db_incremental_failure") as conn:
         with conn.cursor() as cursor:
-            _ensure_dataset(cursor)
-            _register_sources(cursor, run_id, chart_artifacts)
-            if code == "BLOCKED_FULL_REFETCH_REQUIRED" and failed_instrument_id is not None:
+            _ensure_dataset(
+                cursor,
+                dataset_id=dataset_id,
+                spec_relative_path=spec_relative_path,
+                dataset_name=dataset_name,
+                research_eligibility=research_eligibility,
+                instrument_count=max(1, len(selected_failed_key_tuple)),
+            )
+            _register_sources(cursor, run_id, chart_artifacts, dataset_id=dataset_id)
+            cursor.execute(
+                """
+                SELECT instrument_id,instrument_key,price_basis
+                FROM ops.ingestion_run_instrument_scope
+                WHERE ingestion_run_id=%s
+                ORDER BY instrument_key
+                """,
+                (run_id,),
+            )
+            run_scope = [
+                {"instrument_id": int(row[0]), "instrument_key": str(row[1]), "price_basis": str(row[2])}
+                for row in cursor.fetchall()
+            ]
+            selected_failed_keys = {
+                key.lower() for key in selected_failed_key_tuple
+            }
+            failed_scope = [
+                row for row in run_scope
+                if not selected_failed_keys or row["instrument_key"] in selected_failed_keys
+            ]
+            failed_instrument_ids = [row["instrument_id"] for row in failed_scope]
+            if code in {
+                "BLOCKED_FULL_REFETCH_REQUIRED",
+                "BLOCKED_BOUNDED_REVISION_REQUIRED",
+            } and len(failed_instrument_ids) == 1:
                 cursor.execute(
                     "UPDATE ops.watermark SET data_status='STALE_DATA_VERSION', updated_at_utc=clock_timestamp() "
                     "WHERE instrument_id=%s AND horizon_minutes=60",
-                    (failed_instrument_id,),
+                    (failed_instrument_ids[0],),
                 )
-            cursor.execute(
-                """
-                INSERT INTO quality.event (
-                    ingestion_run_id,instrument_id,horizon_minutes,rule_id,severity,
-                    observed_value,action,status
-                ) VALUES (%s,%s,60,'db3_atomic_run_gate',%s,%s,%s,'OPEN')
-                """,
-                (
-                    run_id,
-                    failed_instrument_id,
-                    "CRITICAL" if status == "BLOCKED" else "ERROR",
-                    Jsonb({"error_code": code}),
-                    "do not advance curated/derived/watermark; resolve cause and rerun",
-                ),
-            )
+            if (
+                code == "BLOCKED_BOUNDED_REVISION_REQUIRED"
+                and len(failed_scope) == 1
+                and revision_detection is not None
+            ):
+                row = failed_scope[0]
+                cursor.execute(
+                    """
+                    INSERT INTO ops.data_version_revision_event (
+                        instrument_id,horizon_minutes,price_basis,
+                        detected_ingestion_run_id,old_data_version,new_data_version,
+                        reconciliation_status,comparison_from_utc,comparison_to_utc,
+                        compared_rows,reason_code,discovery_manifest_relative_path,
+                        discovery_manifest_sha256
+                    ) VALUES (
+                        %s,60,%s,%s,%s,%s,'DETECTED',%s,%s,%s,
+                        'DATA_VERSION_CHANGED_PENDING_BOUNDED_COMPARE',%s,%s
+                    )
+                    ON CONFLICT (
+                        instrument_id,horizon_minutes,price_basis,new_data_version
+                    ) WHERE reconciliation_status IN (
+                        'DETECTED','DISCOVERING','READY_TO_APPLY'
+                    ) DO UPDATE SET
+                        comparison_from_utc=EXCLUDED.comparison_from_utc,
+                        comparison_to_utc=EXCLUDED.comparison_to_utc,
+                        compared_rows=EXCLUDED.compared_rows,
+                        discovery_manifest_relative_path=EXCLUDED.discovery_manifest_relative_path,
+                        discovery_manifest_sha256=EXCLUDED.discovery_manifest_sha256,
+                        updated_at_utc=clock_timestamp()
+                    """,
+                    (
+                        row["instrument_id"],
+                        row["price_basis"],
+                        run_id,
+                        int(revision_detection["old_data_version"]),
+                        int(revision_detection["new_data_version"]),
+                        revision_detection["comparison_from_utc"],
+                        revision_detection["comparison_to_utc"],
+                        int(revision_detection["compared_rows"]),
+                        str(revision_detection["artifact_relative_path"]),
+                        str(revision_detection["artifact_sha256"]),
+                    ),
+                )
+            if _records_quality_event(code):
+                cursor.executemany(
+                    """
+                    INSERT INTO quality.event (
+                        ingestion_run_id,instrument_id,horizon_minutes,rule_id,severity,
+                        observed_value,action,status
+                    ) VALUES (%s,%s,60,'db3_atomic_run_gate',%s,%s,%s,'OPEN')
+                    """,
+                    [
+                        (
+                            run_id,
+                            row["instrument_id"],
+                            "CRITICAL" if status == "BLOCKED" else "ERROR",
+                            Jsonb(
+                                {
+                                    "error_code": code,
+                                    "instrument_key": row["instrument_key"],
+                                    "selected_instrument_keys": [
+                                        item["instrument_key"] for item in run_scope
+                                    ],
+                                    "scope_contract": "ops.ingestion_run_instrument_scope_v1",
+                                }
+                            ),
+                            "do not advance curated/derived/watermark; resolve cause and rerun",
+                        )
+                        for row in failed_scope
+                    ],
+                )
             cursor.execute(
                 """
                 UPDATE ops.ingestion_run SET
@@ -729,6 +1211,194 @@ def _record_failure(
                 """,
                 (status, code, run_id),
             )
+
+
+def _record_revision_warning(
+    run_id: int,
+    chart_artifacts: list[ArtifactRecord],
+    detection_artifact: ArtifactRecord,
+    revision_detection: Mapping[str, Any],
+    *,
+    dataset_id: str,
+    spec_relative_path: Path,
+    dataset_name: str,
+    research_eligibility: str,
+) -> dict[str, Any]:
+    """Persist warning evidence without staging or changing accepted market data."""
+
+    with connect(
+        "saxo_ingest", MARKET_DB, application_name="saxo_db_revision_warning_record"
+    ) as conn:
+        with conn.transaction():
+            with conn.cursor() as cursor:
+                _ensure_dataset(
+                    cursor,
+                    dataset_id=dataset_id,
+                    spec_relative_path=spec_relative_path,
+                    dataset_name=dataset_name,
+                    research_eligibility=research_eligibility,
+                    instrument_count=1,
+                )
+                _register_sources(cursor, run_id, chart_artifacts, dataset_id=dataset_id)
+                cursor.execute(
+                    """
+                    SELECT instrument_id,instrument_key,price_basis
+                    FROM ops.ingestion_run_instrument_scope
+                    WHERE ingestion_run_id=%s AND instrument_key=%s
+                    FOR UPDATE
+                    """,
+                    (run_id, revision_detection["instrument_key"]),
+                )
+                scope = cursor.fetchone()
+                if scope is None:
+                    raise RuntimeError("FAILED_REVISION_WARNING_SCOPE_MISSING")
+                instrument_id = int(scope[0])
+                price_basis = str(scope[2])
+                cursor.execute(
+                    """
+                    INSERT INTO ops.data_version_revision_event (
+                        instrument_id,horizon_minutes,price_basis,
+                        detected_ingestion_run_id,old_data_version,new_data_version,
+                        reconciliation_status,comparison_from_utc,comparison_to_utc,
+                        compared_rows,content_difference_rows,version_only_rows,
+                        new_rows,removed_rows,stable_anchor_rows,reason_code,
+                        discovery_manifest_relative_path,discovery_manifest_sha256,
+                        policy_id,review_status
+                    ) VALUES (
+                        %s,60,%s,%s,%s,%s,'REVIEW_PENDING',%s,%s,%s,%s,%s,%s,%s,0,
+                        'DATA_VERSION_CHANGED_REVIEW_PENDING',%s,%s,%s,'PENDING_REVIEW'
+                    )
+                    ON CONFLICT (
+                        instrument_id,horizon_minutes,price_basis,new_data_version
+                    ) WHERE reconciliation_status IN (
+                        'DETECTED','DISCOVERING','READY_TO_APPLY','REVIEW_PENDING'
+                    ) DO NOTHING
+                    RETURNING revision_event_id
+                    """,
+                    (
+                        instrument_id,
+                        price_basis,
+                        run_id,
+                        int(revision_detection["old_data_version"]),
+                        int(revision_detection["new_data_version"]),
+                        revision_detection["comparison_from_utc"],
+                        revision_detection["comparison_to_utc"],
+                        int(revision_detection["provider_rows"]),
+                        int(revision_detection["content_difference_rows"]),
+                        int(revision_detection["version_only_rows"]),
+                        int(revision_detection["new_rows"]),
+                        int(revision_detection["removed_rows"]),
+                        detection_artifact.relative_path,
+                        detection_artifact.sha256,
+                        REVISION_WARNING_POLICY_ID,
+                    ),
+                )
+                inserted = cursor.fetchone()
+                if inserted is None:
+                    cursor.execute(
+                        """
+                        SELECT revision_event_id
+                        FROM ops.data_version_revision_event
+                        WHERE instrument_id=%s AND horizon_minutes=60 AND price_basis=%s
+                          AND new_data_version=%s AND policy_id=%s
+                          AND reconciliation_status='REVIEW_PENDING'
+                        FOR UPDATE
+                        """,
+                        (
+                            instrument_id,
+                            price_basis,
+                            int(revision_detection["new_data_version"]),
+                            REVISION_WARNING_POLICY_ID,
+                        ),
+                    )
+                    selected = cursor.fetchone()
+                    if selected is None:
+                        raise RuntimeError("FAILED_REVISION_WARNING_EVENT_LOOKUP")
+                    revision_event_id = int(selected[0])
+                else:
+                    revision_event_id = int(inserted[0])
+                    cursor.execute(
+                        "SELECT revision_event_id FROM ops.data_version_revision_event "
+                        "WHERE revision_event_id=%s FOR UPDATE",
+                        (revision_event_id,),
+                    )
+                    cursor.fetchone()
+                cursor.execute(
+                    "SELECT COALESCE(MAX(step_number),0)+1 "
+                    "FROM ops.data_version_revision_step WHERE revision_event_id=%s",
+                    (revision_event_id,),
+                )
+                step_number = int(cursor.fetchone()[0])
+                cursor.execute(
+                    """
+                    INSERT INTO ops.data_version_revision_step (
+                        revision_event_id,step_number,requested_count,request_mode,
+                        request_time_utc,compared_from_utc,compared_to_utc,provider_rows,
+                        matched_rows,content_difference_rows,version_only_rows,new_rows,
+                        removed_rows,stable_anchor_rows,decision,reason_code,
+                        artifact_relative_path,artifact_sha256
+                    ) VALUES (
+                        %s,%s,%s,'From',%s,%s,%s,%s,%s,%s,%s,%s,%s,0,
+                        'WARNING_RECORDED','DATA_VERSION_CHANGED_REVIEW_PENDING',%s,%s
+                    )
+                    """,
+                    (
+                        revision_event_id,
+                        step_number,
+                        max(1, min(1200, int(revision_detection["provider_rows"]))),
+                        revision_detection["detected_at_utc"],
+                        revision_detection["comparison_from_utc"],
+                        revision_detection["comparison_to_utc"],
+                        int(revision_detection["provider_rows"]),
+                        int(revision_detection["matched_rows"]),
+                        int(revision_detection["content_difference_rows"]),
+                        int(revision_detection["version_only_rows"]),
+                        int(revision_detection["new_rows"]),
+                        int(revision_detection["removed_rows"]),
+                        detection_artifact.relative_path,
+                        detection_artifact.sha256,
+                    ),
+                )
+                cursor.execute(
+                    """
+                    UPDATE ops.ingestion_run SET
+                        finished_at_utc=clock_timestamp(),status='PASS',error_code=NULL,
+                        successful_series=0,inserted_rows=0,updated_rows=0,
+                        revision_rows=0,rejected_rows=0,
+                        last_success_step='revision_warning_recorded_no_curated_change',
+                        metadata_json=metadata_json || %s
+                    WHERE ingestion_run_id=%s AND status='RUNNING'
+                    """,
+                    (
+                        Jsonb(
+                            {
+                                "warning_code": REVISION_WARNING_CODE,
+                                "revision_event_id": revision_event_id,
+                                "data_advanced": False,
+                                "curated_rows_changed": 0,
+                                "watermark_changed": False,
+                                "derived_rows_changed": 0,
+                                "orders_or_prechecks_sent": 0,
+                            }
+                        ),
+                        run_id,
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    raise RuntimeError("FAILED_REVISION_WARNING_RUN_UPDATE")
+    return {
+        "warning_code": REVISION_WARNING_CODE,
+        "revision_event_id": revision_event_id,
+        "instrument_key": str(revision_detection["instrument_key"]),
+        "old_data_version": int(revision_detection["old_data_version"]),
+        "new_data_version": int(revision_detection["new_data_version"]),
+        "data_advanced": False,
+        "curated_rows_changed": 0,
+        "watermark_changed": False,
+        "derived_rows_changed": 0,
+        "review_status": "PENDING_REVIEW",
+        "availability_status": "AVAILABLE_WITH_REVISION_WARNING",
+    }
 
 
 def _write_run_manifest(
@@ -773,31 +1443,44 @@ def _write_run_manifest(
 def run_incremental(
     client: SaxoClient | None = None,
     *,
+    client_factory: Callable[[], SaxoClient] | None = None,
     instrument_keys: Iterable[str] | None = None,
     trigger: str = "manual_db3",
 ) -> dict[str, Any]:
     registry = select_instruments(instrument_keys)
+    dataset_id, spec_path, dataset_name, eligibility = _dataset_contract(registry)
     run_id = utc_run_id(secrets.token_hex(4))
     artifacts = RunArtifacts(run_id)
     db_run_id = _create_run(run_id, registry, trigger=trigger)
     chart_artifacts: list[ArtifactRecord] = []
     all_artifacts: list[ArtifactRecord] = []
     acquired: list[AcquiredInstrument] = []
-    failed_instrument_id: int | None = None
+    failed_instrument_keys: tuple[str, ...] = ()
     failed_instrument_key: str | None = None
+    revision_detection: dict[str, Any] | None = None
+    revision_warning_result: dict[str, Any] | None = None
     selected_client = client
     smoke_result: dict[str, Any] | None = None
     try:
-        selected_client = selected_client or SaxoClient.from_environment()
+        if selected_client is not None and client_factory is not None:
+            raise ValueError("client and client_factory are mutually exclusive")
+        selected_client = selected_client or (
+            client_factory() if client_factory is not None else SaxoClient.from_environment()
+        )
         smoke_result = selected_client.smoke_test()
         states = _load_states()
-        if not {(item.uic, item.asset_type) for item in registry}.issubset(states):
+        missing = tuple(
+            item for item in registry if (item.uic, item.asset_type) not in states
+        )
+        if missing:
+            failed_instrument_keys = tuple(item.key for item in missing)
+            failed_instrument_key = failed_instrument_keys[0]
             raise BarQualityError("BLOCKED_CANONICAL_WATERMARK_SET")
 
         for instrument in registry:
             failed_instrument_key = instrument.key
+            failed_instrument_keys = (instrument.key,)
             state = states[(instrument.uic, instrument.asset_type)]
-            failed_instrument_id = state.instrument_id
             detail = selected_client.instrument_detail(instrument.uic, instrument.asset_type)
             validate_detail(instrument, detail)
             detail_artifact = artifacts.write_json(
@@ -850,21 +1533,79 @@ def run_incremental(
             if len(versions) > 1:
                 raise BarQualityError("MULTIPLE_DATA_VERSIONS_IN_RUN")
             observed_version = next(iter(versions), None)
-            if state.data_version is not None and observed_version is not None and observed_version != state.data_version:
-                raise BarQualityError("BLOCKED_FULL_REFETCH_REQUIRED")
             if any(
                 bar.is_complete and bar.time_utc > datetime.now(timezone.utc)
                 for bar in bars
             ):
                 raise BarQualityError("FUTURE_COMPLETED_BAR")
+            if state.data_version is not None and observed_version is not None and observed_version != state.data_version:
+                sample = _load_revision_sample(state, instrument.price_basis, bars)
+                detected_at = datetime.now(timezone.utc)
+                detection_payload = {
+                    "policy_id": REVISION_WARNING_POLICY_ID,
+                    "instrument_key": instrument.key,
+                    "horizon_minutes": 60,
+                    "price_basis": instrument.price_basis,
+                    "old_data_version": state.data_version,
+                    "new_data_version": observed_version,
+                    **sample,
+                    "detected_at_utc": detected_at,
+                    "status": "REVIEW_PENDING",
+                    "reason_code": "DATA_VERSION_CHANGED_REVIEW_PENDING",
+                    "review_status": "PENDING_REVIEW",
+                    "availability_status": "AVAILABLE_WITH_REVISION_WARNING",
+                    "data_advanced": False,
+                    "curated_rows_changed": 0,
+                    "watermark_changed": False,
+                    "derived_rows_changed": 0,
+                    "orders_or_prechecks_sent": 0,
+                }
+                detection_artifact = artifacts.write_json(
+                    f"instruments/{instrument.key}/revision_detection.json",
+                    detection_payload,
+                    row_count=len(bars),
+                )
+                all_artifacts.append(detection_artifact)
+                revision_detection = {
+                    **detection_payload,
+                    "artifact_relative_path": detection_artifact.relative_path,
+                    "artifact_sha256": detection_artifact.sha256,
+                }
+                revision_warning_result = _record_revision_warning(
+                    db_run_id,
+                    chart_artifacts,
+                    detection_artifact,
+                    revision_detection,
+                    dataset_id=dataset_id,
+                    spec_relative_path=spec_path,
+                    dataset_name=dataset_name,
+                    research_eligibility=eligibility,
+                )
+                break
             acquired.append(AcquiredInstrument(instrument, state, bars))
 
-        result = _commit_acquired(db_run_id, acquired, chart_artifacts)
+        result = (
+            revision_warning_result
+            if revision_warning_result is not None
+            else _commit_acquired(
+                db_run_id, acquired, chart_artifacts, dataset_id=dataset_id
+            )
+        )
         status = "PASS"
         error_code = None
     except Exception as exc:
         error_code = _error_code(exc)
-        _record_failure(db_run_id, error_code, chart_artifacts, failed_instrument_id)
+        _record_failure(
+            db_run_id,
+            error_code,
+            chart_artifacts,
+            failed_instrument_keys,
+            revision_detection=revision_detection,
+            dataset_id=dataset_id,
+            spec_relative_path=spec_path,
+            dataset_name=dataset_name,
+            research_eligibility=eligibility,
+        )
         result = {}
         status = "BLOCKED" if error_code.startswith("BLOCKED") else "FAILED"
 
@@ -874,7 +1615,11 @@ def run_incremental(
         status=status,
         error_code=error_code,
         smoke_result=smoke_result,
-        successful_series=len(acquired) if status == "PASS" else 0,
+        successful_series=(
+            len(acquired)
+            if status == "PASS" and revision_warning_result is None
+            else 0
+        ),
         client=selected_client,
         all_artifacts=all_artifacts,
         result=result,
@@ -896,6 +1641,7 @@ def run_full_refetch(
     instrument_key: str,
     client: SaxoClient | None = None,
     *,
+    client_factory: Callable[[], SaxoClient] | None = None,
     trigger: str = "manual_db3_full_refetch",
 ) -> dict[str, Any]:
     matches = tuple(item for item in load_canonical_instruments() if item.key == instrument_key.lower())
@@ -909,11 +1655,14 @@ def run_full_refetch(
     all_artifacts: list[ArtifactRecord] = []
     selected_client = client
     smoke_result: dict[str, Any] | None = None
-    failed_instrument_id: int | None = None
+    failed_instrument_keys: tuple[str, ...] = (instrument.key,)
     try:
         state, existing_min_time = _load_full_refetch_state(instrument)
-        failed_instrument_id = state.instrument_id
-        selected_client = selected_client or SaxoClient.from_environment()
+        if selected_client is not None and client_factory is not None:
+            raise ValueError("client and client_factory are mutually exclusive")
+        selected_client = selected_client or (
+            client_factory() if client_factory is not None else SaxoClient.from_environment()
+        )
         smoke_result = selected_client.smoke_test()
         detail = selected_client.instrument_detail(instrument.uic, instrument.asset_type)
         validate_detail(instrument, detail)
@@ -1000,7 +1749,7 @@ def run_full_refetch(
         error_code = None
     except Exception as exc:
         error_code = _error_code(exc)
-        _record_failure(db_run_id, error_code, chart_artifacts, failed_instrument_id)
+        _record_failure(db_run_id, error_code, chart_artifacts, failed_instrument_keys)
         result = {}
         status = "BLOCKED" if error_code.startswith("BLOCKED") else "FAILED"
 
@@ -1197,6 +1946,25 @@ def reconcile_incremental(
     }
 
 
+def oauth_reconcile_runners(
+    manager: SaxoOAuthManager,
+) -> tuple[Callable[[], dict[str, Any]], Callable[[str], dict[str, Any]]]:
+    """Build step-scoped runners so a long reconcile never relies on one access token."""
+
+    def normal() -> dict[str, Any]:
+        return run_incremental(
+            client_factory=lambda: SaxoClient(manager.access_token()),
+        )
+
+    def full_refetch(instrument_key: str) -> dict[str, Any]:
+        return run_full_refetch(
+            instrument_key,
+            client_factory=lambda: SaxoClient(manager.access_token(force_refresh=True)),
+        )
+
+    return normal, full_refetch
+
+
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Saxo SIM DB3 incremental updater")
     parser.add_argument(
@@ -1204,7 +1972,11 @@ def main(argv: Iterable[str] | None = None) -> int:
     )
     parser.add_argument("--instrument-key")
     parser.add_argument("--profile", choices=("canonical", "s6v5a"), default="canonical")
+    parser.add_argument("--auth-mode", choices=("environment", "keychain"), default="environment")
+    parser.add_argument("--callback-port", type=int, default=DEFAULT_CALLBACK_PORT)
     args = parser.parse_args(list(argv) if argv is not None else None)
+    if args.auth_mode == "keychain" and args.command not in {"reconcile", "full-refetch"}:
+        parser.error("keychain auth mode is supported only for reconcile or full-refetch")
     if args.command == "initialize-watermarks":
         result = initialize_watermarks()
     elif args.command == "run":
@@ -1213,9 +1985,29 @@ def main(argv: Iterable[str] | None = None) -> int:
     elif args.command == "full-refetch":
         if not args.instrument_key:
             parser.error("full-refetch requires --instrument-key")
-        result = run_full_refetch(args.instrument_key)
+        if args.auth_mode == "keychain":
+            oauth_manager = SaxoOAuthManager(
+                OAuthConfig.from_environment(callback_port=args.callback_port)
+            )
+            result = run_full_refetch(
+                args.instrument_key,
+                client_factory=lambda: SaxoClient(
+                    oauth_manager.access_token(force_refresh=True)
+                ),
+            )
+        else:
+            result = run_full_refetch(args.instrument_key)
     elif args.command == "reconcile":
+        normal_runner = None
+        full_refetch_runner = None
+        if args.auth_mode == "keychain":
+            oauth_manager = SaxoOAuthManager(
+                OAuthConfig.from_environment(callback_port=args.callback_port)
+            )
+            normal_runner, full_refetch_runner = oauth_reconcile_runners(oauth_manager)
         result = reconcile_incremental(
+            normal_runner=normal_runner,
+            full_refetch_runner=full_refetch_runner,
             on_step=lambda step: print(
                 json.dumps({"reconcile_step": step}, sort_keys=True), flush=True
             )

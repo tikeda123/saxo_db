@@ -1,0 +1,55 @@
+{
+  "schema_version": 2,
+  "profile_id": "all_except_usdjpy_with_fx_research_candidates_20260727",
+  "status": "ACTIVE",
+  "activated_at_utc": "2026-07-28T04:08:03Z",
+  "activation_evidence": {
+    "readiness_status": "PASS",
+    "audusd_normal_pass_run_ids": [904, 913],
+    "usdcad_normal_pass_run_ids": [905, 914],
+    "usdchf_normal_pass_run_ids": [906, 915],
+    "accepted_complete_times_utc": ["2026-07-28T02:00:00Z", "2026-07-28T03:00:00Z"],
+    "orders_or_prechecks_sent": 0
+  },
+  "activation_gate": {
+    "required_instrument_keys": ["audusd", "usdcad", "usdchf"],
+    "publication_status": "PUBLISHED",
+    "consecutive_normal_passes_per_instrument": 2,
+    "consumer_availability_status": "AVAILABLE_WITH_WARNINGS",
+    "research_policy_id": "fx_research_candidate_user_approved_warnings_v1",
+    "quality_status": "WARN",
+    "coverage_status": "WARN",
+    "freshness_status": "PASS",
+    "blocker_code": null,
+    "fail_closed": true
+  },
+  "included_instrument_keys": [
+    "spy", "iwm", "efa", "eem", "vnq",
+    "shy", "ief", "tlt", "tip", "lqd", "gld", "eurusd",
+    "audusd", "usdcad", "usdchf"
+  ],
+  "excluded_instruments": [
+    {
+      "instrument_key": "usdjpy",
+      "status": "BLOCKED_PROVIDER_CONTENT_QUALITY",
+      "reason": "provider DataVersion content-quality quarantine remains unchanged"
+    }
+  ],
+  "schedule": {
+    "existing_eurusd": {"slot_kind": "fx_hourly", "due_minute_utc": 3, "deadline_minute_utc": 10},
+    "research_candidates": {
+      "slot_kind": "fx_research_candidates_hourly",
+      "isolation": "one_instrument_per_slot",
+      "due_minute_utc": 6,
+      "deadline_minute_utc": 15,
+      "calendar_id": "SBFX_24X5"
+    },
+    "etf_slots_unchanged": true
+  },
+  "security": {
+    "allowed_saxo_methods": ["GET"],
+    "orders": 0,
+    "prechecks": 0,
+    "write_requests": 0
+  }
+}

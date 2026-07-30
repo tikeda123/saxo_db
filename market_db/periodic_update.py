@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
 import json
 import os
 import signal
@@ -16,7 +17,6 @@ from typing import Any, Callable, Iterable, Mapping
 
 from .connection import MARKET_DB, connect, project_root
 from .incremental_update import (
-    S6V5A_PRIORITY_INSTRUMENT_KEYS,
     run_full_refetch,
     run_incremental,
 )
@@ -26,18 +26,31 @@ from .session_calendar import SessionInterval, generate_fx_sessions
 from .total_return_update import provider_gate
 
 
-EQUITY_KEYS = ("spy", "iwm", "efa", "eem", "vnq")
-FX_KEYS = ("eurusd",)
+EQUITY_REIT_KEYS = ("spy", "iwm", "efa", "eem", "vnq")
+BOND_CREDIT_KEYS = ("shy", "ief", "tlt", "tip", "lqd")
+GOLD_KEYS = ("gld",)
+ETF_KEYS = EQUITY_REIT_KEYS + BOND_CREDIT_KEYS + GOLD_KEYS
+EQUITY_KEYS = EQUITY_REIT_KEYS
+SCHEDULED_FX_KEYS = ("eurusd", "usdjpy")
+FX_KEYS = SCHEDULED_FX_KEYS
+FX_RESEARCH_CANDIDATE_KEYS = ("audusd", "usdcad", "usdchf")
+FULL_SCOPE_PROFILE = "all_managed_series_v1"
+USDJPY_QUARANTINE_SCOPE_PROFILE = "all_except_usdjpy_provider_quarantine_20260727"
+CANDIDATE_READY_SCOPE_PROFILE = "all_except_usdjpy_with_fx_research_candidates_20260727"
+ACTIVE_SCOPE_PROFILE = USDJPY_QUARANTINE_SCOPE_PROFILE
 RUNTIME_RELATIVE_PATH = Path(".runtime/periodic_update")
 STATE_FILENAME = "state.json"
 LOCK_FILENAME = "service.lock"
 POLL_SECONDS = 15.0
 RETRY_SECONDS = 30.0
+MAX_TRANSIENT_SLOT_ATTEMPTS = 4
 MAX_CATCHUP_AGE = timedelta(hours=6)
 FIRST_PUBLISH_OFFSET = timedelta(hours=1, seconds=15)
 EQUITY_DEADLINE_OFFSET = timedelta(hours=1, minutes=3)
 FX_PUBLISH_MINUTE = 3
 FX_DEADLINE_MINUTE = 10
+CANDIDATE_FX_PUBLISH_MINUTE = 6
+CANDIDATE_FX_DEADLINE_MINUTE = 15
 
 
 def _utc_text(value: datetime) -> str:
@@ -73,6 +86,127 @@ class ScheduleSlot:
                 key: _utc_text(value) for key, value in self.expected_latest_complete.items()
             },
         }
+
+
+@dataclass(frozen=True)
+class SchedulerScope:
+    profile_id: str
+    included_instrument_keys: tuple[str, ...]
+    excluded_instrument_keys: tuple[str, ...]
+    allowed_schedule_kinds: tuple[str, ...]
+    reason: str
+    release_condition: str
+    config_relative_path: str = "specs/source_collection/periodic_scheduler_scope_v1.json"
+
+    def public_dict(self) -> dict[str, Any]:
+        return {
+            "profile_id": self.profile_id,
+            "status": "ACTIVE_TEMPORARY",
+            "included_instrument_keys": list(self.included_instrument_keys),
+            "excluded_instrument_keys": list(self.excluded_instrument_keys),
+            "allowed_schedule_kinds": list(self.allowed_schedule_kinds),
+            "reason": self.reason,
+            "release_condition": self.release_condition,
+            "config_relative_path": self.config_relative_path,
+            "orders_or_prechecks_sent": 0,
+        }
+
+
+SCHEDULER_SCOPES = {
+    FULL_SCOPE_PROFILE: SchedulerScope(
+        profile_id=FULL_SCOPE_PROFILE,
+        included_instrument_keys=ETF_KEYS + SCHEDULED_FX_KEYS,
+        excluded_instrument_keys=(),
+        allowed_schedule_kinds=(
+            "equity_regular_1h",
+            "bond_credit_regular_1h",
+            "gold_regular_1h",
+            "fx_hourly",
+        ),
+        reason="full managed-series schedule",
+        release_condition="not applicable",
+    ),
+    USDJPY_QUARANTINE_SCOPE_PROFILE: SchedulerScope(
+        profile_id=USDJPY_QUARANTINE_SCOPE_PROFILE,
+        included_instrument_keys=ETF_KEYS + ("eurusd",),
+        excluded_instrument_keys=("usdjpy",),
+        allowed_schedule_kinds=(
+            "equity_regular_1h",
+            "bond_credit_regular_1h",
+            "gold_regular_1h",
+            "fx_hourly",
+        ),
+        reason="USDJPY provider DataVersion content-quality quarantine",
+        release_condition=(
+            "provider-corrected USDJPY DataVersion, guarded full-refetch PASS, "
+            "and two normal PASS runs"
+        ),
+    ),
+    CANDIDATE_READY_SCOPE_PROFILE: SchedulerScope(
+        profile_id=CANDIDATE_READY_SCOPE_PROFILE,
+        included_instrument_keys=ETF_KEYS + ("eurusd",) + FX_RESEARCH_CANDIDATE_KEYS,
+        excluded_instrument_keys=("usdjpy",),
+        allowed_schedule_kinds=(
+            "equity_regular_1h",
+            "bond_credit_regular_1h",
+            "gold_regular_1h",
+            "fx_hourly",
+            "fx_research_candidates_hourly",
+        ),
+        reason="USDJPY quarantined; reviewed FX research candidates passed two normal runs",
+        release_condition="all three research candidates remain PUBLISHED with two normal PASS runs",
+        config_relative_path=(
+            "specs/source_collection/fx_research_candidate_scheduler_scope_v1.json"
+        ),
+    ),
+}
+
+
+def scheduler_scope(profile_id: str) -> SchedulerScope:
+    try:
+        return SCHEDULER_SCOPES[profile_id]
+    except KeyError:
+        raise ValueError("UNKNOWN_SCHEDULER_SCOPE_PROFILE") from None
+
+
+def _apply_scheduler_scope(
+    slots: Iterable[ScheduleSlot], profile_id: str
+) -> tuple[ScheduleSlot, ...]:
+    scope = scheduler_scope(profile_id)
+    included = set(scope.included_instrument_keys)
+    allowed_kinds = set(scope.allowed_schedule_kinds)
+    selected: list[ScheduleSlot] = []
+    for slot in slots:
+        if slot.kind not in allowed_kinds:
+            continue
+        instrument_keys = tuple(key for key in slot.instrument_keys if key in included)
+        if not instrument_keys:
+            continue
+        expected = {
+            key: value for key, value in slot.expected_latest_complete.items()
+            if key in included
+        }
+        trigger = slot.trigger
+        if profile_id in {
+            USDJPY_QUARANTINE_SCOPE_PROFILE,
+            CANDIDATE_READY_SCOPE_PROFILE,
+        }:
+            trigger = f"{trigger}_usdjpy_quarantined"
+        # Every scheduled lane is instrument-scoped.  A source revision in
+        # one ETF must not suppress the remaining instruments in its category.
+        for instrument_key in instrument_keys:
+            selected.append(
+                ScheduleSlot(
+                    slot_id=f"{slot.slot_id}-{instrument_key}",
+                    kind=slot.kind,
+                    due_at_utc=slot.due_at_utc,
+                    deadline_utc=slot.deadline_utc,
+                    instrument_keys=(instrument_key,),
+                    expected_latest_complete={instrument_key: expected[instrument_key]},
+                    trigger=f"{trigger}_{instrument_key}",
+                )
+            )
+    return tuple(selected)
 
 
 def runtime_dir() -> Path:
@@ -176,6 +310,8 @@ def build_schedule_slots(
     now_utc: datetime,
     equity_sessions: Iterable[EquitySession],
     fx_sessions: Iterable[SessionInterval] | None = None,
+    *,
+    scope_profile: str = FULL_SCOPE_PROFILE,
 ) -> tuple[ScheduleSlot, ...]:
     if now_utc.tzinfo is None:
         raise ValueError("now_utc must be timezone-aware")
@@ -211,11 +347,31 @@ def build_schedule_slots(
                 kind="fx_hourly",
                 due_at_utc=due,
                 deadline_utc=bar_start + timedelta(hours=1, minutes=FX_DEADLINE_MINUTE),
-                instrument_keys=FX_KEYS,
-                expected_latest_complete={"eurusd": bar_start},
-                trigger="scheduled_s6v5a_fx_hourly",
+                instrument_keys=SCHEDULED_FX_KEYS,
+                expected_latest_complete={key: bar_start for key in SCHEDULED_FX_KEYS},
+                trigger="scheduled_fx_hourly",
             )
         )
+        candidate_due = bar_start + timedelta(
+            hours=1, minutes=CANDIDATE_FX_PUBLISH_MINUTE
+        )
+        for instrument_key in FX_RESEARCH_CANDIDATE_KEYS:
+            slots.append(
+                ScheduleSlot(
+                    slot_id=(
+                        f"fx-research-{instrument_key}-"
+                        f"{candidate_due.strftime('%Y%m%dT%H%M%SZ')}"
+                    ),
+                    kind="fx_research_candidates_hourly",
+                    due_at_utc=candidate_due,
+                    deadline_utc=bar_start + timedelta(
+                        hours=1, minutes=CANDIDATE_FX_DEADLINE_MINUTE
+                    ),
+                    instrument_keys=(instrument_key,),
+                    expected_latest_complete={instrument_key: bar_start},
+                    trigger=f"scheduled_fx_research_candidate_{instrument_key}",
+                )
+            )
 
     for session in equity_sessions:
         if session.session_status not in {"OPEN", "SHORT_SESSION"}:
@@ -227,34 +383,52 @@ def build_schedule_slots(
         ):
             due = bar_start + FIRST_PUBLISH_OFFSET
             deadline = bar_start + EQUITY_DEADLINE_OFFSET
-            expected = {key: bar_start for key in EQUITY_KEYS}
-            due_fx = [
-                value for value in fx_bar_starts
-                if value + timedelta(hours=1, minutes=FX_PUBLISH_MINUTE) <= due
-            ]
-            if due_fx:
-                expected["eurusd"] = due_fx[-1]
             slots.append(
                 ScheduleSlot(
                     slot_id=f"equity-{session.session_date.isoformat()}-{bar_start.strftime('%H%MZ')}",
                     kind="equity_regular_1h",
                     due_at_utc=due,
                     deadline_utc=deadline,
-                    instrument_keys=S6V5A_PRIORITY_INSTRUMENT_KEYS,
-                    expected_latest_complete=expected,
-                    trigger="scheduled_s6v5a_equity_regular_1h",
+                    instrument_keys=EQUITY_REIT_KEYS,
+                    expected_latest_complete={key: bar_start for key in EQUITY_REIT_KEYS},
+                    trigger="scheduled_equity_reit_regular_1h",
                 )
             )
-    return tuple(sorted(slots, key=lambda item: (item.due_at_utc, item.kind)))
+            slots.append(
+                ScheduleSlot(
+                    slot_id=f"bond-credit-{session.session_date.isoformat()}-{bar_start.strftime('%H%MZ')}",
+                    kind="bond_credit_regular_1h",
+                    due_at_utc=due,
+                    deadline_utc=deadline,
+                    instrument_keys=BOND_CREDIT_KEYS,
+                    expected_latest_complete={key: bar_start for key in BOND_CREDIT_KEYS},
+                    trigger="scheduled_bond_credit_regular_1h",
+                )
+            )
+            slots.append(
+                ScheduleSlot(
+                    slot_id=f"gold-{session.session_date.isoformat()}-{bar_start.strftime('%H%MZ')}",
+                    kind="gold_regular_1h",
+                    due_at_utc=due,
+                    deadline_utc=deadline,
+                    instrument_keys=GOLD_KEYS,
+                    expected_latest_complete={key: bar_start for key in GOLD_KEYS},
+                    trigger="scheduled_gold_regular_1h",
+                )
+            )
+    ordered = tuple(sorted(slots, key=lambda item: (item.due_at_utc, item.kind)))
+    return _apply_scheduler_scope(ordered, scope_profile)
 
 
-def schedule_around(now_utc: datetime) -> tuple[ScheduleSlot, ...]:
+def schedule_around(
+    now_utc: datetime, *, scope_profile: str = ACTIVE_SCOPE_PROFILE
+) -> tuple[ScheduleSlot, ...]:
     selected = now_utc.astimezone(timezone.utc)
     sessions = load_equity_sessions(
         (selected - timedelta(days=2)).date(),
         (selected + timedelta(days=3)).date(),
     )
-    return build_schedule_slots(selected, sessions)
+    return build_schedule_slots(selected, sessions, scope_profile=scope_profile)
 
 
 def latest_complete_watermarks(instrument_keys: Iterable[str]) -> dict[str, datetime]:
@@ -274,6 +448,53 @@ def latest_complete_watermarks(instrument_keys: Iterable[str]) -> dict[str, date
             )
             rows = cursor.fetchall()
     return {str(key): value for key, value in rows if value is not None}
+
+
+def watermark_revision(instrument_keys: Iterable[str]) -> str:
+    """Return a secret-free revision for terminal-blocker release decisions."""
+
+    selected = tuple(sorted({str(key).lower() for key in instrument_keys}))
+    with connect(
+        "saxo_ingest", MARKET_DB, application_name="saxo_db_periodic_watermark_revision"
+    ) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SET TRANSACTION READ ONLY")
+            cursor.execute(
+                """
+                SELECT lower(i.market_key), w.data_status, w.data_version,
+                       w.latest_complete_time_utc, w.last_ingestion_run_id,
+                       w.updated_at_utc
+                FROM catalog.instrument i
+                LEFT JOIN ops.watermark w
+                  ON w.instrument_id=i.instrument_id AND w.horizon_minutes=60
+                WHERE i.provider='Saxo OpenAPI' AND i.environment='SIM'
+                  AND lower(i.market_key)=ANY(%s)
+                ORDER BY lower(i.market_key)
+                """,
+                (list(selected),),
+            )
+            rows = cursor.fetchall()
+    observed = {
+        str(key): {
+            "data_status": status,
+            "data_version": version,
+            "latest_complete_time_utc": (
+                None if latest is None else _utc_text(latest)
+            ),
+            "last_ingestion_run_id": run_id,
+            "updated_at_utc": None if updated is None else _utc_text(updated),
+        }
+        for key, status, version, latest, run_id, updated in rows
+    }
+    payload = {
+        "instrument_keys": list(selected),
+        "watermarks": [
+            {"instrument_key": key, **observed.get(key, {"missing": True})}
+            for key in selected
+        ],
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def evaluate_expected_watermarks(
@@ -308,13 +529,170 @@ def _error_domain(error_code: str | None) -> str:
     if selected in {
         "BLOCKED_RATE_LIMIT", "FAILED_NETWORK", "FAILED_SERVICE_UNAVAILABLE",
         "FAILED_INVALID_JSON", "FAILED_JSON_NOT_OBJECT",
+        "FAILED_INSUFFICIENTPRIVILEGE",
     } or selected.startswith("FAILED_HTTP_"):
         return "interface_operational"
     if selected in {"DATA_NOT_READY", "INSUFFICIENT_INCREMENTAL_CHART_DATA"}:
         return "data_not_ready"
-    if selected in {"BLOCKED_FULL_REFETCH_REQUIRED", "BLOCKED_REPEATED_DATA_VERSION_CHANGE"}:
+    if selected in {
+        "BLOCKED_CANONICAL_WATERMARK_SET",
+        "BLOCKED_FULL_REFETCH_REQUIRED",
+        "BLOCKED_BOUNDED_REVISION_REQUIRED",
+        "BLOCKED_REPEATED_DATA_VERSION_CHANGE",
+        "BLOCKED_REVISION_SCOPE_UNRESOLVED_FULL_REFETCH_REQUIRED",
+    }:
         return "source_revision"
     return "data_quality"
+
+
+TRANSIENT_RETRY_CODES = frozenset(
+    {
+        "BLOCKED_RATE_LIMIT",
+        "FAILED_NETWORK",
+        "DATA_NOT_READY",
+        "INSUFFICIENT_INCREMENTAL_CHART_DATA",
+    }
+)
+TERMINAL_OPERATOR_CODES = frozenset(
+    {
+        "BLOCKED_CANONICAL_WATERMARK_SET",
+        "BLOCKED_FULL_REFETCH_REQUIRED",
+        "BLOCKED_BOUNDED_REVISION_REQUIRED",
+        "BLOCKED_REPEATED_DATA_VERSION_CHANGE",
+        "BLOCKED_RECONCILIATION_LIMIT",
+        "BLOCKED_REVISION_SCOPE_UNRESOLVED_FULL_REFETCH_REQUIRED",
+        "BLOCKED_FULL_REFETCH_HISTORY_TRUNCATED",
+        "BLOCKED_FULL_REFETCH_STATE_MISSING",
+        "BLOCKED_FULL_REFETCH_NOT_REQUIRED",
+    }
+)
+
+
+def retry_disposition(error_code: str | None) -> str:
+    """Classify scheduler retries without converting a block into success."""
+
+    selected = str(error_code or "")
+    if selected in TRANSIENT_RETRY_CODES or selected.startswith("FAILED_HTTP_429"):
+        return "TRANSIENT_RETRY"
+    if selected in TERMINAL_OPERATOR_CODES or selected.startswith("BLOCKED_INSTRUMENT_DRIFT"):
+        return "OPERATOR_ACTION_REQUIRED"
+    return "OPERATOR_ACTION_REQUIRED"
+
+
+def _terminal_blocker_signature(
+    instrument_keys: Iterable[str], error_code: str, selected_watermark_revision: str
+) -> str:
+    payload = {
+        "instrument_keys": sorted({str(key).lower() for key in instrument_keys}),
+        "error_code": error_code,
+        "watermark_revision": selected_watermark_revision,
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _operator_recovery(error_code: str) -> tuple[str, str]:
+    if error_code == "BLOCKED_CANONICAL_WATERMARK_SET":
+        return (
+            "run guarded reconcile while the scheduler is stopped",
+            "watermark revision changes after reconcile/full-refetch",
+        )
+    if error_code == "BLOCKED_FULL_REFETCH_REQUIRED":
+        return (
+            "run guarded single-instrument full-refetch via reconcile",
+            "watermark DataVersion and revision change",
+        )
+    if error_code == "BLOCKED_BOUNDED_REVISION_REQUIRED":
+        return (
+            "run bounded single-instrument DataVersion reconciliation",
+            "bounded revision APPLIED or instrument-scoped full-refetch fallback completed",
+        )
+    if error_code == "BLOCKED_REVISION_SCOPE_UNRESOLVED_FULL_REFETCH_REQUIRED":
+        return (
+            "run guarded single-instrument full-refetch; bounded comparison was inconclusive",
+            "guarded full-refetch PASS for the affected instrument",
+        )
+    if error_code.startswith("BLOCKED_INSTRUMENT_DRIFT"):
+        return (
+            "review the frozen canonical instrument identity; do not substitute symbols",
+            "canonical registry or reviewed provider identity changes",
+        )
+    return (
+        "review the recorded blocker and complete the documented recovery",
+        "watermark revision or operator-reviewed prerequisite changes",
+    )
+
+
+def _record_terminal_blocker(
+    previous: Mapping[str, Any] | None,
+    slot: ScheduleSlot,
+    result: Mapping[str, Any],
+    selected_watermark_revision: str,
+    observed_at: datetime,
+) -> dict[str, Any]:
+    error_code = str(result.get("error_code") or "SCHEDULED_INCREMENTAL_FAILED")
+    affected_keys = _failed_instrument_keys(slot, result)
+    signature = _terminal_blocker_signature(affected_keys, error_code, selected_watermark_revision)
+    same = previous is not None and previous.get("signature") == signature
+    action, resume_condition = _operator_recovery(error_code)
+    return {
+        "status": "INSTRUMENT_DEGRADED_OPERATOR_ACTION_REQUIRED",
+        "signature": signature,
+        "origin_slot_id": slot.slot_id,
+        "instrument_keys": list(affected_keys),
+        "error_code": error_code,
+        "error_domain": result.get("error_domain") or _error_domain(error_code),
+        "watermark_revision": selected_watermark_revision,
+        "required_action": action,
+        "resume_condition": resume_condition,
+        "first_observed_at_utc": (
+            previous.get("first_observed_at_utc") if same else _utc_text(observed_at)
+        ),
+        "last_observed_at_utc": _utc_text(observed_at),
+        "observation_count": int(previous.get("observation_count", 0)) + 1 if same else 1,
+        "ingestion_run_id": next(
+            (
+                step.get("database_ingestion_run_id")
+                for step in reversed(list(result.get("steps") or []))
+                if step.get("database_ingestion_run_id") is not None
+            ),
+            None,
+        ),
+        "orders_or_prechecks_sent": 0,
+    }
+
+
+def _terminal_blocker_still_applies(
+    blocker: Mapping[str, Any] | None,
+    slot: ScheduleSlot,
+    selected_watermark_revision: str,
+) -> bool:
+    return bool(
+        blocker
+        and blocker.get("status") in {
+            "BLOCKED_OPERATOR_ACTION_REQUIRED",
+            "INSTRUMENT_DEGRADED_OPERATOR_ACTION_REQUIRED",
+        }
+        and bool(set(blocker.get("instrument_keys") or ()) & set(slot.instrument_keys))
+        and blocker.get("watermark_revision") == selected_watermark_revision
+    )
+
+
+def _failed_instrument_keys(
+    slot: ScheduleSlot, result: Mapping[str, Any]
+) -> tuple[str, ...]:
+    explicit = result.get("failed_instrument_keys")
+    if isinstance(explicit, list) and explicit and all(isinstance(key, str) for key in explicit):
+        return tuple(sorted({key.lower() for key in explicit}))
+    for step in reversed(list(result.get("steps") or [])):
+        keys = step.get("failed_instrument_keys")
+        if isinstance(keys, list) and keys and all(isinstance(key, str) for key in keys):
+            return tuple(sorted({key.lower() for key in keys}))
+        key = step.get("failed_instrument_key")
+        if isinstance(key, str) and key:
+            return (key.lower(),)
+    return tuple(sorted({key.lower() for key in slot.instrument_keys}))
 
 
 class PeriodicExecutor:
@@ -324,11 +702,13 @@ class PeriodicExecutor:
         *,
         incremental_runner: Callable[..., dict[str, Any]] = run_incremental,
         full_refetch_runner: Callable[..., dict[str, Any]] = run_full_refetch,
+        revision_reconcile_runner: Callable[..., dict[str, Any]] | None = None,
         watermark_loader: Callable[[Iterable[str]], dict[str, datetime]] = latest_complete_watermarks,
     ) -> None:
         self.oauth_manager = oauth_manager
         self.incremental_runner = incremental_runner
         self.full_refetch_runner = full_refetch_runner
+        self.revision_reconcile_runner = revision_reconcile_runner
         self.watermark_loader = watermark_loader
 
     def _client(self, *, force_refresh: bool = False) -> SaxoClient:
@@ -358,19 +738,29 @@ class PeriodicExecutor:
                 result = self._run_incremental(slot, client)
                 steps.append({"operation": "incremental_after_token_refresh", **result})
 
-            if result.get("error_code") == "BLOCKED_FULL_REFETCH_REQUIRED":
-                failed_key = result.get("failed_instrument_key")
-                if not isinstance(failed_key, str) or failed_key not in slot.instrument_keys:
-                    raise RuntimeError("SCHEDULED_REFETCH_TARGET_INVALID")
-                refetch = self.full_refetch_runner(
-                    failed_key,
-                    client=client,
-                    trigger="scheduled_s6v5a_data_version_recovery",
-                )
-                steps.append({"operation": "full_refetch", **refetch})
-                if refetch.get("status") == "PASS":
-                    result = self._run_incremental(slot, client)
-                    steps.append({"operation": "incremental_after_full_refetch", **result})
+            if result.get("warning_code") == "DATA_VERSION_REVISION_REVIEW_PENDING":
+                observed = self.watermark_loader(slot.instrument_keys)
+                return {
+                    "status": "PASS",
+                    "error_code": None,
+                    "warning_code": "DATA_VERSION_REVISION_REVIEW_PENDING",
+                    "error_domain": "none",
+                    "slot": slot.public_dict(),
+                    "watermark_gate": {
+                        "status": "NOT_ADVANCED_REVISION_REVIEW_PENDING",
+                        "observed": {
+                            key: _utc_text(value) for key, value in observed.items()
+                        },
+                        "data_advanced": False,
+                    },
+                    "revision_event_id": result.get("revision_event_id"),
+                    "review_status": result.get("review_status"),
+                    "availability_status": result.get("availability_status"),
+                    "started_at_utc": _utc_text(started_at),
+                    "finished_at_utc": _utc_text(datetime.now(timezone.utc)),
+                    "orders_or_prechecks_sent": 0,
+                    "steps": steps,
+                }
 
             if result.get("status") != "PASS":
                 error_code = str(result.get("error_code") or "SCHEDULED_INCREMENTAL_FAILED")
@@ -424,9 +814,10 @@ class PeriodicExecutor:
             }
 
 
-def _initial_state(now: datetime) -> dict[str, Any]:
+def _initial_state(now: datetime, scope_profile: str) -> dict[str, Any]:
+    scope = scheduler_scope(scope_profile)
     return {
-        "schema_version": 1,
+        "schema_version": 3,
         "owner": "saxo_db.periodic_update",
         "service_status": "RUNNING",
         "pid": os.getpid(),
@@ -435,7 +826,10 @@ def _initial_state(now: datetime) -> dict[str, Any]:
         "completed_slots": [],
         "last_job": None,
         "next_slots": [],
+        "terminal_blockers": {},
+        "transient_attempts": {},
         "total_return": provider_gate(),
+        "scheduler_scope": scope.public_dict(),
         "orders_or_prechecks_sent": 0,
     }
 
@@ -445,15 +839,16 @@ def _latest_due_per_kind(
     now: datetime,
     completed: set[str],
 ) -> tuple[ScheduleSlot, ...]:
-    candidates: dict[str, ScheduleSlot] = {}
+    candidates: dict[tuple[str, tuple[str, ...]], ScheduleSlot] = {}
     for slot in slots:
         if slot.slot_id in completed or slot.due_at_utc > now:
             continue
         if now - slot.due_at_utc > MAX_CATCHUP_AGE:
             continue
-        previous = candidates.get(slot.kind)
+        lane = (slot.kind, tuple(sorted(slot.instrument_keys)))
+        previous = candidates.get(lane)
         if previous is None or slot.due_at_utc > previous.due_at_utc:
-            candidates[slot.kind] = slot
+            candidates[lane] = slot
     return tuple(sorted(candidates.values(), key=lambda item: item.due_at_utc))
 
 
@@ -465,11 +860,70 @@ def _completed_through(
     return {
         slot.slot_id
         for slot in slots
-        if slot.kind == selected.kind and slot.due_at_utc <= selected.due_at_utc
+        if slot.kind == selected.kind
+        and tuple(sorted(slot.instrument_keys)) == tuple(sorted(selected.instrument_keys))
+        and slot.due_at_utc <= selected.due_at_utc
     }
 
 
-def _slot_sla_status(slot: ScheduleSlot, started_at_utc: datetime) -> str:
+def candidate_scope_readiness() -> dict[str, Any]:
+    with connect("saxo_ingest", MARKET_DB, application_name="saxo_db_candidate_scope_gate") as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SET TRANSACTION READ ONLY")
+            cursor.execute(
+                """
+                SELECT i.market_key,p.publication_status,p.consecutive_normal_passes,
+                       p.blocker_code,p.quality_status,p.coverage_status,
+                       p.freshness_status,p.consumer_availability_status,
+                       p.research_policy_id
+                FROM catalog.instrument i
+                JOIN catalog.series_publication_state p USING (instrument_id)
+                WHERE i.market_key=ANY(%s) AND p.horizon_minutes=60
+                  AND p.price_basis='bid_ask_mid'
+                ORDER BY i.market_key
+                """,
+                (list(FX_RESEARCH_CANDIDATE_KEYS),),
+            )
+            rows = cursor.fetchall()
+    states = {
+        str(key): {
+            "publication_status": str(status),
+            "consecutive_normal_passes": int(passes),
+            "blocker_code": blocker,
+            "quality_status": str(quality),
+            "coverage_status": str(coverage),
+            "freshness_status": str(freshness),
+            "consumer_availability_status": str(availability),
+            "research_policy_id": policy_id,
+        }
+        for key, status, passes, blocker, quality, coverage, freshness,
+            availability, policy_id in rows
+    }
+    ready = all(
+        states.get(key, {}).get("publication_status") == "PUBLISHED"
+        and states.get(key, {}).get("consecutive_normal_passes") == 2
+        and states.get(key, {}).get("quality_status") in {"PASS", "WARN"}
+        and states.get(key, {}).get("coverage_status") in {"PASS", "WARN"}
+        and states.get(key, {}).get("freshness_status") == "PASS"
+        and states.get(key, {}).get("blocker_code") is None
+        and states.get(key, {}).get("consumer_availability_status")
+            == "AVAILABLE_WITH_WARNINGS"
+        and states.get(key, {}).get("research_policy_id")
+            == "fx_research_candidate_user_approved_warnings_v1"
+        for key in FX_RESEARCH_CANDIDATE_KEYS
+    )
+    return {
+        "status": "PASS" if ready else "BLOCKED_CANDIDATE_SCOPE_NOT_READY",
+        "candidate_states": states,
+        "orders_or_prechecks_sent": 0,
+    }
+
+
+def _slot_sla_status(
+    slot: ScheduleSlot, started_at_utc: datetime, result_status: str = "PASS"
+) -> str:
+    if result_status != "PASS":
+        return "MISS" if started_at_utc > slot.deadline_utc else "BLOCKED"
     return "PASS" if started_at_utc <= slot.deadline_utc else "MISS"
 
 
@@ -489,7 +943,14 @@ def run_daemon(
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     sleep: Callable[[float], None] = time.sleep,
     stop_event: threading.Event | None = None,
+    watermark_revision_loader: Callable[[Iterable[str]], str] = watermark_revision,
+    scope_profile: str = ACTIVE_SCOPE_PROFILE,
 ) -> None:
+    scope = scheduler_scope(scope_profile)
+    if scope_profile == CANDIDATE_READY_SCOPE_PROFILE:
+        readiness = candidate_scope_readiness()
+        if readiness["status"] != "PASS":
+            raise RuntimeError("BLOCKED_CANDIDATE_SCOPE_NOT_READY")
     _ensure_runtime_dir()
     lock_path = runtime_dir() / LOCK_FILENAME
     lock_stream = lock_path.open("a+", encoding="utf-8")
@@ -500,15 +961,33 @@ def run_daemon(
         raise RuntimeError("PERIODIC_UPDATE_ALREADY_RUNNING") from None
 
     stopper = stop_event or threading.Event()
-    state = load_state() or _initial_state(clock())
-    state.update({"service_status": "RUNNING", "pid": os.getpid()})
+    state = load_state() or _initial_state(clock(), scope_profile)
+    state.update(
+        {
+            "schema_version": 4,
+            "service_status": "RUNNING",
+            "pid": os.getpid(),
+            "scheduler_scope": scope.public_dict(),
+        }
+    )
     completed = set(str(value) for value in state.get("completed_slots", []))
     next_attempt: dict[str, datetime] = {}
+    terminal_blockers = dict(state.get("terminal_blockers") or {})
+    # Error-domain policy can be corrected independently of the immutable
+    # blocker evidence.  Reclassify persisted entries on restart so an
+    # interface/operational failure is not presented as a data-quality fault.
+    for blocker_key, stored in list(terminal_blockers.items()):
+        normalized = dict(stored)
+        normalized["error_domain"] = _error_domain(normalized.get("error_code"))
+        terminal_blockers[blocker_key] = normalized
+    transient_attempts = {
+        str(key): int(value) for key, value in dict(state.get("transient_attempts") or {}).items()
+    }
     write_state(state)
     try:
         while not stopper.is_set():
             now = clock().astimezone(timezone.utc)
-            slots = schedule_around(now)
+            slots = schedule_around(now, scope_profile=scope_profile)
             upcoming = [slot.public_dict() for slot in slots if slot.due_at_utc > now][:6]
             state.update({"checked_at_utc": _utc_text(now), "next_slots": upcoming})
             try:
@@ -519,24 +998,119 @@ def run_daemon(
                     "token_values_exposed": False,
                     "orders_or_prechecks_sent": 0,
                 }
+            # Reconciliation can advance a watermark while the service is
+            # stopped.  Remove resolved legacy blockers before choosing a
+            # lane so the restarted service does not report false degraded
+            # state until that particular instrument happens to be due.
+            for blocker_key, stored in list(terminal_blockers.items()):
+                affected = tuple(
+                    str(key) for key in stored.get("instrument_keys") or ()
+                )
+                if not affected:
+                    terminal_blockers.pop(blocker_key, None)
+                    continue
+                current_revision = watermark_revision_loader(affected)
+                if stored.get("watermark_revision") != current_revision:
+                    terminal_blockers.pop(blocker_key, None)
             candidates = _latest_due_per_kind(slots, now, completed)
-            selected = next(
-                (
-                    slot for slot in candidates
-                    if next_attempt.get(slot.slot_id, datetime.min.replace(tzinfo=timezone.utc)) <= now
-                ),
-                None,
-            )
+            selected = None
+            for candidate in candidates:
+                applicable_blocker = None
+                for blocker_key, stored in list(terminal_blockers.items()):
+                    affected = tuple(str(key) for key in stored.get("instrument_keys") or ())
+                    if not (set(affected) & set(candidate.instrument_keys)):
+                        continue
+                    blocker_revision = watermark_revision_loader(affected)
+                    if _terminal_blocker_still_applies(stored, candidate, blocker_revision):
+                        applicable_blocker = dict(stored)
+                        applicable_blocker["last_observed_at_utc"] = _utc_text(now)
+                        applicable_blocker["observation_count"] = int(
+                            applicable_blocker.get("observation_count", 0)
+                        ) + 1
+                        terminal_blockers[blocker_key] = applicable_blocker
+                        break
+                    terminal_blockers.pop(blocker_key, None)
+                if applicable_blocker is not None:
+                    continue
+                if next_attempt.get(
+                    candidate.slot_id, datetime.min.replace(tzinfo=timezone.utc)
+                ) <= now:
+                    selected = candidate
+                    break
             if selected is not None:
                 result = executor.execute(selected)
-                result["sla_status"] = _slot_sla_status(selected, now)
+                result["sla_status"] = _slot_sla_status(
+                    selected, now, str(result.get("status") or "FAILED")
+                )
                 state["last_job"] = result
                 if result.get("status") == "PASS":
                     completed.update(_completed_through(slots, selected))
                     state["completed_slots"] = sorted(completed)[-256:]
                     next_attempt.pop(selected.slot_id, None)
+                    transient_attempts.pop(selected.slot_id, None)
+                    for blocker_key, stored in list(terminal_blockers.items()):
+                        if set(stored.get("instrument_keys") or ()) & set(selected.instrument_keys):
+                            terminal_blockers.pop(blocker_key, None)
                 else:
-                    next_attempt[selected.slot_id] = now + timedelta(seconds=RETRY_SECONDS)
+                    disposition = retry_disposition(result.get("error_code"))
+                    if disposition == "TRANSIENT_RETRY":
+                        attempts = transient_attempts.get(selected.slot_id, 0) + 1
+                        transient_attempts[selected.slot_id] = attempts
+                        if attempts < MAX_TRANSIENT_SLOT_ATTEMPTS:
+                            next_attempt[selected.slot_id] = now + timedelta(seconds=RETRY_SECONDS)
+                            result["retry"] = {
+                                "disposition": disposition,
+                                "attempt": attempts,
+                                "maximum_attempts": MAX_TRANSIENT_SLOT_ATTEMPTS,
+                                "next_attempt_at_utc": _utc_text(next_attempt[selected.slot_id]),
+                            }
+                        else:
+                            result["retry"] = {
+                                "disposition": "RETRY_EXHAUSTED_OPERATOR_ACTION_REQUIRED",
+                                "attempt": attempts,
+                                "maximum_attempts": MAX_TRANSIENT_SLOT_ATTEMPTS,
+                            }
+                            blocker_result = {
+                                **result,
+                                "error_code": f"RETRY_EXHAUSTED:{result.get('error_code')}",
+                            }
+                            affected = _failed_instrument_keys(selected, blocker_result)
+                            affected_revision = watermark_revision_loader(affected)
+                            blocker = _record_terminal_blocker(
+                                None, selected, blocker_result, affected_revision, now,
+                            )
+                            terminal_blockers[blocker["signature"]] = blocker
+                    else:
+                        next_attempt.pop(selected.slot_id, None)
+                        transient_attempts.pop(selected.slot_id, None)
+                        affected = _failed_instrument_keys(selected, result)
+                        affected_revision = watermark_revision_loader(affected)
+                        blocker = _record_terminal_blocker(
+                            None, selected, result, affected_revision, now,
+                        )
+                        terminal_blockers[blocker["signature"]] = blocker
+            state.pop("operator_action_required", None)
+            operator_actions = [
+                dict(value)
+                for value in terminal_blockers.values()
+            ]
+            degraded_instruments = sorted(
+                {
+                    str(key)
+                    for blocker in operator_actions
+                    for key in blocker.get("instrument_keys") or ()
+                }
+            )
+            if operator_actions:
+                state["service_status"] = "RUNNING_DEGRADED"
+                state["operator_actions_required"] = operator_actions
+                state["degraded_instruments"] = degraded_instruments
+            else:
+                state["service_status"] = "RUNNING"
+                state.pop("operator_actions_required", None)
+                state.pop("degraded_instruments", None)
+            state["terminal_blockers"] = terminal_blockers
+            state["transient_attempts"] = transient_attempts
             write_state(state)
             sleep(POLL_SECONDS)
     finally:
@@ -551,16 +1125,19 @@ def run_daemon(
         lock_stream.close()
 
 
-def immediate_slot(now: datetime) -> ScheduleSlot:
+def immediate_slot(
+    now: datetime, *, scope_profile: str = ACTIVE_SCOPE_PROFILE
+) -> ScheduleSlot:
     selected = now.astimezone(timezone.utc)
+    scope = scheduler_scope(scope_profile)
     return ScheduleSlot(
         slot_id=f"manual-{selected.strftime('%Y%m%dT%H%M%SZ')}",
-        kind="manual_s6v5a_priority",
+        kind="manual_scope_update",
         due_at_utc=selected,
         deadline_utc=selected + timedelta(minutes=10),
-        instrument_keys=S6V5A_PRIORITY_INSTRUMENT_KEYS,
+        instrument_keys=scope.included_instrument_keys,
         expected_latest_complete={},
-        trigger="manual_s6v5a_priority",
+        trigger=f"manual_{scope.profile_id}",
     )
 
 
@@ -568,6 +1145,11 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="S6V5A priority periodic market-data update")
     parser.add_argument("command", choices=("serve", "run-once", "status", "schedule"))
     parser.add_argument("--callback-port", type=int, default=8764)
+    parser.add_argument(
+        "--scope-profile",
+        choices=tuple(SCHEDULER_SCOPES),
+        default=ACTIVE_SCOPE_PROFILE,
+    )
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     if args.command == "status":
@@ -582,10 +1164,12 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     now = datetime.now(timezone.utc)
     if args.command == "schedule":
-        slots = schedule_around(now)
+        scope = scheduler_scope(args.scope_profile)
+        slots = schedule_around(now, scope_profile=args.scope_profile)
         result = {
             "status": "PASS",
             "checked_at_utc": _utc_text(now),
+            "scheduler_scope": scope.public_dict(),
             "slots": [slot.public_dict() for slot in slots if slot.due_at_utc >= now][:12],
             "orders_or_prechecks_sent": 0,
         }
@@ -596,7 +1180,9 @@ def main(argv: Iterable[str] | None = None) -> int:
         oauth = SaxoOAuthManager(OAuthConfig.from_environment(callback_port=args.callback_port))
         executor = PeriodicExecutor(oauth)
         if args.command == "run-once":
-            result = executor.execute(immediate_slot(now))
+            result = executor.execute(
+                immediate_slot(now, scope_profile=args.scope_profile)
+            )
             print(json.dumps(result, ensure_ascii=False, sort_keys=True))
             return 0 if result.get("status") == "PASS" else 1
 
@@ -607,7 +1193,7 @@ def main(argv: Iterable[str] | None = None) -> int:
 
         signal.signal(signal.SIGTERM, request_stop)
         signal.signal(signal.SIGINT, request_stop)
-        run_daemon(executor, stop_event=stop)
+        run_daemon(executor, stop_event=stop, scope_profile=args.scope_profile)
         return 0
     except (SaxoAuthError, RuntimeError) as exc:
         code = exc.code if isinstance(exc, SaxoAuthError) else str(exc)

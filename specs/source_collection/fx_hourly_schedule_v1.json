@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "profile_id": "saxo_db_fx_hourly_schedule_v1",
+  "environment": "SIM",
+  "active_operational_scope": {
+    "profile_id": "all_except_usdjpy_provider_quarantine_20260727",
+    "scheduled_instrument_keys": ["eurusd"],
+    "excluded_instrument_keys": ["usdjpy"],
+    "exclusion_status": "BLOCKED_PROVIDER_CONTENT_QUALITY",
+    "scope_spec": "specs/source_collection/periodic_scheduler_scope_v1.json"
+  },
+  "universe": [
+    {
+      "instrument_key": "eurusd",
+      "uic": 21,
+      "asset_type": "FxSpot",
+      "horizon_minutes": 60,
+      "price_basis": "bid_ask_mid"
+    },
+    {
+      "instrument_key": "usdjpy",
+      "uic": 42,
+      "asset_type": "FxSpot",
+      "horizon_minutes": 60,
+      "price_basis": "bid_ask_mid"
+    }
+  ],
+  "schedule": {
+    "calendar_id": "SBFX_24X5",
+    "due_minute_utc": 3,
+    "deadline_minute_utc": 10,
+    "daily_maintenance_new_york": "16:59-17:04",
+    "dst_timezone": "America/New_York",
+    "catchup_max_hours": 6,
+    "atomic_publication": true
+  },
+  "retry": {
+    "transient_maximum_slot_attempts": 4,
+    "transient_retry_seconds": 30,
+    "terminal_state": "BLOCKED_OPERATOR_ACTION_REQUIRED",
+    "terminal_release_key": [
+      "affected_instrument_keys",
+      "error_code",
+      "watermark_revision"
+    ],
+    "suppression_scope": "same_cause_and_affected_instrument_across_restart_and_later_hourly_slots",
+    "terminal_codes": [
+      "BLOCKED_CANONICAL_WATERMARK_SET",
+      "BLOCKED_FULL_REFETCH_REQUIRED",
+      "BLOCKED_REPEATED_DATA_VERSION_CHANGE",
+      "BLOCKED_INSTRUMENT_DRIFT"
+    ]
+  },
+  "security": {
+    "allowed_http_method": "GET",
+    "write_requests": 0,
+    "prechecks": 0,
+    "orders": 0,
+    "persist_access_token": false,
+    "persist_account_identifiers": false
+  }
+}

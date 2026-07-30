@@ -12,8 +12,31 @@ from .connection import MARKET_DB, connect
 DERIVATION_VERSION = "db3_accepted_1h_calendar_v1"
 
 
-def rebuild(cursor: Any, *, derivation_version: str = DERIVATION_VERSION) -> dict[str, int]:
-    """Rebuild one deterministic version inside the caller's transaction."""
+def rebuild(
+    cursor: Any,
+    *,
+    derivation_version: str = DERIVATION_VERSION,
+    instrument_ids: Iterable[int] | None = None,
+) -> dict[str, int]:
+    """Rebuild one deterministic version inside the caller's transaction.
+
+    ``instrument_ids`` keeps a bounded source revision from rewriting derived
+    rows for unrelated instruments.  ``None`` retains the operator-wide
+    rebuild used by the original DB3 maintenance command.
+    """
+
+    selected_ids = (
+        None
+        if instrument_ids is None
+        else sorted({int(value) for value in instrument_ids})
+    )
+    if selected_ids == []:
+        return {
+            "deleted_4h": 0,
+            "deleted_1d": 0,
+            "inserted_4h": 0,
+            "inserted_1d": 0,
+        }
 
     # A periodic incremental run and an operator/integration rebuild may overlap.
     # Serialise the delete-and-repopulate sequence so two otherwise valid
@@ -21,13 +44,21 @@ def rebuild(cursor: Any, *, derivation_version: str = DERIVATION_VERSION) -> dic
     cursor.execute("SELECT pg_advisory_xact_lock(hashtext('saxo_db_derived_rebuild'))")
 
     cursor.execute(
-        "DELETE FROM derived.market_bar_4h WHERE derivation_version=%s",
-        (derivation_version,),
+        """
+        DELETE FROM derived.market_bar_4h
+        WHERE derivation_version=%s
+          AND (%s::BIGINT[] IS NULL OR instrument_id=ANY(%s::BIGINT[]))
+        """,
+        (derivation_version, selected_ids, selected_ids),
     )
     deleted_4h = cursor.rowcount
     cursor.execute(
-        "DELETE FROM derived.market_bar_1d_risk WHERE derivation_version=%s",
-        (derivation_version,),
+        """
+        DELETE FROM derived.market_bar_1d_risk
+        WHERE derivation_version=%s
+          AND (%s::BIGINT[] IS NULL OR instrument_id=ANY(%s::BIGINT[]))
+        """,
+        (derivation_version, selected_ids, selected_ids),
     )
     deleted_1d = cursor.rowcount
 
@@ -60,6 +91,7 @@ def rebuild(cursor: Any, *, derivation_version: str = DERIVATION_VERSION) -> dic
             WHERE b.horizon_minutes=60
               AND b.is_complete
               AND b.quality_status='PASS'
+              AND (%s::BIGINT[] IS NULL OR b.instrument_id=ANY(%s::BIGINT[]))
               AND MOD(EXTRACT(EPOCH FROM (b.time_utc - si.open_time_utc))::BIGINT, 3600)=0
         ), grouped AS (
             SELECT
@@ -98,7 +130,7 @@ def rebuild(cursor: Any, *, derivation_version: str = DERIVATION_VERSION) -> dic
             END
         FROM grouped
         """,
-        (derivation_version,),
+        (selected_ids, selected_ids, derivation_version),
     )
     inserted_4h = cursor.rowcount
 
@@ -129,6 +161,7 @@ def rebuild(cursor: Any, *, derivation_version: str = DERIVATION_VERSION) -> dic
             WHERE b.horizon_minutes=60
               AND b.is_complete
               AND b.quality_status='PASS'
+              AND (%s::BIGINT[] IS NULL OR b.instrument_id=ANY(%s::BIGINT[]))
               AND MOD(EXTRACT(EPOCH FROM (b.time_utc - si.open_time_utc))::BIGINT, 3600)=0
         ), grouped AS (
             SELECT
@@ -167,7 +200,7 @@ def rebuild(cursor: Any, *, derivation_version: str = DERIVATION_VERSION) -> dic
             END
         FROM grouped
         """,
-        (derivation_version,),
+        (selected_ids, selected_ids, derivation_version),
     )
     inserted_1d = cursor.rowcount
     return {

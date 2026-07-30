@@ -137,7 +137,18 @@ def test_all_series_pass_appends_atomic_supersession_review():
                 )
                 pass_run_id = int(cursor.fetchone()[0])
                 cursor.execute(
-                    "UPDATE ops.ingestion_run SET status='PASS',successful_series=13,"
+                    """
+                    INSERT INTO ops.ingestion_run_instrument_scope (
+                        ingestion_run_id,instrument_id,instrument_key,uic,asset_type,
+                        horizon_minutes,price_basis
+                    )
+                    SELECT %s,instrument_id,lower(market_key),uic,asset_type,60,'native_ohlc'
+                    FROM catalog.instrument WHERE instrument_id=9
+                    """,
+                    (pass_run_id,),
+                )
+                cursor.execute(
+                    "UPDATE ops.ingestion_run SET status='PASS',successful_series=1,"
                     "finished_at_utc=clock_timestamp() WHERE ingestion_run_id=%s",
                     (pass_run_id,),
                 )
@@ -147,8 +158,76 @@ def test_all_series_pass_appends_atomic_supersession_review():
                     (event_id,),
                 )
                 assert cursor.fetchone() == (
-                    "HISTORICAL", pass_run_id, "system:dmi1_atomic_supersession_v1", False
+                    "HISTORICAL", pass_run_id, "system:fx_run_scope_supersession_v1", False
                 )
+
+
+def test_eurusd_scoped_failure_does_not_apply_to_usdjpy_but_unknown_global_does():
+    applicability_sql = """
+        SELECT COUNT(*) FROM quality.v_open_event e
+        WHERE e.quality_event_id=%s AND e.severity IN ('ERROR','CRITICAL')
+          AND (
+              e.instrument_key=%s
+              OR e.scope_kind IN ('GLOBAL','UNKNOWN','DATASET','LAYER')
+              OR (
+                  e.instrument_id IS NULL AND e.scope_kind='RUN'
+                  AND (
+                      NOT (e.scope_evidence ? 'selected_instrument_keys')
+                      OR (e.scope_evidence->'selected_instrument_keys') ? %s
+                  )
+              )
+          )
+    """
+    with connect("postgres", MARKET_DB) as conn:
+        with conn.transaction(force_rollback=True):
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO ops.ingestion_run(trigger,environment,status,requested_series)
+                    VALUES ('scheduled_fx_hourly','SIM','BLOCKED','[]'::jsonb)
+                    RETURNING ingestion_run_id
+                    """
+                )
+                run_id = int(cursor.fetchone()[0])
+                cursor.execute(
+                    """
+                    INSERT INTO ops.ingestion_run_instrument_scope (
+                        ingestion_run_id,instrument_id,instrument_key,uic,asset_type,
+                        horizon_minutes,price_basis
+                    )
+                    SELECT %s,instrument_id,lower(market_key),uic,asset_type,60,'bid_ask_mid'
+                    FROM catalog.instrument WHERE market_key='eurusd'
+                    RETURNING instrument_id
+                    """,
+                    (run_id,),
+                )
+                eurusd_id = int(cursor.fetchone()[0])
+                cursor.execute(
+                    """
+                    INSERT INTO quality.event(
+                        ingestion_run_id,instrument_id,horizon_minutes,rule_id,severity,action
+                    ) VALUES (%s,%s,60,'db3_atomic_run_gate','CRITICAL','fixture')
+                    RETURNING quality_event_id
+                    """,
+                    (run_id, eurusd_id),
+                )
+                scoped_id = int(cursor.fetchone()[0])
+                cursor.execute(applicability_sql, (scoped_id, "eurusd", "eurusd"))
+                assert int(cursor.fetchone()[0]) == 1
+                cursor.execute(applicability_sql, (scoped_id, "usdjpy", "usdjpy"))
+                assert int(cursor.fetchone()[0]) == 0
+
+                cursor.execute(
+                    """
+                    INSERT INTO quality.event(rule_id,severity,action)
+                    VALUES ('unrecognized_global_fixture','CRITICAL','fixture')
+                    RETURNING quality_event_id
+                    """
+                )
+                global_id = int(cursor.fetchone()[0])
+                for key in ("eurusd", "usdjpy"):
+                    cursor.execute(applicability_sql, (global_id, key, key))
+                    assert int(cursor.fetchone()[0]) == 1
 
 
 def test_legacy_reconciliation_exit_gate_is_satisfied():
@@ -164,7 +243,27 @@ def test_legacy_reconciliation_exit_gate_is_satisfied():
                 "GROUP BY applicability ORDER BY applicability"
             )
             counts = dict(cursor.fetchall())
-            assert counts["CURRENT"] == 5
+            # Live failed runs may add CURRENT evidence. Exact counts are not
+            # an invariant; every atomic blocker must instead have explicit
+            # immutable run/instrument scope and no UNKNOWN applicability.
+            assert counts["CURRENT"] >= 5
+            cursor.execute(
+                """
+                SELECT COUNT(*)
+                FROM quality.v_open_event e
+                WHERE e.rule_id='db3_atomic_run_gate'
+                  AND e.severity IN ('ERROR','CRITICAL')
+                  AND e.applicability='CURRENT'
+                  AND NOT (
+                    e.instrument_id IS NOT NULL
+                    OR (
+                      e.scope_kind='RUN'
+                      AND e.scope_evidence ? 'selected_instrument_keys'
+                    )
+                  )
+                """
+            )
+            assert cursor.fetchone()[0] == 0
             # New failed runs may add evidence, but a later PASS run must
             # classify it as historical rather than reopen the UNKNOWN gate.
             assert counts["HISTORICAL"] >= 17

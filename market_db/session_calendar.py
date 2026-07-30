@@ -1,7 +1,7 @@
 """Deterministic session calendars used by DB3 coverage and derivation.
 
 The US-equity calendar is rule based and includes exceptional closures.  The
-EURUSD/USDJPY calendar freezes Saxo's published standard-FX daily maintenance
+reviewed FxSpot calendar freezes Saxo's published standard-FX daily maintenance
 boundary in America/New_York; special-pair and holiday overrides remain outside
 the supported instrument set and must be sourced from Saxo's schedule endpoint.
 """
@@ -19,12 +19,12 @@ from zoneinfo import ZoneInfo
 from psycopg.types.json import Jsonb
 
 from .connection import MARKET_DB, connect
-from .instrument_registry import load_canonical_instruments
+from .instrument_registry import load_canonical_instruments, load_research_candidate_instruments
 
 
 EQUITY_CALENDAR_ID = "XNYS_US_EQUITY"
 FX_CALENDAR_ID = "SBFX_24X5"
-CALENDAR_START = date(2010, 1, 1)
+CALENDAR_START = date(2002, 9, 25)
 NY = ZoneInfo("America/New_York")
 FX_SESSION_BOUNDARY = time(17, 0)
 FX_SCHEDULE_SOURCE = "https://www.home.saxo/rates-and-conditions/forex/trading-conditions"
@@ -187,7 +187,7 @@ def apply_calendars(*, start: date = CALENDAR_START, end: date | None = None) ->
         raise ValueError("calendar end must not precede start")
     equity = generate_equity_sessions(start, selected_end)
     fx = generate_fx_sessions(start, selected_end)
-    registry = load_canonical_instruments()
+    registry = (*load_canonical_instruments(), *load_research_candidate_instruments())
 
     with connect("saxo_ingest", MARKET_DB, application_name="saxo_db_calendar_apply") as conn:
         with conn.transaction():
@@ -216,7 +216,9 @@ def apply_calendars(*, start: date = CALENDAR_START, end: date | None = None) ->
                         {
                             "verification_status": "VERIFIED",
                             "source": FX_SCHEDULE_SOURCE,
-                            "supported_pairs": ["EURUSD", "USDJPY"],
+                            "supported_pairs": [
+                                "EURUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF"
+                            ],
                             "daily_maintenance_new_york": "16:59-17:04",
                             "weekend_rule": "conservative Monday-Friday session days",
                             "dst_rule": "America/New_York zoneinfo",
@@ -296,7 +298,7 @@ def apply_calendars(*, start: date = CALENDAR_START, end: date | None = None) ->
         "equity_intervals": len(equity),
         "fx_intervals": len(fx),
         "instrument_assignments": assignments,
-        "status": "PASS" if assignments == 13 else "FAIL",
+        "status": "PASS" if assignments == len(registry) else "FAIL",
     }
 
 

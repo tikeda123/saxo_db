@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import base64
 import ctypes
+import fcntl
 import hashlib
 import json
 import os
@@ -25,6 +26,8 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Iterable, Mapping, Protocol
 
+from .connection import project_root
+
 
 SIM_AUTHORIZATION_URL = "https://sim.logonvalidation.net/authorize"
 SIM_TOKEN_URL = "https://sim.logonvalidation.net/token"
@@ -34,6 +37,7 @@ APP_KEY_ENV = "SAXO_OAUTH_APP_KEY"
 KEYCHAIN_SERVICE = "com.tikeda.saxodb.oauth.sim"
 MIN_REFRESH_MARGIN_SECONDS = 30
 ACCESS_REFRESH_MARGIN_SECONDS = 300
+REFRESH_LOCK_RELATIVE_PATH = ".runtime/saxo_oauth_refresh.lock"
 
 
 def utc_now() -> datetime:
@@ -412,16 +416,33 @@ class SaxoOAuthManager:
             and self._refresh_expires_at_epoch > now + ACCESS_REFRESH_MARGIN_SECONDS
         ):
             return self._lease.access_token
-        credential = self._load_refresh_credential()
-        payload = self.transport.post_form(
-            self.config.token_url,
-            {
-                "grant_type": "refresh_token",
-                "refresh_token": credential.refresh_token,
-                "code_verifier": credential.code_verifier,
-            },
-        )
-        self._accept_token_response(payload, credential.code_verifier)
+        lock_path = project_root() / REFRESH_LOCK_RELATIVE_PATH
+        lock_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            with os.fdopen(descriptor, "a+", encoding="utf-8") as lock_stream:
+                fcntl.flock(lock_stream.fileno(), fcntl.LOCK_EX)
+                # A different process may have rotated the refresh credential
+                # while this process waited. Re-read it only after taking the
+                # repository-owned lock; access tokens remain process-local.
+                credential = self._load_refresh_credential()
+                payload = self.transport.post_form(
+                    self.config.token_url,
+                    {
+                        "grant_type": "refresh_token",
+                        "refresh_token": credential.refresh_token,
+                        "code_verifier": credential.code_verifier,
+                    },
+                )
+                self._accept_token_response(payload, credential.code_verifier)
+                fcntl.flock(lock_stream.fileno(), fcntl.LOCK_UN)
+        except Exception:
+            # fdopen owns the descriptor after successful construction.
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+            raise
         if self._lease is None:
             raise SaxoAuthError("AUTH_TOKEN_RESPONSE_INVALID")
         return self._lease.access_token

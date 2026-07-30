@@ -1,0 +1,71 @@
+{
+  "evidence_kind": "retained_blocked_run_read_only_comparison",
+  "generated_date": "2026-07-28",
+  "policy_id": "bounded_data_version_reconciliation_v1",
+  "database_mutation_performed": false,
+  "live_saxo_request_performed": false,
+  "orders_or_prechecks_sent": 0,
+  "instruments": [
+    {
+      "instrument_key": "spy",
+      "old_data_version": 29738070,
+      "new_data_version": 29751202,
+      "provider_rows": 22,
+      "matched_rows": 21,
+      "content_difference_rows": 1,
+      "version_only_rows": 20,
+      "new_rows": 1,
+      "removed_rows": 0,
+      "stable_anchor_rows": 20,
+      "comparison_from_utc": "2026-07-22T13:30:00Z",
+      "comparison_to_utc": "2026-07-27T13:30:00Z",
+      "affected_from_utc": "2026-07-24T19:30:00Z",
+      "affected_to_utc": "2026-07-27T13:30:00Z",
+      "decision": "READY_TO_APPLY",
+      "limitation": "retained 22-row window only; live 96/384/1200 staged discovery remains required"
+    },
+    {
+      "instrument_key": "shy",
+      "old_data_version": 29740653,
+      "new_data_version": 29752511,
+      "provider_rows": 22,
+      "matched_rows": 21,
+      "content_difference_rows": 1,
+      "version_only_rows": 20,
+      "new_rows": 1,
+      "removed_rows": 0,
+      "stable_anchor_rows": 20,
+      "comparison_from_utc": "2026-07-22T13:30:00Z",
+      "comparison_to_utc": "2026-07-27T13:30:00Z",
+      "affected_from_utc": "2026-07-24T19:30:00Z",
+      "affected_to_utc": "2026-07-27T13:30:00Z",
+      "decision": "READY_TO_APPLY",
+      "limitation": "retained 22-row window only; live 96/384/1200 staged discovery remains required"
+    },
+    {
+      "instrument_key": "gld",
+      "old_data_version": 29738073,
+      "new_data_version": 29752711,
+      "provider_rows": 22,
+      "matched_rows": 21,
+      "content_difference_rows": 1,
+      "version_only_rows": 20,
+      "new_rows": 1,
+      "removed_rows": 0,
+      "stable_anchor_rows": 20,
+      "comparison_from_utc": "2026-07-22T13:30:00Z",
+      "comparison_to_utc": "2026-07-27T13:30:00Z",
+      "affected_from_utc": "2026-07-24T19:30:00Z",
+      "affected_to_utc": "2026-07-27T13:30:00Z",
+      "decision": "READY_TO_APPLY",
+      "limitation": "retained 22-row window only; live 96/384/1200 staged discovery remains required"
+    }
+  ],
+  "quality_controls": {
+    "interpolation": false,
+    "bid_ask_swap": false,
+    "clamp": false,
+    "manual_watermark_update": false,
+    "other_instrument_mutation": false
+  }
+}

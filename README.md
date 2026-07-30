@@ -8,7 +8,7 @@ Saxo OpenAPIと移管済みCSVから取得した市場データを、再現可�
 
 - PostgreSQL 18上でraw、curated、derived、quality、operationsを分離管理
 - 69個の移管CSVをimmutableな監査原本として登録・検証
-- Saxo SIM OpenAPIから13銘柄の1Hデータを安全に増分取得
+- Saxo SIM OpenAPIからcanonical 13系列と研究候補FX 3系列の1Hデータを安全に増分取得
 - raw revisionを保持しながらcanonical 1Hを更新
 - 完成済み・品質PASSの1Hから4Hとリスク日足を生成
 - ETF total-return日次系列をnative OHLCと区別して管理
@@ -209,29 +209,37 @@ serverは`saxo_research_v13`を直接読み、snapshot ID、cutoff、manifest SH
 
 日常の定期更新にはSaxo SIM OAuth PKCEを使用します。初回だけユーザーがSaxoへloginし、refresh credentialをmacOS Keychainへ保存します。access tokenはscheduler processのメモリだけで保持し、refresh時に返る新しいrefresh tokenでKeychain値を置き換えます。token値はfile、`.env`、DB、manifest、log、ブラウザstorageへ保存しません。
 
-Developer PortalのApplication ManagementでSIMアプリを作成し、PKCE用redirect URIを`http://localhost:8765/saxo/oauth/callback`として登録する。AppKeyはOAuth client IDでありtokenではないが、repositoryへ固定せず実行環境から与える。
+Developer PortalのApplication ManagementでSIMアプリを作成し、PKCE用redirect URIを`http://localhost/saxo/oauth/callback`（portなし）として登録する。SaxoのPKCE登録ではportを指定せず、実行時callbackだけが`http://localhost:8765/saxo/oauth/callback`を使用する。AppKeyはOAuth client IDでありtokenではないが、repositoryへ固定せず実行環境から与える。
 
 ```bash
 export SAXO_OAUTH_APP_KEY='<SIM application key>'
 .venv/bin/python -m market_db.operator_ui
 ```
 
-<http://127.0.0.1:8765/>で「Saxo OAuth接続」を選択し、Saxo画面で初回認証する。`AUTH_READY`後に「定期更新を開始」を選択する。CLIでも同じ操作を行える。
+<http://127.0.0.1:8765/>で「Saxo OAuth接続」を選択し、Saxo画面で初回認証する。`AUTH_READY`後に「定期更新を開始」を選択する。Operator UIからの汎用reconcileはreview-first policyで無効である。DataVersion warningはRead APIでreviewし、apply承認を別記録したeventだけを専用CLIで明示適用する。Keychain経路のaccess tokenはprocess memoryだけで使用し、画面・log・DB・fileへ表示／保存しない。
+
+今後のDataVersion変更は`REVIEW_PENDING / AVAILABLE_WITH_REVISION_WARNING`として監査記録し、scheduler、対象instrument、category、serviceを自動停止しない。新versionのChart JSONと限定sample差分はrevision evidenceとして隔離し、明示review・applyまでcurrent curated、watermark、4H/1Dへ混在させない。reviewとapplyの固定手順は[`data_version_warning_review_policy_20260728.md`](docs/data_version_warning_review_policy_20260728.md)を参照する。
 
 ```bash
 .venv/bin/python -m market_db.saxo_auth status --callback-port 8765
-.venv/bin/python -m market_db.periodic_update schedule
-.venv/bin/python -m market_db.periodic_update_service start --callback-port 8765
+.venv/bin/python -m market_db.periodic_update schedule \
+  --scope-profile all_except_usdjpy_provider_quarantine_20260727
+.venv/bin/python -m market_db.periodic_update_service start --callback-port 8765 \
+  --scope-profile all_except_usdjpy_provider_quarantine_20260727
 .venv/bin/python -m market_db.periodic_update_service status
 ```
 
-schedulerはdata jobがない時間もtoken期限を監視してrefresh chainを維持する。そのうえでXNYS calendarの営業日・短縮日をDBから読み、SPY、IWM、EFA、EEM、VNQの各完成可能なregular 1Hをbar終了15秒後から取得する。第1barは10:30:15 ETに開始し、10:33 ETをdeadlineとする。EURUSDは毎UTC時03分に取得する。定期runは6系列だけを原子的に更新し、401はrefresh後1回再試行、DataVersion変更は対象系列だけをguard付きfull-refetchして再実行する。未確定barは`DATA_NOT_READY`、認証・timeout・429はinterface/operational、値異常はdata qualityとして分離する。
+schedulerはdata jobがない時間もtoken期限を監視してrefresh chainを維持する。現在の一時scopeは`all_except_usdjpy_provider_quarantine_20260727`で、EURUSDとETF 11系列（SPY、IWM、EFA、EEM、VNQ、SHY、IEF、TLT、TIP、LQD、GLD）だけを取得する。USDJPYはprovider DataVersion `29738069`の内容品質blockerが解消するまで対象外である。scope正本は[`periodic_scheduler_scope_v1.json`](specs/source_collection/periodic_scheduler_scope_v1.json)、実行中の値は`.runtime/periodic_update/state.json`の`scheduler_scope`で確認する。各slotはinstrument laneで独立し、future DataVersion warningはlaneもサービスもdegradedへ変えない。
+
+ETFはXNYS calendarの営業日・短縮日を使い、株式・REIT、債券・Credit、Goldの各instrument laneを各完成可能なregular 1Hのbar終了15秒後から取得する。第1barは10:30:15 ETに開始し、10:33 ETをdeadlineとする。EURUSDはSBFX 24x5 calendarに従って毎UTC時03分に取得し、時10分をdeadlineとする。401はrefresh後1回再試行し、network／429／未確定barは有限回だけretryする。canonical watermarkやinstrument driftの実障害は系列単位、future DataVersion変更は非停止warningとして記録する。認証・timeout・429はinterface/operational、未確定barはdata-not-ready、値異常はdata qualityとして分離する。
+
+FX 1Hの履歴coverage WARNは`python -m market_db.fx_gap_report`でexpected slotとcurated/rawを照合する。結果は`manifests/fx_gap_classification/`にJSON・CSV・Markdownで保存し、欠損値の補間、forward fill、別provider代替は行わない。`series-status`の`components.coverage_assessment`から同じ証跡pathを確認できる。
 
 Developer Portalの24時間tokenと従来reconcile画面は手動fallbackとして残す。24時間token自体を永続保存・自動更新・Portal画面から自動採取しない。Macの停止やsleepがrefresh期限を超えた場合はWeb UIから再認証する。repo-local serviceは実装済みだが、LaunchAgentの自動installは行わない。
 
-更新処理はSIMのGET allow-listだけを使用し、注文・precheckは送信しません。DataVersion変更時は通常更新を止め、guard付きfull refetchでraw revisionを保持したまま対象銘柄を再構築します。
+更新処理はSIMのGET allow-listだけを使用し、注文・precheckは送信しません。DataVersion変更は警告とimmutable evidenceを保存するだけで、自動reconcile、自動置換、自動full-refetchを行いません。既存のSPY/SHY/GLD `APPLIED`履歴と旧bounded policy文書は過去監査として保持し、future defaultは[`data_version_warning_review_policy_20260728.md`](docs/data_version_warning_review_policy_20260728.md)です。
 
-total-return定期取得はprovider contract未確定のため`BLOCKED_SOURCE_PROVIDER_NOT_CONFIGURED`であり、既存`development_cutoff_only` datasetをcurrentへ昇格しません。詳細は[定期更新実装計画](docs/periodic_market_data_update_implementation_plan.md)を参照してください。
+total-returnは用途を分離します。固定期間研究contract `etf11_fixed_window_20260712_v1`は従来どおり11 ETF、2004-11-18〜2024-06-28、各4,935行です。一般研究contract `etf11_full_history_20260712_v1`は同じ正規sourceの共通履歴2004-11-18〜2026-07-10、各5,443行を公開し、WFO/Holdoutの境界はStrategy側manifestが日時queryで選択します。どちらも`legacy/current` namespaceや研究用途に不要なfreshnessをblocking条件にしません。current運用の定期取得は別契約であり、provider運用契約未確定のため`BLOCKED_SOURCE_PROVIDER_NOT_CONFIGURED`のままです。詳細は[固定期間total-return研究公開整合](docs/total_return_fixed_window_research_publication_20260729.md)、[Full-history共通研究公開](docs/total_return_full_history_research_publication_20260730.md)、[定期更新実装計画](docs/periodic_market_data_update_implementation_plan.md)を参照してください。
 
 ## 安全境界
 
@@ -284,15 +292,21 @@ SAXO_DB_INTEGRATION=1 .venv/bin/python -m pytest
 - DMI3: stable total-return API — PASS
 - DMI4: cursor・consumer contract kit — PASS
 - DMI5: Read API lifecycle・non-data operational preflight — PASS
-- DPU1: OAuth PKCE・Keychain rotation・定期更新service — IMPLEMENTED / 初回OAuth実証待ち
-- DPU2: S6V5A優先6系列scheduler — IMPLEMENTED / 取引日SLA実証待ち
+- DPU1: OAuth PKCE・Keychain rotation・定期更新service — PASS / `AUTH_READY`で稼働中
+- DPU2: ETF11・EURUSD scheduler — PASS / USDJPYだけprovider-quality quarantine
+- FX研究候補: AUDUSD・USDCAD・USDCHF — `PUBLISHED / AVAILABLE_WITH_WARNINGS`、独立scheduler稼働中
 - DPU3: current total-return定期取得 — BLOCKED_SOURCE_PROVIDER_NOT_CONFIGURED
+- TRR1: ETF11固定期間total-return研究契約 — PASS（EEMのみ既知warning、値修正0）
 
 これらはデータ基盤の実装・運用ゲートです。戦略の優位性や収益性を証明するものではありません。旧計画に含まれるRT0以降の戦略文書は履歴資料として保持しますが、このリポジトリの現行スコープには含めません。
 
 ## 主要ドキュメント
 
 - [外部プロジェクト向けRead APIインターフェース](docs/read_api_interface.md)
+- [固定期間total-return研究公開整合](docs/total_return_fixed_window_research_publication_20260729.md)
+- [FX追加3通貨ペアの実装計画](docs/fx_additional_pairs_implementation_plan_20260727.md)
+- [FX追加3通貨ペアの事前調査](docs/fx_additional_pairs_preimplementation_investigation_20260727.md)
+- [FX追加3通貨ペアの実装・運用結果](docs/fx_additional_pairs_implementation_result_20260727.md)
 - [データ管理・運用ランブック](docs/database_operations_runbook.md)
 - [データ管理Web UI仕様](docs/data_management_web_ui_spec.md)
 - [データ管理Web UI実装結果](docs/data_management_web_ui_implementation_result.md)

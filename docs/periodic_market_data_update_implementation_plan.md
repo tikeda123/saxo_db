@@ -144,6 +144,8 @@ LaunchAgentは自動installしない。repo-owned serviceの実credential受入�
 
 ## 7. Total-return DPU3
 
+> 2026-07-29追記: この節は`current_operations`の定期取得契約だけを扱う。固定期間研究はcontract `etf11_fixed_window_20260712_v1`で11 ETFを公開済みであり、`development_cutoff_only`、current namespace、固定期間終了後のfreshnessを理由にBLOCKしない。詳細は[固定期間total-return研究公開整合](total_return_fixed_window_research_publication_20260729.md)を参照する。
+
 状態は`BLOCKED_SOURCE_PROVIDER_NOT_CONFIGURED`である。既存`20260712T135236Z`は`development_cutoff_only`のまま保持する。
 
 provider、利用条件、adjusted-close/corporate-action定義、訂正方針、availability SLAをfreezeした後に、次を実装する。

@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: saxo_db read API
-  version: 1.2.0
+  version: 1.2.5
   description: >-
     Loopback-only, read-only data-management API. All responses are bounded;
     snapshot and total-return endpoints support signed, query-bound cursors.
@@ -26,6 +26,7 @@ paths:
       responses:
         '200': {$ref: '#/components/responses/BarPage'}
         '400': {$ref: '#/components/responses/InvalidRequest'}
+        '409': {$ref: '#/components/responses/SeriesNotPublished'}
   /api/v1/snapshots/{snapshot_id}/bars:
     get:
       operationId: snapshotBars
@@ -53,23 +54,71 @@ paths:
         - {$ref: '#/components/parameters/SourceDatasetId'}
         - {$ref: '#/components/parameters/Limit'}
         - {$ref: '#/components/parameters/Eligibility'}
+        - {$ref: '#/components/parameters/UsageMode'}
+        - {$ref: '#/components/parameters/ResearchContractId'}
         - {$ref: '#/components/parameters/Cursor'}
       responses:
         '200': {$ref: '#/components/responses/TotalReturnPage'}
         '400': {$ref: '#/components/responses/InvalidRequest'}
         '409': {$ref: '#/components/responses/CursorQueryMismatch'}
         '503': {$ref: '#/components/responses/TotalReturnIntegrityFailure'}
+  /api/v1/total-return-status:
+    get:
+      operationId: totalReturnStatus
+      description: >-
+        Atomic research availability for fixed-window or full-history contracts.
+        Namespace, publication time, catalog eligibility labels, and research-only
+        freshness are metadata rather than blockers. Identity, lineage, content,
+        coverage, ordering, quality, and total-return-definition mismatches remain
+        fail-closed.
+      parameters:
+        - {$ref: '#/components/parameters/InstrumentKey'}
+        - {$ref: '#/components/parameters/ResearchContractId'}
+      responses:
+        '200':
+          description: Contract-bound availability and immutable evidence.
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '404': {description: Contract mapping not found}
+        '503': {$ref: '#/components/responses/TotalReturnIntegrityFailure'}
   /api/v1/series-status:
     get:
       operationId: seriesStatus
+      parameters:
+        - {$ref: '#/components/parameters/InstrumentKey'}
+        - name: layer
+          in: query
+          required: true
+          schema: {type: string, enum: [1h]}
+        - {$ref: '#/components/parameters/PriceBasis'}
       responses:
-        '200': {description: Atomic series preflight result}
+        '200':
+          description: >-
+            Atomic series preflight result. A future DataVersion warning remains
+            retrievable as AVAILABLE_WITH_REVISION_WARNING and exposes the last
+            accepted curated identity plus pending review metadata. Research FX
+            candidates may instead be AVAILABLE_WITH_WARNINGS; their publication,
+            effective/provider coverage starts, approved policy and unmodified
+            provider-anomaly evidence are returned under components.publication
+            and components.coverage_assessment.
         '400': {$ref: '#/components/responses/InvalidRequest'}
+        '404': {description: Instrument/layer/price-basis identity not registered}
+  /api/v1/service-status:
+    get:
+      operationId: serviceStatus
+      description: >-
+        Instrument-scoped availability. Revision warnings and approved research
+        warnings are listed separately and do not by themselves degrade or stop
+        the service.
+      responses:
+        '200':
+          description: >-
+            Read-only service availability with separate warning_series and
+            degraded_series collections.
   /api/v1/manifests:
     get:
       operationId: manifests
       responses:
-        '200': {description: Dataset and snapshot identities}
+        '200': {description: Dataset, snapshot, and fixed-window total-return research contracts}
   /api/v1/layer-counts:
     get:
       operationId: layerCounts
@@ -134,6 +183,20 @@ components:
       in: query
       required: false
       schema: {type: string, enum: [eligible, stored_complete], default: eligible}
+    UsageMode:
+      name: usage_mode
+      in: query
+      required: false
+      description: >-
+        current_operations preserves current-data behavior. fixed_window_research
+        resolves an immutable fixed contract. full_history_research exposes the
+        common immutable history and lets the consumer choose date boundaries.
+      schema: {type: string, enum: [current_operations, fixed_window_research, full_history_research], default: current_operations}
+    ResearchContractId:
+      name: research_contract_id
+      in: query
+      required: false
+      schema: {type: string, maxLength: 128}
     Cursor:
       name: cursor
       in: query
@@ -151,6 +214,11 @@ components:
       content:
         application/json:
           schema: {$ref: '#/components/schemas/Error'}
+    SeriesNotPublished:
+      description: Research candidate exists but has not passed the staging publication gate.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/PublicationBlocked'}
     SnapshotIntegrityFailure:
       description: Snapshot provenance or integrity check failed.
       content:
@@ -186,6 +254,14 @@ components:
       properties:
         status: {type: string, enum: [FAILED]}
         error_code: {type: string}
+    PublicationBlocked:
+      type: object
+      required: [status, error_code, instrument_key, publication]
+      properties:
+        status: {type: string, enum: [BLOCKED]}
+        error_code: {type: string, enum: [SERIES_NOT_PUBLISHED]}
+        instrument_key: {type: string, maxLength: 64}
+        publication: {type: object}
     CursorPagination:
       type: object
       required: [row_count, truncated, next_cursor]

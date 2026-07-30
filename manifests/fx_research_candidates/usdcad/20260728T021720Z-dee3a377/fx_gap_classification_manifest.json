@@ -1,0 +1,154 @@
+{
+  "artifacts": {
+    "fx_gap_classification.csv": {
+      "sha256": "f99552aa4361222b6191cc49c9942139697ad7616be493a44cc6589fd43be4dd",
+      "size_bytes": 90569
+    },
+    "fx_gap_classification.json": {
+      "sha256": "ae91854c827cb1a5c945c97ef168ac7dd4ec47a8e0007c788eac51ea3bb1db57",
+      "size_bytes": 332390
+    },
+    "fx_gap_classification_summary.md": {
+      "sha256": "5bb635524c09f0feddfa172e2ad7bc52964b00233225c0989f648a06b0a2c4a5",
+      "size_bytes": 830
+    }
+  },
+  "calendar_contract": "verified_complete_hour_v1",
+  "calendar_id": "SBFX_24X5",
+  "cross_instrument": {
+    "common_missing_rows": 403,
+    "only_rows": {
+      "usdcad": 403
+    }
+  },
+  "generated_at_utc": "2026-07-28T02:19:02.317190Z",
+  "horizon_minutes": 60,
+  "interpolation_performed": false,
+  "orders_or_prechecks_sent": 0,
+  "per_instrument": {
+    "usdcad": {
+      "blocking_rows": 0,
+      "by_month": {
+        "2011-12": 10,
+        "2012-01": 6,
+        "2012-12": 15,
+        "2013-01": 21,
+        "2013-12": 15,
+        "2014-01": 21,
+        "2014-12": 17,
+        "2015-01": 21,
+        "2015-06": 1,
+        "2015-12": 17,
+        "2016-01": 21,
+        "2016-09": 1,
+        "2016-12": 11,
+        "2017-01": 8,
+        "2017-12": 11,
+        "2018-01": 18,
+        "2018-12": 15,
+        "2019-01": 18,
+        "2019-12": 15,
+        "2020-01": 18,
+        "2020-12": 15,
+        "2021-01": 21,
+        "2023-12": 11,
+        "2024-01": 18,
+        "2024-12": 11,
+        "2025-01": 18,
+        "2025-12": 11,
+        "2026-01": 18
+      },
+      "by_new_york_hour": {
+        "0": 12,
+        "1": 12,
+        "10": 24,
+        "11": 24,
+        "12": 23,
+        "13": 12,
+        "14": 14,
+        "15": 14,
+        "18": 13,
+        "19": 14,
+        "2": 20,
+        "20": 13,
+        "21": 13,
+        "22": 14,
+        "23": 13,
+        "3": 24,
+        "4": 24,
+        "5": 24,
+        "6": 24,
+        "7": 24,
+        "8": 24,
+        "9": 24
+      },
+      "by_utc_hour": {
+        "0": 13,
+        "1": 13,
+        "10": 24,
+        "11": 24,
+        "12": 24,
+        "13": 24,
+        "14": 24,
+        "15": 24,
+        "16": 24,
+        "17": 23,
+        "18": 12,
+        "19": 14,
+        "2": 14,
+        "20": 14,
+        "23": 14,
+        "3": 13,
+        "4": 13,
+        "5": 12,
+        "6": 12,
+        "7": 20,
+        "8": 24,
+        "9": 24
+      },
+      "by_weekday_utc": {
+        "Friday": 70,
+        "Monday": 92,
+        "Sunday": 5,
+        "Thursday": 67,
+        "Tuesday": 70,
+        "Wednesday": 99
+      },
+      "by_year": {
+        "2011": 10,
+        "2012": 21,
+        "2013": 36,
+        "2014": 38,
+        "2015": 39,
+        "2016": 33,
+        "2017": 19,
+        "2018": 33,
+        "2019": 33,
+        "2020": 33,
+        "2021": 21,
+        "2023": 11,
+        "2024": 29,
+        "2025": 29,
+        "2026": 18
+      },
+      "cause_counts": {
+        "QUARANTINED_VALUE_ANOMALY": 1,
+        "SAXO_RAW_NO_SAMPLE": 402
+      },
+      "curated_reconciliation": {
+        "actual_rows": 102752,
+        "complete_rows": 102751,
+        "duplicate_rows": 0,
+        "incomplete_rows": 1
+      },
+      "major_market_move_matches": {},
+      "missing_rows": 403,
+      "unclassified_rows": 0
+    }
+  },
+  "price_basis": "bid_ask_mid",
+  "schedule_version": "saxo_fx_spot_trading_conditions_20260725_v1",
+  "schema_version": 1,
+  "source_database": "saxo_market",
+  "status": "PASS_ACCOUNTED"
+}

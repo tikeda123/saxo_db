@@ -115,6 +115,8 @@ def _normalize_sample(
         high_bid, high_ask = pairs["High"]
         low_bid, low_ask = pairs["Low"]
         close_bid, close_ask = pairs["Close"]
+        _validate_ohlc(open_bid, high_bid, low_bid, close_bid)
+        _validate_ohlc(open_ask, high_ask, low_ask, close_ask)
     else:
         values = {
             name: decimal_value(sample.get(name), name)
@@ -235,10 +237,18 @@ def normalize_chart_page_quarantining_fx_extrema(
 
 
 def merge_pages(pages: Iterable[Iterable[NormalizedBar]]) -> list[NormalizedBar]:
+    """Merge inclusive pages while retaining the first-seen boundary sample.
+
+    Saxo ``Mode=UpTo`` returns the requested boundary sample again as the last
+    row of the following, older page.  That duplicate can contain a partial
+    interval (same Open, different High/Low/Close).  Pages are supplied in
+    request order, so the first observation is the complete sample from the
+    broader/newer window and must not be overwritten by the boundary response.
+    """
     by_time: dict[datetime, NormalizedBar] = {}
     for page in pages:
         for bar in page:
-            by_time[bar.time_utc] = bar
+            by_time.setdefault(bar.time_utc, bar)
     ordered = [by_time[key] for key in sorted(by_time)]
     if not ordered:
         return []

@@ -11,9 +11,14 @@
     "flow": "authorization_code_pkce",
     "authorization_url": "https://sim.logonvalidation.net/authorize",
     "token_url": "https://sim.logonvalidation.net/token",
-    "redirect_uri_registration": "http://localhost:8765/saxo/oauth/callback",
+    "redirect_uri_registration": "http://localhost/saxo/oauth/callback",
+    "runtime_callback_uri": "http://localhost:8765/saxo/oauth/callback",
     "access_token_storage": "process_memory_only",
     "refresh_credential_storage": "macos_keychain_only",
+    "data_version_policy": "warning_evidence_review_then_explicit_apply",
+    "automatic_reconcile": false,
+    "automatic_full_refetch": false,
+    "apply_refresh_policy": "refresh_before_each_explicit_approved_apply_step",
     "manual_24_hour_token": "fallback_only"
   },
   "series": [
@@ -37,8 +42,16 @@
     "fx_complete_slot_rule": "utc_hour_must_be_fully_contained_in_verified_session_interval",
     "fx_hourly_start_minute_utc": 3,
     "fx_hourly_deadline_minute_utc": 10,
+    "scheduled_fx_universe_profile": "specs/source_collection/fx_hourly_schedule_v1.json",
+    "configured_fx_instrument_keys": ["eurusd", "usdjpy"],
+    "scheduled_fx_instrument_keys": ["eurusd"],
+    "excluded_fx_instrument_keys": ["usdjpy"],
+    "active_scheduler_scope": "specs/source_collection/periodic_scheduler_scope_v1.json",
     "poll_seconds": 15,
     "retry_seconds": 30,
+    "transient_maximum_slot_attempts": 4,
+    "terminal_blocker_state": "BLOCKED_OPERATOR_ACTION_REQUIRED",
+    "terminal_blocker_persisted_across_restart": true,
     "max_catchup_hours": 6
   },
   "publication": {

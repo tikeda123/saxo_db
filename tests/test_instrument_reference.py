@@ -51,9 +51,10 @@ def instrument_row(key, instrument_id):
         "environment": "SIM",
         "instrument_key": key,
         "symbol": reference["short_name"],
-        "asset_type": "Etf" if key not in {"eurusd", "gold", "us500", "usdjpy", "us_treasury", "wti"} else {
-            "eurusd": "FxSpot", "gold": "FxSpot", "us500": "CfdOnIndex",
-            "usdjpy": "FxSpot", "us_treasury": "CfdOnEtf", "wti": "ContractFutures",
+        "asset_type": "Etf" if key not in {"audusd", "eurusd", "gold", "us500", "usdcad", "usdchf", "usdjpy", "us_treasury", "wti"} else {
+            "audusd": "FxSpot", "eurusd": "FxSpot", "gold": "FxSpot", "us500": "CfdOnIndex",
+            "usdcad": "FxSpot", "usdchf": "FxSpot", "usdjpy": "FxSpot",
+            "us_treasury": "CfdOnEtf", "wti": "ContractFutures",
         }[key],
         "category": reference["category"],
         "currency": "USD",
@@ -67,7 +68,7 @@ def all_instrument_rows():
         "eem": 1, "efa": 2, "gld": 3, "icom": 4, "ief": 5, "iwm": 6,
         "lqd": 7, "shy": 8, "spy": 9, "tip": 10, "tlt": 11, "vnq": 12,
         "eurusd": 13, "gold": 14, "us500": 15, "us_treasury": 16,
-        "usdjpy": 17, "wti": 18,
+        "usdjpy": 17, "wti": 18, "audusd": 19, "usdcad": 20, "usdchf": 21,
     }
     return [instrument_row(key, ids[key]) for key in sorted(EXPECTED_INSTRUMENT_KEYS)]
 
@@ -93,7 +94,7 @@ def test_catalog_joins_versioned_definitions_to_current_managed_series():
     reader = FakeReader([all_instrument_rows()])
     payload = instrument_catalog_payload(reader, rows)
     spy = next(item for item in payload["instruments"] if item["instrument_key"] == "spy")
-    assert payload["instrument_count"] == 18
+    assert payload["instrument_count"] == 21
     assert spy["managed_instrument"]["provider"] == "Saxo OpenAPI"
     assert spy["managed_series"]["series_count"] == 1
     assert spy["managed_series"]["layers"] == ["1H"]
@@ -124,7 +125,7 @@ def test_ui_instrument_endpoints_are_get_only_and_return_official_sources():
     client = create_app(reader).test_client()
     listing = client.get("/api/v1/ui/instruments")
     assert listing.status_code == 200
-    assert listing.get_json()["data"]["instrument_count"] == 18
+    assert listing.get_json()["data"]["instrument_count"] == 21
 
     detail = client.get("/api/v1/ui/instruments/spy")
     assert detail.status_code == 200

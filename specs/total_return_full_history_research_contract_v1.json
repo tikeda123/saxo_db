@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "contract_id": "etf11_full_history_20260712_v1",
+  "status": "ACTIVE",
+  "usage_mode": "full_history_research",
+  "source_dataset_id": "20260712T135236Z",
+  "catalog_provider": "Yahoo Finance and FRED",
+  "series_provider": "Yahoo Finance chart endpoint",
+  "dataset_kind": "total_return",
+  "price_basis": "etf_total_return",
+  "horizon_minutes": 1440,
+  "currency": "USD",
+  "window": {
+    "first_session_date": "2004-11-18",
+    "last_session_date": "2026-07-10",
+    "rows_per_instrument": 5443,
+    "freshness_required": false,
+    "freshness_status": "NOT_APPLICABLE_FROZEN_RESEARCH_SOURCE"
+  },
+  "range_query": {
+    "endpoint": "/api/v1/total-return",
+    "start_inclusive": true,
+    "end_exclusive": true,
+    "strategy_manifest_owns_experiment_boundaries": true,
+    "holdout_specific_contract_required": false,
+    "one_time_read_restriction": false
+  },
+  "identity": {
+    "provider_data_version_applicable": false,
+    "provider_revision_identity": "immutable_raw_sha256_per_instrument",
+    "source_manifest_relative_path": "manifests/etf11_source_dataset_manifest.json",
+    "source_manifest_sha256": "57377bcd1ca13eaf5b9150ac77c2929efed3a177f9dcdd4bed6fb83ed8db2758",
+    "quality_evidence_relative_path": "manifests/etf11_quality_gate.json",
+    "quality_evidence_sha256": "7902f4cf56eec7101b8d60c776060764335603c44a2473bbb63d63f92eb2899d",
+    "lineage_manifest_relative_path": "manifests/etf11_phase3_manifest.json",
+    "lineage_manifest_sha256": "0fef889f154ed24dc9d8ea0d9848174244470c9d150774ad72c01456363eb157"
+  },
+  "total_return_definition": {
+    "definition_id": "yahoo_adjusted_close_normalized_100_v1",
+    "description": "Provider adjusted close normalized to 100; provider dividends and splits are retained for audit and are not added a second time.",
+    "unadjusted_price_masquerading_as_total_return": false
+  },
+  "non_blocking_metadata": [
+    "legacy_or_current_namespace",
+    "publication_timestamp",
+    "catalog_research_eligibility_label",
+    "freshness_outside_strategy_selected_window",
+    "wfo_or_holdout_boundary_name"
+  ],
+  "blocking_gates": [
+    "provider_revision_or_content_identity_mismatch",
+    "instrument_or_horizon_mismatch",
+    "raw_or_derived_lineage_mismatch",
+    "corrupt_missing_duplicate_or_ordered_time_anomaly",
+    "unreviewed_provider_content_anomaly",
+    "unknown_total_return_definition"
+  ],
+  "instruments": {
+    "SPY": {"availability": "AVAILABLE", "approved_warning_codes": [], "source": {"relative_path": "data/import/daily/etf11_sources/etf/SPY_total_return.csv", "sha256": "a478edd89bcad3e597f5fe7081244a985bfd83fb961a9147623c60ae803eb9a9", "ordered_content_sha256": "f43b2404c29e85e208170191755f4043b7806909bbf7dab4112bf2d90d51e978"}},
+    "IWM": {"availability": "AVAILABLE", "approved_warning_codes": [], "source": {"relative_path": "data/import/daily/etf11_sources/etf/IWM_total_return.csv", "sha256": "9fa1e9d45e492b18ee8bc254aec36eff1764cb5303c9c8cdbe538da46b34cfd0", "ordered_content_sha256": "f1e2743cb926dd821d747b737aa7454eace9ffc4cb991bdc2e18b02af00a829c"}},
+    "EFA": {"availability": "AVAILABLE", "approved_warning_codes": [], "source": {"relative_path": "data/import/daily/etf11_sources/etf/EFA_total_return.csv", "sha256": "14c1e549b0185c6f7f00349af35b20ccfa83b9c010d95f8c0fd443804798b6dd", "ordered_content_sha256": "d54e2d62bf3eb9d6e8bc0fecf26be635c6c41cc9a8e0701e4d85168dac75774d"}},
+    "EEM": {"availability": "AVAILABLE_WITH_WARNINGS", "approved_warning_codes": ["PROVIDER_DAILY_TOTAL_RETURN_OUTLIER_RETAINED_UNMODIFIED"], "warning_evidence": {"quality_warn_rows": 2, "automatic_corrections": 0, "session_dates": ["2008-10-13", "2008-10-28"]}, "source": {"relative_path": "data/import/daily/etf11_sources/etf/EEM_total_return.csv", "sha256": "30c3a27353637d8e4837d79b4f0d488fd773331d6bee3ede407024b7f2972de5", "ordered_content_sha256": "3d8f55dfa638329d5a5bc316b73f61704ef82ad161baee0ddb59b716ce6f7cfb"}},
+    "VNQ": {"availability": "AVAILABLE", "approved_warning_codes": [], "source": {"relative_path": "data/import/daily/etf11_sources/etf/VNQ_total_return.csv", "sha256": "13fca565c937913d9dbb56e140bce9482ef4fa018a129f632b1e008d00a89849", "ordered_content_sha256": "0daa985b1a96ea41c808b206fb98bcc3f5aa438354db1e5805cc16d73cea5138"}},
+    "SHY": {"availability": "AVAILABLE", "approved_warning_codes": [], "source": {"relative_path": "data/import/daily/etf11_sources/etf/SHY_total_return.csv", "sha256": "438e2044fb5dce0f1ecd581d3af7d16b7b7883cc3ddd466ff84f57286dac61fc", "ordered_content_sha256": "ff439262eabaa4179038211332e6abd8a4d00ab156c91659f7bd57e9ce611c32"}},
+    "IEF": {"availability": "AVAILABLE", "approved_warning_codes": [], "source": {"relative_path": "data/import/daily/etf11_sources/etf/IEF_total_return.csv", "sha256": "716e358c8b7e17d260eee9c7670ed64598610c1614f268efd3c261fd65c4815a", "ordered_content_sha256": "3e2b283942d78b9525eac240aeaefacf362b91af71550b52d14305bbdcf4cbb8"}},
+    "TLT": {"availability": "AVAILABLE", "approved_warning_codes": [], "source": {"relative_path": "data/import/daily/etf11_sources/etf/TLT_total_return.csv", "sha256": "964e6732c95b69d57cdc3dc025f5219b6d137e4936fee2ebb8f1c2039a55bd4e", "ordered_content_sha256": "a1b2c19e7141fa0e2972c7f0e99b5779c125316d4f765b58eb99a0e3acb63dad"}},
+    "TIP": {"availability": "AVAILABLE", "approved_warning_codes": [], "source": {"relative_path": "data/import/daily/etf11_sources/etf/TIP_total_return.csv", "sha256": "e358f2797ed0e05f231c9ae6c68aa2745f2b9e2dcb366ae3395d26ceaea23ecb", "ordered_content_sha256": "36355ad92bbdc128126555f869ccff67006bb82b0715901114c52a8f7c520459"}},
+    "LQD": {"availability": "AVAILABLE", "approved_warning_codes": [], "source": {"relative_path": "data/import/daily/etf11_sources/etf/LQD_total_return.csv", "sha256": "f7ad385cf8fa671954f3edd284c6a457903f88ab7ce06eae443b3598f96ac779", "ordered_content_sha256": "bcdf6c7e6b971263be6ac0c26bceec6dbbeacd1ab4652d7436a4439f93b3db5b"}},
+    "GLD": {"availability": "AVAILABLE", "approved_warning_codes": [], "source": {"relative_path": "data/import/daily/etf11_sources/etf/GLD_total_return.csv", "sha256": "23918c5707a019deb836664593c5986e56aeedc85c8655a84ec2c328b6666643", "ordered_content_sha256": "530f175fa06270ba6bc130eb2613a4ba5a6be8120ee57c3145d1cbd3ebb76916"}}
+  }
+}

@@ -6,6 +6,19 @@
   "scope_note_ja": "この辞書はsaxo_dbが管理する商品の意味と価格系列の読み方を説明する。投資助言、売買推奨、将来リターンの予測は含まない。",
   "instruments": [
     {
+      "instrument_key": "audusd",
+      "display_name_ja": "豪ドル／米ドル",
+      "short_name": "AUDUSD",
+      "instrument_type_ja": "店頭外国為替スポット",
+      "category": "fx",
+      "summary_ja": "1豪ドルが何米ドルかを示す主要通貨ペアです。",
+      "exposure_ja": "豪ドルの米ドルに対する相対価値。",
+      "benchmark_or_reference": "AUD/USD spot foreign exchange",
+      "quote_interpretation_ja": "値が0.70なら、概ね1 AUD = 0.70 USDを意味します。DBのbid_ask_midはSaxoのbidとaskの中間値で、実際の約定価格ではありません。",
+      "data_cautions_ja": ["店頭FXは取引所の単一公式価格ではなく、提供者の気配値です。", "bid_ask_midにはスプレッド、ロール、実売買コストを含みません。"],
+      "official_sources": [{"label": "Saxo公式 Forex", "url": "https://www.home.saxo/products/forex"}]
+    },
+    {
       "instrument_key": "eem",
       "display_name_ja": "iShares MSCI Emerging Markets ETF",
       "short_name": "EEM",
@@ -186,6 +199,32 @@
       "quote_interpretation_ja": "DB値はSaxo SIMのUS500.I気配値です。S&P 500公式指数、SPY ETF、現物株バスケットのいずれとも同一ではありません。",
       "data_cautions_ja": ["CFDは原資産を保有せず、提供者条件、スプレッド、資金調達費用の影響を受けます。", "投資元本を超える損失を含むレバレッジ商品固有のリスクがあります。"],
       "official_sources": [{"label": "Saxo公式 CFDの説明", "url": "https://www.home.saxo/en-gb/learn/ways-to-trade/cfd"}, {"label": "S&P Dow Jones Indices公式 S&P 500", "url": "https://www.spglobal.com/spdji/en/indices/equity/sp-500/"}]
+    },
+    {
+      "instrument_key": "usdcad",
+      "display_name_ja": "米ドル／カナダドル",
+      "short_name": "USDCAD",
+      "instrument_type_ja": "店頭外国為替スポット",
+      "category": "fx",
+      "summary_ja": "1米ドルが何カナダドルかを示す主要通貨ペアです。",
+      "exposure_ja": "米ドルのカナダドルに対する相対価値。",
+      "benchmark_or_reference": "USD/CAD spot foreign exchange",
+      "quote_interpretation_ja": "値が1.35なら、概ね1 USD = 1.35 CADを意味します。DBのbid_ask_midはSaxoのbidとaskの中間値です。",
+      "data_cautions_ja": ["店頭FXは提供者の気配値で、取引所の単一公式価格ではありません。", "bid_ask_midは実際の売買価格や取引コストを表しません。"],
+      "official_sources": [{"label": "Saxo公式 Forex", "url": "https://www.home.saxo/products/forex"}]
+    },
+    {
+      "instrument_key": "usdchf",
+      "display_name_ja": "米ドル／スイスフラン",
+      "short_name": "USDCHF",
+      "instrument_type_ja": "店頭外国為替スポット",
+      "category": "fx",
+      "summary_ja": "1米ドルが何スイスフランかを示す主要通貨ペアです。",
+      "exposure_ja": "米ドルのスイスフランに対する相対価値。",
+      "benchmark_or_reference": "USD/CHF spot foreign exchange",
+      "quote_interpretation_ja": "値が0.90なら、概ね1 USD = 0.90 CHFを意味します。DBのbid_ask_midはSaxoのbidとaskの中間値です。",
+      "data_cautions_ja": ["店頭FXは提供者の気配値で、取引所の単一公式価格ではありません。", "bid_ask_midにはスプレッドや実売買コストを含みません。"],
+      "official_sources": [{"label": "Saxo公式 Forex", "url": "https://www.home.saxo/products/forex"}]
     },
     {
       "instrument_key": "usdjpy",
