@@ -1,0 +1,3099 @@
+{
+  "manifest_relative_path": "manifests/strategy_external_data_contract_manifest_v1.json",
+  "receipt_count": 8,
+  "receipts": [
+    {
+      "accepted_at_utc": "2026-07-31T00:09:55Z",
+      "account_fingerprint": null,
+      "availability_state": "AVAILABLE_WITH_WARNINGS",
+      "available_at_utc": "2026-07-31T00:09:55Z",
+      "blocker_ids": [],
+      "calendar_id": "ARCX_XNAS_COMMON_REGULAR_2026",
+      "contract_id": "c2_edc03_common_regular_session_calendar_v1",
+      "cost_confidence": "NOT_APPLICABLE",
+      "dataset_id": "ARCX_XNAS_COMMON_REGULAR_2026:arcx_xnas_common_2026_v1",
+      "dataset_role": "COMMON_REGULAR_SESSION_CALENDAR",
+      "expected_by_utc": null,
+      "freshness_state": "CURRENT",
+      "interpolation_performed": false,
+      "lineage_id": "official-pages-to-normalized-common-calendar-v1",
+      "manifest_sha256": "9e127e9fbed32b226b6a048c21868587e897c26bf437addaaa0ad9f214e25c97",
+      "ordered_content_sha256": "a7a6fddbb70bab6c256d8dbdc635d62dc9397e1a76dc7905d950fc6652a3a8fd",
+      "payload": {
+        "calendar_id": "ARCX_XNAS_COMMON_REGULAR_2026",
+        "calendar_version": "arcx_xnas_common_2026_v1",
+        "normalization": "intersection of ARCX and XNAS regular sessions",
+        "normalized_sha256": "a7a6fddbb70bab6c256d8dbdc635d62dc9397e1a76dc7905d950fc6652a3a8fd",
+        "published_at_utc": null,
+        "sessions": [
+          {
+            "close_utc": "2026-01-02T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-01-02T14:30:00Z",
+            "session_date": "2026-01-02",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-01-05T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-01-05T14:30:00Z",
+            "session_date": "2026-01-05",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-01-06T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-01-06T14:30:00Z",
+            "session_date": "2026-01-06",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-01-07T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-01-07T14:30:00Z",
+            "session_date": "2026-01-07",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-01-08T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-01-08T14:30:00Z",
+            "session_date": "2026-01-08",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-01-09T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-01-09T14:30:00Z",
+            "session_date": "2026-01-09",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-01-12T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-01-12T14:30:00Z",
+            "session_date": "2026-01-12",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-01-13T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-01-13T14:30:00Z",
+            "session_date": "2026-01-13",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-01-14T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-01-14T14:30:00Z",
+            "session_date": "2026-01-14",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-01-15T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-01-15T14:30:00Z",
+            "session_date": "2026-01-15",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-01-16T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-01-16T14:30:00Z",
+            "session_date": "2026-01-16",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-01-20T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-01-20T14:30:00Z",
+            "session_date": "2026-01-20",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-01-21T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-01-21T14:30:00Z",
+            "session_date": "2026-01-21",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-01-22T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-01-22T14:30:00Z",
+            "session_date": "2026-01-22",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-01-23T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-01-23T14:30:00Z",
+            "session_date": "2026-01-23",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-01-26T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-01-26T14:30:00Z",
+            "session_date": "2026-01-26",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-01-27T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-01-27T14:30:00Z",
+            "session_date": "2026-01-27",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-01-28T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-01-28T14:30:00Z",
+            "session_date": "2026-01-28",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-01-29T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-01-29T14:30:00Z",
+            "session_date": "2026-01-29",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-01-30T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-01-30T14:30:00Z",
+            "session_date": "2026-01-30",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-02-02T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-02-02T14:30:00Z",
+            "session_date": "2026-02-02",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-02-03T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-02-03T14:30:00Z",
+            "session_date": "2026-02-03",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-02-04T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-02-04T14:30:00Z",
+            "session_date": "2026-02-04",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-02-05T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-02-05T14:30:00Z",
+            "session_date": "2026-02-05",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-02-06T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-02-06T14:30:00Z",
+            "session_date": "2026-02-06",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-02-09T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-02-09T14:30:00Z",
+            "session_date": "2026-02-09",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-02-10T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-02-10T14:30:00Z",
+            "session_date": "2026-02-10",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-02-11T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-02-11T14:30:00Z",
+            "session_date": "2026-02-11",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-02-12T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-02-12T14:30:00Z",
+            "session_date": "2026-02-12",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-02-13T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-02-13T14:30:00Z",
+            "session_date": "2026-02-13",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-02-17T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-02-17T14:30:00Z",
+            "session_date": "2026-02-17",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-02-18T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-02-18T14:30:00Z",
+            "session_date": "2026-02-18",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-02-19T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-02-19T14:30:00Z",
+            "session_date": "2026-02-19",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-02-20T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-02-20T14:30:00Z",
+            "session_date": "2026-02-20",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-02-23T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-02-23T14:30:00Z",
+            "session_date": "2026-02-23",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-02-24T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-02-24T14:30:00Z",
+            "session_date": "2026-02-24",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-02-25T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-02-25T14:30:00Z",
+            "session_date": "2026-02-25",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-02-26T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-02-26T14:30:00Z",
+            "session_date": "2026-02-26",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-02-27T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-02-27T14:30:00Z",
+            "session_date": "2026-02-27",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-03-02T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-03-02T14:30:00Z",
+            "session_date": "2026-03-02",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-03-03T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-03-03T14:30:00Z",
+            "session_date": "2026-03-03",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-03-04T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-03-04T14:30:00Z",
+            "session_date": "2026-03-04",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-03-05T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-03-05T14:30:00Z",
+            "session_date": "2026-03-05",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-03-06T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-03-06T14:30:00Z",
+            "session_date": "2026-03-06",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-03-09T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-03-09T13:30:00Z",
+            "session_date": "2026-03-09",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-03-10T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-03-10T13:30:00Z",
+            "session_date": "2026-03-10",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-03-11T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-03-11T13:30:00Z",
+            "session_date": "2026-03-11",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-03-12T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-03-12T13:30:00Z",
+            "session_date": "2026-03-12",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-03-13T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-03-13T13:30:00Z",
+            "session_date": "2026-03-13",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-03-16T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-03-16T13:30:00Z",
+            "session_date": "2026-03-16",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-03-17T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-03-17T13:30:00Z",
+            "session_date": "2026-03-17",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-03-18T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-03-18T13:30:00Z",
+            "session_date": "2026-03-18",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-03-19T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-03-19T13:30:00Z",
+            "session_date": "2026-03-19",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-03-20T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-03-20T13:30:00Z",
+            "session_date": "2026-03-20",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-03-23T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-03-23T13:30:00Z",
+            "session_date": "2026-03-23",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-03-24T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-03-24T13:30:00Z",
+            "session_date": "2026-03-24",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-03-25T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-03-25T13:30:00Z",
+            "session_date": "2026-03-25",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-03-26T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-03-26T13:30:00Z",
+            "session_date": "2026-03-26",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-03-27T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-03-27T13:30:00Z",
+            "session_date": "2026-03-27",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-03-30T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-03-30T13:30:00Z",
+            "session_date": "2026-03-30",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-03-31T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-03-31T13:30:00Z",
+            "session_date": "2026-03-31",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-04-01T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-04-01T13:30:00Z",
+            "session_date": "2026-04-01",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-04-02T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-04-02T13:30:00Z",
+            "session_date": "2026-04-02",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-04-06T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-04-06T13:30:00Z",
+            "session_date": "2026-04-06",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-04-07T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-04-07T13:30:00Z",
+            "session_date": "2026-04-07",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-04-08T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-04-08T13:30:00Z",
+            "session_date": "2026-04-08",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-04-09T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-04-09T13:30:00Z",
+            "session_date": "2026-04-09",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-04-10T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-04-10T13:30:00Z",
+            "session_date": "2026-04-10",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-04-13T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-04-13T13:30:00Z",
+            "session_date": "2026-04-13",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-04-14T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-04-14T13:30:00Z",
+            "session_date": "2026-04-14",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-04-15T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-04-15T13:30:00Z",
+            "session_date": "2026-04-15",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-04-16T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-04-16T13:30:00Z",
+            "session_date": "2026-04-16",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-04-17T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-04-17T13:30:00Z",
+            "session_date": "2026-04-17",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-04-20T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-04-20T13:30:00Z",
+            "session_date": "2026-04-20",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-04-21T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-04-21T13:30:00Z",
+            "session_date": "2026-04-21",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-04-22T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-04-22T13:30:00Z",
+            "session_date": "2026-04-22",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-04-23T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-04-23T13:30:00Z",
+            "session_date": "2026-04-23",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-04-24T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-04-24T13:30:00Z",
+            "session_date": "2026-04-24",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-04-27T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-04-27T13:30:00Z",
+            "session_date": "2026-04-27",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-04-28T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-04-28T13:30:00Z",
+            "session_date": "2026-04-28",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-04-29T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-04-29T13:30:00Z",
+            "session_date": "2026-04-29",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-04-30T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-04-30T13:30:00Z",
+            "session_date": "2026-04-30",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-05-01T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-05-01T13:30:00Z",
+            "session_date": "2026-05-01",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-05-04T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-05-04T13:30:00Z",
+            "session_date": "2026-05-04",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-05-05T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-05-05T13:30:00Z",
+            "session_date": "2026-05-05",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-05-06T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-05-06T13:30:00Z",
+            "session_date": "2026-05-06",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-05-07T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-05-07T13:30:00Z",
+            "session_date": "2026-05-07",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-05-08T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-05-08T13:30:00Z",
+            "session_date": "2026-05-08",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-05-11T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-05-11T13:30:00Z",
+            "session_date": "2026-05-11",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-05-12T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-05-12T13:30:00Z",
+            "session_date": "2026-05-12",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-05-13T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-05-13T13:30:00Z",
+            "session_date": "2026-05-13",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-05-14T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-05-14T13:30:00Z",
+            "session_date": "2026-05-14",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-05-15T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-05-15T13:30:00Z",
+            "session_date": "2026-05-15",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-05-18T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-05-18T13:30:00Z",
+            "session_date": "2026-05-18",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-05-19T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-05-19T13:30:00Z",
+            "session_date": "2026-05-19",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-05-20T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-05-20T13:30:00Z",
+            "session_date": "2026-05-20",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-05-21T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-05-21T13:30:00Z",
+            "session_date": "2026-05-21",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-05-22T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-05-22T13:30:00Z",
+            "session_date": "2026-05-22",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-05-26T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-05-26T13:30:00Z",
+            "session_date": "2026-05-26",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-05-27T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-05-27T13:30:00Z",
+            "session_date": "2026-05-27",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-05-28T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-05-28T13:30:00Z",
+            "session_date": "2026-05-28",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-05-29T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-05-29T13:30:00Z",
+            "session_date": "2026-05-29",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-06-01T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-06-01T13:30:00Z",
+            "session_date": "2026-06-01",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-06-02T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-06-02T13:30:00Z",
+            "session_date": "2026-06-02",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-06-03T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-06-03T13:30:00Z",
+            "session_date": "2026-06-03",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-06-04T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-06-04T13:30:00Z",
+            "session_date": "2026-06-04",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-06-05T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-06-05T13:30:00Z",
+            "session_date": "2026-06-05",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-06-08T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-06-08T13:30:00Z",
+            "session_date": "2026-06-08",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-06-09T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-06-09T13:30:00Z",
+            "session_date": "2026-06-09",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-06-10T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-06-10T13:30:00Z",
+            "session_date": "2026-06-10",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-06-11T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-06-11T13:30:00Z",
+            "session_date": "2026-06-11",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-06-12T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-06-12T13:30:00Z",
+            "session_date": "2026-06-12",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-06-15T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-06-15T13:30:00Z",
+            "session_date": "2026-06-15",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-06-16T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-06-16T13:30:00Z",
+            "session_date": "2026-06-16",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-06-17T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-06-17T13:30:00Z",
+            "session_date": "2026-06-17",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-06-18T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-06-18T13:30:00Z",
+            "session_date": "2026-06-18",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-06-22T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-06-22T13:30:00Z",
+            "session_date": "2026-06-22",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-06-23T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-06-23T13:30:00Z",
+            "session_date": "2026-06-23",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-06-24T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-06-24T13:30:00Z",
+            "session_date": "2026-06-24",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-06-25T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-06-25T13:30:00Z",
+            "session_date": "2026-06-25",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-06-26T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-06-26T13:30:00Z",
+            "session_date": "2026-06-26",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-06-29T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-06-29T13:30:00Z",
+            "session_date": "2026-06-29",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-06-30T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-06-30T13:30:00Z",
+            "session_date": "2026-06-30",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-07-01T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-07-01T13:30:00Z",
+            "session_date": "2026-07-01",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-07-02T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-07-02T13:30:00Z",
+            "session_date": "2026-07-02",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-07-06T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-07-06T13:30:00Z",
+            "session_date": "2026-07-06",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-07-07T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-07-07T13:30:00Z",
+            "session_date": "2026-07-07",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-07-08T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-07-08T13:30:00Z",
+            "session_date": "2026-07-08",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-07-09T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-07-09T13:30:00Z",
+            "session_date": "2026-07-09",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-07-10T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-07-10T13:30:00Z",
+            "session_date": "2026-07-10",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-07-13T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-07-13T13:30:00Z",
+            "session_date": "2026-07-13",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-07-14T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-07-14T13:30:00Z",
+            "session_date": "2026-07-14",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-07-15T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-07-15T13:30:00Z",
+            "session_date": "2026-07-15",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-07-16T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-07-16T13:30:00Z",
+            "session_date": "2026-07-16",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-07-17T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-07-17T13:30:00Z",
+            "session_date": "2026-07-17",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-07-20T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-07-20T13:30:00Z",
+            "session_date": "2026-07-20",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-07-21T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-07-21T13:30:00Z",
+            "session_date": "2026-07-21",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-07-22T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-07-22T13:30:00Z",
+            "session_date": "2026-07-22",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-07-23T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-07-23T13:30:00Z",
+            "session_date": "2026-07-23",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-07-24T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-07-24T13:30:00Z",
+            "session_date": "2026-07-24",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-07-27T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-07-27T13:30:00Z",
+            "session_date": "2026-07-27",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-07-28T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-07-28T13:30:00Z",
+            "session_date": "2026-07-28",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-07-29T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-07-29T13:30:00Z",
+            "session_date": "2026-07-29",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-07-30T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-07-30T13:30:00Z",
+            "session_date": "2026-07-30",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-07-31T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-07-31T13:30:00Z",
+            "session_date": "2026-07-31",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-08-03T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-08-03T13:30:00Z",
+            "session_date": "2026-08-03",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-08-04T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-08-04T13:30:00Z",
+            "session_date": "2026-08-04",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-08-05T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-08-05T13:30:00Z",
+            "session_date": "2026-08-05",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-08-06T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-08-06T13:30:00Z",
+            "session_date": "2026-08-06",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-08-07T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-08-07T13:30:00Z",
+            "session_date": "2026-08-07",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-08-10T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-08-10T13:30:00Z",
+            "session_date": "2026-08-10",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-08-11T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-08-11T13:30:00Z",
+            "session_date": "2026-08-11",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-08-12T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-08-12T13:30:00Z",
+            "session_date": "2026-08-12",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-08-13T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-08-13T13:30:00Z",
+            "session_date": "2026-08-13",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-08-14T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-08-14T13:30:00Z",
+            "session_date": "2026-08-14",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-08-17T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-08-17T13:30:00Z",
+            "session_date": "2026-08-17",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-08-18T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-08-18T13:30:00Z",
+            "session_date": "2026-08-18",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-08-19T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-08-19T13:30:00Z",
+            "session_date": "2026-08-19",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-08-20T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-08-20T13:30:00Z",
+            "session_date": "2026-08-20",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-08-21T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-08-21T13:30:00Z",
+            "session_date": "2026-08-21",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-08-24T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-08-24T13:30:00Z",
+            "session_date": "2026-08-24",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-08-25T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-08-25T13:30:00Z",
+            "session_date": "2026-08-25",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-08-26T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-08-26T13:30:00Z",
+            "session_date": "2026-08-26",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-08-27T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-08-27T13:30:00Z",
+            "session_date": "2026-08-27",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-08-28T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-08-28T13:30:00Z",
+            "session_date": "2026-08-28",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-08-31T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-08-31T13:30:00Z",
+            "session_date": "2026-08-31",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-09-01T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-09-01T13:30:00Z",
+            "session_date": "2026-09-01",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-09-02T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-09-02T13:30:00Z",
+            "session_date": "2026-09-02",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-09-03T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-09-03T13:30:00Z",
+            "session_date": "2026-09-03",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-09-04T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-09-04T13:30:00Z",
+            "session_date": "2026-09-04",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-09-08T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-09-08T13:30:00Z",
+            "session_date": "2026-09-08",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-09-09T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-09-09T13:30:00Z",
+            "session_date": "2026-09-09",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-09-10T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-09-10T13:30:00Z",
+            "session_date": "2026-09-10",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-09-11T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-09-11T13:30:00Z",
+            "session_date": "2026-09-11",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-09-14T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-09-14T13:30:00Z",
+            "session_date": "2026-09-14",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-09-15T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-09-15T13:30:00Z",
+            "session_date": "2026-09-15",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-09-16T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-09-16T13:30:00Z",
+            "session_date": "2026-09-16",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-09-17T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-09-17T13:30:00Z",
+            "session_date": "2026-09-17",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-09-18T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-09-18T13:30:00Z",
+            "session_date": "2026-09-18",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-09-21T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-09-21T13:30:00Z",
+            "session_date": "2026-09-21",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-09-22T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-09-22T13:30:00Z",
+            "session_date": "2026-09-22",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-09-23T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-09-23T13:30:00Z",
+            "session_date": "2026-09-23",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-09-24T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-09-24T13:30:00Z",
+            "session_date": "2026-09-24",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-09-25T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-09-25T13:30:00Z",
+            "session_date": "2026-09-25",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-09-28T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-09-28T13:30:00Z",
+            "session_date": "2026-09-28",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-09-29T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-09-29T13:30:00Z",
+            "session_date": "2026-09-29",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-09-30T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-09-30T13:30:00Z",
+            "session_date": "2026-09-30",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-10-01T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-10-01T13:30:00Z",
+            "session_date": "2026-10-01",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-10-02T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-10-02T13:30:00Z",
+            "session_date": "2026-10-02",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-10-05T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-10-05T13:30:00Z",
+            "session_date": "2026-10-05",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-10-06T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-10-06T13:30:00Z",
+            "session_date": "2026-10-06",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-10-07T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-10-07T13:30:00Z",
+            "session_date": "2026-10-07",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-10-08T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-10-08T13:30:00Z",
+            "session_date": "2026-10-08",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-10-09T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-10-09T13:30:00Z",
+            "session_date": "2026-10-09",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-10-12T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-10-12T13:30:00Z",
+            "session_date": "2026-10-12",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-10-13T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-10-13T13:30:00Z",
+            "session_date": "2026-10-13",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-10-14T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-10-14T13:30:00Z",
+            "session_date": "2026-10-14",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-10-15T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-10-15T13:30:00Z",
+            "session_date": "2026-10-15",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-10-16T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-10-16T13:30:00Z",
+            "session_date": "2026-10-16",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-10-19T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-10-19T13:30:00Z",
+            "session_date": "2026-10-19",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-10-20T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-10-20T13:30:00Z",
+            "session_date": "2026-10-20",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-10-21T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-10-21T13:30:00Z",
+            "session_date": "2026-10-21",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-10-22T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-10-22T13:30:00Z",
+            "session_date": "2026-10-22",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-10-23T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-10-23T13:30:00Z",
+            "session_date": "2026-10-23",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-10-26T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-10-26T13:30:00Z",
+            "session_date": "2026-10-26",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-10-27T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-10-27T13:30:00Z",
+            "session_date": "2026-10-27",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-10-28T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-10-28T13:30:00Z",
+            "session_date": "2026-10-28",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-10-29T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-10-29T13:30:00Z",
+            "session_date": "2026-10-29",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-10-30T20:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-10-30T13:30:00Z",
+            "session_date": "2026-10-30",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-11-02T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-11-02T14:30:00Z",
+            "session_date": "2026-11-02",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-11-03T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-11-03T14:30:00Z",
+            "session_date": "2026-11-03",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-11-04T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-11-04T14:30:00Z",
+            "session_date": "2026-11-04",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-11-05T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-11-05T14:30:00Z",
+            "session_date": "2026-11-05",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-11-06T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-11-06T14:30:00Z",
+            "session_date": "2026-11-06",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-11-09T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-11-09T14:30:00Z",
+            "session_date": "2026-11-09",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-11-10T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-11-10T14:30:00Z",
+            "session_date": "2026-11-10",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-11-11T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-11-11T14:30:00Z",
+            "session_date": "2026-11-11",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-11-12T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-11-12T14:30:00Z",
+            "session_date": "2026-11-12",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-11-13T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-11-13T14:30:00Z",
+            "session_date": "2026-11-13",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-11-16T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-11-16T14:30:00Z",
+            "session_date": "2026-11-16",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-11-17T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-11-17T14:30:00Z",
+            "session_date": "2026-11-17",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-11-18T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-11-18T14:30:00Z",
+            "session_date": "2026-11-18",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-11-19T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-11-19T14:30:00Z",
+            "session_date": "2026-11-19",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-11-20T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-11-20T14:30:00Z",
+            "session_date": "2026-11-20",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-11-23T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-11-23T14:30:00Z",
+            "session_date": "2026-11-23",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-11-24T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-11-24T14:30:00Z",
+            "session_date": "2026-11-24",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-11-25T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-11-25T14:30:00Z",
+            "session_date": "2026-11-25",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-11-27T18:00:00Z",
+            "early_close": true,
+            "open_utc": "2026-11-27T14:30:00Z",
+            "session_date": "2026-11-27",
+            "session_state": "SHORT_SESSION",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-11-30T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-11-30T14:30:00Z",
+            "session_date": "2026-11-30",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-12-01T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-12-01T14:30:00Z",
+            "session_date": "2026-12-01",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-12-02T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-12-02T14:30:00Z",
+            "session_date": "2026-12-02",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-12-03T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-12-03T14:30:00Z",
+            "session_date": "2026-12-03",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-12-04T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-12-04T14:30:00Z",
+            "session_date": "2026-12-04",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-12-07T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-12-07T14:30:00Z",
+            "session_date": "2026-12-07",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-12-08T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-12-08T14:30:00Z",
+            "session_date": "2026-12-08",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-12-09T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-12-09T14:30:00Z",
+            "session_date": "2026-12-09",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-12-10T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-12-10T14:30:00Z",
+            "session_date": "2026-12-10",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-12-11T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-12-11T14:30:00Z",
+            "session_date": "2026-12-11",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-12-14T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-12-14T14:30:00Z",
+            "session_date": "2026-12-14",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-12-15T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-12-15T14:30:00Z",
+            "session_date": "2026-12-15",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-12-16T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-12-16T14:30:00Z",
+            "session_date": "2026-12-16",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-12-17T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-12-17T14:30:00Z",
+            "session_date": "2026-12-17",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-12-18T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-12-18T14:30:00Z",
+            "session_date": "2026-12-18",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-12-21T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-12-21T14:30:00Z",
+            "session_date": "2026-12-21",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-12-22T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-12-22T14:30:00Z",
+            "session_date": "2026-12-22",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-12-23T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-12-23T14:30:00Z",
+            "session_date": "2026-12-23",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-12-24T18:00:00Z",
+            "early_close": true,
+            "open_utc": "2026-12-24T14:30:00Z",
+            "session_date": "2026-12-24",
+            "session_state": "SHORT_SESSION",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-12-28T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-12-28T14:30:00Z",
+            "session_date": "2026-12-28",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-12-29T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-12-29T14:30:00Z",
+            "session_date": "2026-12-29",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-12-30T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-12-30T14:30:00Z",
+            "session_date": "2026-12-30",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          },
+          {
+            "close_utc": "2026-12-31T21:00:00Z",
+            "early_close": false,
+            "open_utc": "2026-12-31T14:30:00Z",
+            "session_date": "2026-12-31",
+            "session_state": "OPEN",
+            "venues": [
+              "ARCX",
+              "XNAS"
+            ]
+          }
+        ],
+        "source_sha256": {
+          "nasdaq_sha256": "efcba8539b42986a6f6b874c00f9ad395daeac197425166d0e18fc5701c2a529",
+          "nyse_sha256": "c466a9cb0377a8028046cd581e782f2695d01e2d06570a8f68d048681c0f2ebe"
+        },
+        "source_urls": [
+          "https://www.nyse.com/trade/hours-calendars",
+          "https://www.nasdaqtrader.com/trader.aspx?id=Calendar"
+        ],
+        "tzdb_version": "system-zoneinfo-rule-hash-8fefaed2e5e95db4",
+        "valid_from": "2026-01-01",
+        "valid_to": "2026-12-31"
+      },
+      "provider_data_version": "nyse:c466a9cb0377a8028046cd581e782f2695d01e2d06570a8f68d048681c0f2ebe;nasdaq:efcba8539b42986a6f6b874c00f9ad395daeac197425166d0e18fc5701c2a529",
+      "provider_id": "NYSE_NASDAQ_OFFICIAL_PUBLICATIONS",
+      "published_at_utc": null,
+      "quality_state": "PASS_WITH_WARNINGS",
+      "receipt_id": "c2-20260731T000955Z-calendar-2026",
+      "receipt_sha256": "cccbec24870a10c4c5cac3ad9cecb78138a320ffbe1cb965e361f5bbc9fbdf3e",
+      "revision_state": "CURRENT_ACCEPTED",
+      "schema_version": 1,
+      "source_as_of": "2026-07-31",
+      "source_observed_at_utc": "2026-07-31T00:09:55Z",
+      "supersedes_receipt_id": null,
+      "values_modified": false,
+      "warning_ids": [
+        "SOURCE_PUBLISHED_AT_NOT_EXPOSED"
+      ]
+    },
+    {
+      "accepted_at_utc": null,
+      "account_fingerprint": null,
+      "availability_state": "BLOCKED_EXTERNAL_CONTRACT",
+      "available_at_utc": "2026-07-31T00:09:55Z",
+      "blocker_ids": [
+        "BLOCKED_EXTERNAL_CONTRACT_ISSUER_REVISION_MONITOR_NOT_VERIFIED"
+      ],
+      "calendar_id": null,
+      "contract_id": "c2_edc04_distribution_declaration_v1",
+      "cost_confidence": "NOT_APPLICABLE",
+      "dataset_id": null,
+      "dataset_role": "DISTRIBUTION_DECLARATION",
+      "expected_by_utc": null,
+      "freshness_state": "NOT_EVALUATED_SLA",
+      "interpolation_performed": false,
+      "lineage_id": null,
+      "manifest_sha256": "9e127e9fbed32b226b6a048c21868587e897c26bf437addaaa0ad9f214e25c97",
+      "ordered_content_sha256": null,
+      "payload": {
+        "coverage_required": 11,
+        "revision_monitor_verified": false,
+        "source_kind": "issuer official publications"
+      },
+      "provider_data_version": null,
+      "provider_id": null,
+      "published_at_utc": null,
+      "quality_state": "NOT_EVALUATED",
+      "receipt_id": "c2-20260731T000955Z-distribution-source",
+      "receipt_sha256": "1a5a7c296cd06bf60001556428102e9895ae9e25e78c89de82296957352eac47",
+      "revision_state": "NOT_EVALUATED",
+      "schema_version": 1,
+      "source_as_of": "2026-07-31",
+      "source_observed_at_utc": "2026-07-31T00:09:55Z",
+      "supersedes_receipt_id": null,
+      "values_modified": false,
+      "warning_ids": []
+    },
+    {
+      "accepted_at_utc": null,
+      "account_fingerprint": null,
+      "availability_state": "BLOCKED_INTERFACE_OPERATIONAL",
+      "available_at_utc": "2026-07-31T00:09:55Z",
+      "blocker_ids": [
+        "BLOCKED_INTERFACE_OPERATIONAL_AUTH_NOT_READY"
+      ],
+      "calendar_id": null,
+      "contract_id": "c2_edc05_distribution_cash_transaction_v1",
+      "cost_confidence": "NOT_APPLICABLE",
+      "dataset_id": null,
+      "dataset_role": "DISTRIBUTION_CASH_TRANSACTION",
+      "expected_by_utc": null,
+      "freshness_state": "BLOCKED_INTERFACE_OPERATIONAL",
+      "interpolation_performed": false,
+      "lineage_id": null,
+      "manifest_sha256": "9e127e9fbed32b226b6a048c21868587e897c26bf437addaaa0ad9f214e25c97",
+      "ordered_content_sha256": null,
+      "payload": {
+        "endpoint": "GET /hist/v1/transactions",
+        "official_documentation": "https://www.developer.saxo/openapi/referencedocs/hist/v1/transactions/get__hist",
+        "required_permission": "Personal: Read"
+      },
+      "provider_data_version": null,
+      "provider_id": "SAXO_OPENAPI_SIM",
+      "published_at_utc": null,
+      "quality_state": "NOT_EVALUATED",
+      "receipt_id": "c2-20260731T000955Z-cash-auth",
+      "receipt_sha256": "b997b78832fb7e80176e6762081099e75cf370482bcc038a8045bae5d55d6ebc",
+      "revision_state": "NOT_EVALUATED",
+      "schema_version": 1,
+      "source_as_of": "2026-07-31",
+      "source_observed_at_utc": "2026-07-31T00:09:55Z",
+      "supersedes_receipt_id": null,
+      "values_modified": false,
+      "warning_ids": []
+    },
+    {
+      "accepted_at_utc": null,
+      "account_fingerprint": null,
+      "availability_state": "BLOCKED_INTERFACE_OPERATIONAL",
+      "available_at_utc": "2026-07-31T00:09:55Z",
+      "blocker_ids": [
+        "BLOCKED_INTERFACE_OPERATIONAL_AUTH_NOT_READY"
+      ],
+      "calendar_id": null,
+      "contract_id": "c2_edc06_instrument_reference_v1",
+      "cost_confidence": "NOT_APPLICABLE",
+      "dataset_id": null,
+      "dataset_role": "INSTRUMENT_REFERENCE",
+      "expected_by_utc": null,
+      "freshness_state": "BLOCKED_INTERFACE_OPERATIONAL",
+      "interpolation_performed": false,
+      "lineage_id": null,
+      "manifest_sha256": "9e127e9fbed32b226b6a048c21868587e897c26bf437addaaa0ad9f214e25c97",
+      "ordered_content_sha256": null,
+      "payload": {
+        "endpoints": [
+          "GET instrument details",
+          "GET accounts/me",
+          "GET balances/me",
+          "GET session capabilities"
+        ],
+        "instrument_count": 11,
+        "official_documentation": [
+          "https://www.developer.saxo/openapi/referencedocs/port/v1/accounts",
+          "https://www.developer.saxo/openapi/referencedocs/port/v1/balances/get__port__me",
+          "https://www.developer.saxo/openapi/referencedocs/root/v1/sessions/capabilities"
+        ]
+      },
+      "provider_data_version": null,
+      "provider_id": "SAXO_OPENAPI_SIM",
+      "published_at_utc": null,
+      "quality_state": "NOT_EVALUATED",
+      "receipt_id": "c2-20260731T000955Z-instrument-auth",
+      "receipt_sha256": "6a038d4dea0f38be6de44bff4d0ea9e179614ea851343a3e3e6f8861a5f36c16",
+      "revision_state": "NOT_EVALUATED",
+      "schema_version": 1,
+      "source_as_of": "2026-07-31",
+      "source_observed_at_utc": "2026-07-31T00:09:55Z",
+      "supersedes_receipt_id": null,
+      "values_modified": false,
+      "warning_ids": []
+    },
+    {
+      "accepted_at_utc": null,
+      "account_fingerprint": null,
+      "availability_state": "BLOCKED_INTERFACE_OPERATIONAL",
+      "available_at_utc": "2026-07-31T00:09:55Z",
+      "blocker_ids": [
+        "BLOCKED_INTERFACE_OPERATIONAL_AUTH_NOT_READY"
+      ],
+      "calendar_id": null,
+      "contract_id": "c2_edc07_proposal_price_snapshot_v1",
+      "cost_confidence": "NOT_APPLICABLE",
+      "dataset_id": null,
+      "dataset_role": "PROPOSAL_PRICE_SNAPSHOT",
+      "expected_by_utc": null,
+      "freshness_state": "BLOCKED_INTERFACE_OPERATIONAL",
+      "interpolation_performed": false,
+      "lineage_id": null,
+      "manifest_sha256": "9e127e9fbed32b226b6a048c21868587e897c26bf437addaaa0ad9f214e25c97",
+      "ordered_content_sha256": null,
+      "payload": {
+        "delay_must_be_observed": true,
+        "endpoint": "GET /trade/v1/infoprices/list",
+        "official_documentation": "https://www.developer.saxo/openapi/referencedocs/trade/v1/infoprices",
+        "snapshot_is_tradable": false
+      },
+      "provider_data_version": null,
+      "provider_id": "SAXO_OPENAPI_SIM",
+      "published_at_utc": null,
+      "quality_state": "NOT_EVALUATED",
+      "receipt_id": "c2-20260731T000955Z-quote-auth",
+      "receipt_sha256": "745a467a3a608e2ee6c637dc43b207c1eec183f1a39d2c15636a5b24ca239c77",
+      "revision_state": "NOT_EVALUATED",
+      "schema_version": 1,
+      "source_as_of": "2026-07-31",
+      "source_observed_at_utc": "2026-07-31T00:09:55Z",
+      "supersedes_receipt_id": null,
+      "values_modified": false,
+      "warning_ids": []
+    },
+    {
+      "accepted_at_utc": null,
+      "account_fingerprint": null,
+      "availability_state": "BLOCKED_EXTERNAL_CONTRACT",
+      "available_at_utc": "2026-07-31T00:09:55Z",
+      "blocker_ids": [
+        "BLOCKED_EXTERNAL_CONTRACT_ACCOUNT_FEE_SCHEDULE_AND_AUTH"
+      ],
+      "calendar_id": null,
+      "contract_id": "c2_edc08_fee_estimate_and_actual_v1",
+      "cost_confidence": "UNKNOWN",
+      "dataset_id": null,
+      "dataset_role": "FEE_ESTIMATE_AND_ACTUAL",
+      "expected_by_utc": null,
+      "freshness_state": "NOT_EVALUATED_SLA",
+      "interpolation_performed": false,
+      "lineage_id": null,
+      "manifest_sha256": "9e127e9fbed32b226b6a048c21868587e897c26bf437addaaa0ad9f214e25c97",
+      "ordered_content_sha256": null,
+      "payload": {
+        "actual_source": "GET /hist/v1/transactions",
+        "estimate_source": "account-specific official fee schedule not supplied",
+        "info_price_commission_accepted": false
+      },
+      "provider_data_version": null,
+      "provider_id": "SAXO_OPENAPI_SIM",
+      "published_at_utc": null,
+      "quality_state": "NOT_EVALUATED",
+      "receipt_id": "c2-20260731T000955Z-fees",
+      "receipt_sha256": "8e422f9c89c8c287095031bd7adb59137c4263da2cc528dd472a576c26b92fb8",
+      "revision_state": "NOT_EVALUATED",
+      "schema_version": 1,
+      "source_as_of": "2026-07-31",
+      "source_observed_at_utc": "2026-07-31T00:09:55Z",
+      "supersedes_receipt_id": null,
+      "values_modified": false,
+      "warning_ids": []
+    },
+    {
+      "accepted_at_utc": null,
+      "account_fingerprint": null,
+      "availability_state": "BLOCKED_INTERFACE_OPERATIONAL",
+      "available_at_utc": "2026-07-31T00:09:55Z",
+      "blocker_ids": [
+        "BLOCKED_INTERFACE_OPERATIONAL_AUTH_NOT_READY"
+      ],
+      "calendar_id": null,
+      "contract_id": "c2_edc09_currency_and_amount_unit_v1",
+      "cost_confidence": "NOT_APPLICABLE",
+      "dataset_id": null,
+      "dataset_role": "CURRENCY_AND_AMOUNT_UNIT",
+      "expected_by_utc": null,
+      "freshness_state": "BLOCKED_INTERFACE_OPERATIONAL",
+      "interpolation_performed": false,
+      "lineage_id": null,
+      "manifest_sha256": "9e127e9fbed32b226b6a048c21868587e897c26bf437addaaa0ad9f214e25c97",
+      "ordered_content_sha256": null,
+      "payload": {
+        "repository_currency_mapping_is_not_account_evidence": true,
+        "sources": [
+          "GET /port/v1/accounts/me",
+          "GET /port/v1/balances/me",
+          "GET instrument details"
+        ]
+      },
+      "provider_data_version": null,
+      "provider_id": "SAXO_OPENAPI_SIM",
+      "published_at_utc": null,
+      "quality_state": "NOT_EVALUATED",
+      "receipt_id": "c2-20260731T000955Z-quantum-auth",
+      "receipt_sha256": "9269ec8eaeff9254e92cf321f05cd1760a0cbec6ecfd041c4a8c905aa96f2338",
+      "revision_state": "NOT_EVALUATED",
+      "schema_version": 1,
+      "source_as_of": "2026-07-31",
+      "source_observed_at_utc": "2026-07-31T00:09:55Z",
+      "supersedes_receipt_id": null,
+      "values_modified": false,
+      "warning_ids": []
+    },
+    {
+      "accepted_at_utc": null,
+      "account_fingerprint": null,
+      "availability_state": "BLOCKED_EXTERNAL_CONTRACT",
+      "available_at_utc": "2026-07-31T00:09:55Z",
+      "blocker_ids": [
+        "BLOCKED_EXTERNAL_CONTRACT_UPSTREAM_RECEIPTS_INCOMPLETE"
+      ],
+      "calendar_id": null,
+      "contract_id": "c2_edc10_revision_and_latency_state_v1",
+      "cost_confidence": "NOT_APPLICABLE",
+      "dataset_id": null,
+      "dataset_role": "REVISION_AND_LATENCY_STATE",
+      "expected_by_utc": null,
+      "freshness_state": "NOT_EVALUATED_SLA",
+      "interpolation_performed": false,
+      "lineage_id": null,
+      "manifest_sha256": "9e127e9fbed32b226b6a048c21868587e897c26bf437addaaa0ad9f214e25c97",
+      "ordered_content_sha256": null,
+      "payload": {
+        "derivation": "accepted role receipts",
+        "independent_provider": false
+      },
+      "provider_data_version": null,
+      "provider_id": null,
+      "published_at_utc": null,
+      "quality_state": "NOT_EVALUATED",
+      "receipt_id": "c2-20260731T000955Z-sla",
+      "receipt_sha256": "3ab6a21a0683021e122c23c4069b97939042b23a2438362922e19deb55e1b2fc",
+      "revision_state": "NOT_EVALUATED",
+      "schema_version": 1,
+      "source_as_of": "2026-07-31",
+      "source_observed_at_utc": "2026-07-31T00:09:55Z",
+      "supersedes_receipt_id": null,
+      "values_modified": false,
+      "warning_ids": []
+    }
+  ],
+  "schema_version": 1
+}

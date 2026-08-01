@@ -1,0 +1,115 @@
+{
+  "applied_at_utc": "2026-08-01T07:53:34Z",
+  "approval": "user_explicit_approval_20260801",
+  "database": {
+    "post_apply": {
+      "curated.market_bar": {
+        "row_count": 790003,
+        "row_digest_md5": "8e3cd33d925f55a79553e58d57f8a5e7"
+      },
+      "derived.c2_market_bar_1h_imputation": {
+        "row_count": 4,
+        "row_digest_md5": "6fcdd1f5c9b4b3868fadc63b55e7fde5"
+      },
+      "derived.market_bar_1d_risk": {
+        "row_count": 60529,
+        "row_digest_md5": "94f5be9f675942dffafb34dc91447893"
+      },
+      "derived.market_bar_4h": {
+        "row_count": 204220,
+        "row_digest_md5": "c270fd5f99ba99f75e11cfe6cbdbc152"
+      },
+      "raw.market_bar_revision": {
+        "row_count": 2624803,
+        "row_digest_md5": "fde8edf88b44632480fa3e348f2a2665"
+      }
+    },
+    "preexisting_immutable_evidence": {
+      "maximum_ingestion_run_id": 1243,
+      "raw_row_count_after": 2623747,
+      "raw_row_count_before": 2623747,
+      "source_file_row_count_after": 3032,
+      "source_file_row_count_before": 3032,
+      "status": "UNCHANGED"
+    },
+    "task_ingestion_runs": {
+      "failed_rolled_back": 24,
+      "pass": 11,
+      "range": [1244, 1278]
+    }
+  },
+  "migrations": [
+    {
+      "filename": "0036_c2_bounded_imputation_overlay.sql",
+      "sha256": "f373a8dd80297f3218dc4f7a55606526b3e14f6f5a212bdd1b2c57e98d723689"
+    },
+    {
+      "filename": "0037_c2_daily_close_latest_status.sql",
+      "sha256": "5b34f595d908db7e6eae4fed9960fc020779cfeb793a920b82171cbc13186ce4"
+    },
+    {
+      "filename": "0038_c2_imputation_conflict_key_privilege.sql",
+      "sha256": "df2da4c63da500aa6b9deb4c50c2818d4e8a3b1663244794ebbf62db76cbf841"
+    }
+  ],
+  "operations": {
+    "account_or_fund_operations": 0,
+    "orders_or_prechecks_sent": 0,
+    "saxo_get_requests": 140,
+    "saxo_write_requests": 0
+  },
+  "read_api": {
+    "contract_id": "c2_etf11_native_ohlc_daily_close_v1",
+    "current_count": 11,
+    "endpoint": "/api/v1/c2/daily-close-status",
+    "freshness_pass_count": 11,
+    "health": "PASS",
+    "imputation_warning_count": 2,
+    "missing_count": 0,
+    "read_only_role": "saxo_app_reader",
+    "state": "AVAILABLE_WITH_IMPUTATION_WARNING",
+    "transaction_read_only": "on"
+  },
+  "scheduler": {
+    "auth_status": "AUTH_READY",
+    "excluded_instrument_keys": ["usdjpy"],
+    "profile_id": "all_except_usdjpy_with_fx_research_candidates_20260727",
+    "service_status": "RUNNING"
+  },
+  "series": [
+    {"instrument_key":"spy","revision_event_id":18,"ingestion_run_id":1266,"latest_session_date":"2026-07-31","quality_status":"PASS","imputed_rows":0},
+    {"instrument_key":"iwm","revision_event_id":19,"ingestion_run_id":1267,"latest_session_date":"2026-07-31","quality_status":"PASS","imputed_rows":0},
+    {"instrument_key":"efa","revision_event_id":20,"ingestion_run_id":1268,"latest_session_date":"2026-07-31","quality_status":"PASS","imputed_rows":0},
+    {"instrument_key":"eem","revision_event_id":21,"ingestion_run_id":1269,"latest_session_date":"2026-07-31","quality_status":"PASS","imputed_rows":0},
+    {"instrument_key":"vnq","revision_event_id":22,"ingestion_run_id":1270,"latest_session_date":"2026-07-31","quality_status":"PASS","imputed_rows":0},
+    {"instrument_key":"shy","revision_event_id":51,"ingestion_run_id":1271,"latest_session_date":"2026-07-31","quality_status":"PASS","imputed_rows":0},
+    {"instrument_key":"ief","revision_event_id":53,"ingestion_run_id":1272,"latest_session_date":"2026-07-31","quality_status":"PASS","imputed_rows":0},
+    {"instrument_key":"tlt","revision_event_id":55,"ingestion_run_id":1273,"latest_session_date":"2026-07-31","quality_status":"PASS","imputed_rows":0},
+    {"instrument_key":"lqd","revision_event_id":59,"ingestion_run_id":1274,"latest_session_date":"2026-07-31","quality_status":"PASS","imputed_rows":0},
+    {
+      "instrument_key":"tip","revision_event_id":57,"ingestion_run_id":1277,
+      "latest_session_date":"2026-07-31","quality_status":"WARN","imputed_rows":2,
+      "imputed_times_utc":["2026-07-29T13:30:00Z","2026-07-29T14:30:00Z"],
+      "source_time_utc":"2026-07-28T19:30:00Z",
+      "ordered_overlay_rows_sha256":"e3ac154f8579817388f0033d83bd627a16d9ea6b9b6d370d5ac0358462fad364"
+    },
+    {
+      "instrument_key":"gld","revision_event_id":23,"ingestion_run_id":1278,
+      "latest_session_date":"2026-07-31","quality_status":"WARN","imputed_rows":2,
+      "imputed_times_utc":["2026-07-29T13:30:00Z","2026-07-29T14:30:00Z"],
+      "source_time_utc":"2026-07-28T19:30:00Z",
+      "ordered_overlay_rows_sha256":"3d56c907d3b83b2d9880d0170a7c88e533c12440c18a42d1f3c09c1982d3fda1"
+    }
+  ],
+  "tests": {
+    "deselected_known_broad_manifest_attestation": 1,
+    "passed": 327,
+    "skipped": 45
+  },
+  "usdjpy": {
+    "data_status": "STALE_DATA_VERSION",
+    "data_version": 29738065,
+    "quarantine_maintained": true,
+    "touched": false
+  }
+}

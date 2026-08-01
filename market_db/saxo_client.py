@@ -21,6 +21,11 @@ MAX_CHART_COUNT = 1200
 ALLOWED_ASSET_TYPES = frozenset({"Etf", "FxSpot"})
 _DETAIL_PATH = re.compile(r"^/ref/v1/instruments/details/\d+/(Etf|FxSpot)$")
 _SCHEDULE_PATH = re.compile(r"^/ref/v1/instruments/tradingschedule/\d+/(Etf|FxSpot)$")
+ACCOUNTS_ME_PATH = "/port/v1/accounts/me"
+BALANCES_ME_PATH = "/port/v1/balances/me"
+SESSION_CAPABILITIES_PATH = "/root/v1/sessions/capabilities"
+HISTORICAL_TRANSACTIONS_PATH = "/hist/v1/transactions"
+INFO_PRICES_LIST_PATH = "/trade/v1/infoprices/list"
 
 
 @dataclass(frozen=True)
@@ -89,7 +94,16 @@ def safe_rate_headers(headers: Mapping[str, str]) -> dict[str, str]:
 
 
 def _allowed_path(path: str) -> bool:
-    return path in {CHART_PATH, SMOKE_PATH, "/ref/v1/instruments"} or bool(
+    return path in {
+        CHART_PATH,
+        SMOKE_PATH,
+        "/ref/v1/instruments",
+        ACCOUNTS_ME_PATH,
+        BALANCES_ME_PATH,
+        SESSION_CAPABILITIES_PATH,
+        HISTORICAL_TRANSACTIONS_PATH,
+        INFO_PRICES_LIST_PATH,
+    } or bool(
         _DETAIL_PATH.fullmatch(path) or _SCHEDULE_PATH.fullmatch(path)
     )
 
@@ -181,6 +195,69 @@ class SaxoClient:
     def trading_schedule(self, uic: int, asset_type: str) -> dict[str, Any]:
         self._validate_instrument(uic, asset_type)
         return self._get_json(f"/ref/v1/instruments/tradingschedule/{uic}/{asset_type}")
+
+    def accounts_me(self) -> dict[str, Any]:
+        return self._get_json(ACCOUNTS_ME_PATH)
+
+    def balances_me(self) -> dict[str, Any]:
+        return self._get_json(BALANCES_ME_PATH)
+
+    def session_capabilities(self) -> dict[str, Any]:
+        return self._get_json(SESSION_CAPABILITIES_PATH)
+
+    def historical_transactions(
+        self,
+        *,
+        from_date: str,
+        to_date: str,
+        uics: list[int] | tuple[int, ...],
+        transaction_type: str = "All",
+        skip: int = 0,
+        top: int = 1000,
+    ) -> dict[str, Any]:
+        if not from_date or not to_date or from_date > to_date:
+            raise ValueError("valid historical transaction date range is required")
+        if not uics or any(not isinstance(uic, int) or uic <= 0 for uic in uics):
+            raise ValueError("positive UICs are required")
+        if transaction_type not in {"All", "CorporateAction", "Trade", "CashAmount"}:
+            raise ValueError("unsupported historical transaction type")
+        if skip < 0 or not 1 <= top <= 1000:
+            raise ValueError("invalid historical transaction pagination")
+        return self._get_json(
+            HISTORICAL_TRANSACTIONS_PATH,
+            {
+                "$skip": skip,
+                "$top": top,
+                "FromDate": from_date,
+                "ToDate": to_date,
+                "TransactionType": transaction_type,
+                "Uics": ",".join(str(uic) for uic in uics),
+            },
+        )
+
+    def info_prices(
+        self,
+        *,
+        uics: list[int] | tuple[int, ...],
+        asset_type: str = "Etf",
+        amount: int = 1,
+    ) -> dict[str, Any]:
+        if asset_type not in ALLOWED_ASSET_TYPES:
+            raise ValueError("AssetType must be Etf or FxSpot")
+        if not uics or any(not isinstance(uic, int) or uic <= 0 for uic in uics):
+            raise ValueError("positive UICs are required")
+        if amount <= 0:
+            raise ValueError("Amount must be positive")
+        return self._get_json(
+            INFO_PRICES_LIST_PATH,
+            {
+                "Uics": ",".join(str(uic) for uic in uics),
+                "AssetType": asset_type,
+                "Amount": amount,
+                "AmountType": "Quantity",
+                "FieldGroups": "DisplayAndFormat,InstrumentPriceDetails,Quote",
+            },
+        )
 
     def chart(
         self,

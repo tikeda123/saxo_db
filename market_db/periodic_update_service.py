@@ -205,7 +205,9 @@ def _wait_gone(probe: SystemReadinessProbe, pid: int) -> bool:
 
 def _auth_readiness(callback_port: int) -> dict[str, Any]:
     try:
-        manager = SaxoOAuthManager(OAuthConfig.from_environment(callback_port=callback_port))
+        manager = SaxoOAuthManager(
+            OAuthConfig.from_local_configuration(callback_port=callback_port)
+        )
         return manager.status()
     except SaxoAuthError as exc:
         return {
@@ -339,6 +341,26 @@ def status_service() -> dict[str, Any]:
             state_removed=False, scheduler=load_scheduler_state(),
         )
     state = _migrate_matched_start_fingerprint(state, info)
+    return _result(
+        "status", "PASS", managed=True, pid=pid,
+        scheduler=load_scheduler_state(),
+    )
+
+
+def peek_service_status() -> dict[str, Any]:
+    """Return lifecycle status without repairing or rewriting runtime state."""
+
+    probe = SystemReadinessProbe()
+    state = _load_service_state()
+    if state is None:
+        return _result("status", "STOPPED", managed=False, scheduler=load_scheduler_state())
+    pid = state.get("pid")
+    info = probe.process_info(pid) if isinstance(pid, int) else None
+    if not managed_process_matches(state, info):
+        return _result(
+            "status", "BLOCKED_STALE_PID", managed=False,
+            state_removed=False, scheduler=load_scheduler_state(),
+        )
     return _result(
         "status", "PASS", managed=True, pid=pid,
         scheduler=load_scheduler_state(),

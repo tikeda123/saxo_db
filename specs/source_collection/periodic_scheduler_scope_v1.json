@@ -45,11 +45,16 @@
     "etf_calendar_id": "XNYS_US_EQUITY",
     "etf_due_offset": "bar_end_plus_15_seconds",
     "etf_deadline_offset": "bar_end_plus_3_minutes",
+    "etf_daily_close_slot_kind": "etf_daily_close",
+    "etf_daily_close_due_offset": "session_close_plus_45_minutes",
+    "etf_daily_close_deadline_offset": "session_close_plus_90_minutes",
+    "etf_daily_close_verification": "canonical_final_1h_and_derived_1d_same_session",
     "fx_calendar_id": "SBFX_24X5",
     "fx_due_minute_utc": 3,
     "fx_deadline_minute_utc": 10,
     "completed_bars_only": true,
-    "atomicity": "per_category_slot"
+    "atomicity": "per_instrument_slot",
+    "expired_data_not_ready_blocks_future_slots": false
   },
   "publication_contract": {
     "read_api_gate": "evaluate_each_series_status_independently",

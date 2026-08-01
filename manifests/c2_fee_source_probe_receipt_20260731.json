@@ -1,0 +1,63 @@
+{
+  "manifest_relative_path": "manifests/strategy_external_data_contract_manifest_v1.json",
+  "receipt_count": 1,
+  "receipts": [
+    {
+      "accepted_at_utc": null,
+      "account_fingerprint": null,
+      "availability_state": "BLOCKED_EXTERNAL_CONTRACT",
+      "available_at_utc": "2026-07-31T01:49:48Z",
+      "blocker_ids": [
+        "BLOCKED_EXTERNAL_CONTRACT_ACCOUNT_FEE_SCHEDULE_AND_AUTH"
+      ],
+      "calendar_id": null,
+      "contract_id": "c2_edc08_fee_estimate_and_actual_v1",
+      "cost_confidence": "UNKNOWN",
+      "dataset_id": null,
+      "dataset_role": "FEE_ESTIMATE_AND_ACTUAL",
+      "expected_by_utc": null,
+      "freshness_state": "NOT_EVALUATED_SLA",
+      "interpolation_performed": false,
+      "lineage_id": "saxo-official-public-fee-schedule-probe-v1",
+      "manifest_sha256": "9e127e9fbed32b226b6a048c21868587e897c26bf437addaaa0ad9f214e25c97",
+      "ordered_content_sha256": null,
+      "payload": {
+        "account_specific_applicability_verified": false,
+        "actual_cost_fields": [
+          "CostClass",
+          "CostSubClass",
+          "TotalCost"
+        ],
+        "actual_source": "GET /hist/v1/transactions",
+        "actual_source_permission": "Personal: Read",
+        "actual_transaction_read_verified": false,
+        "estimate_accepted": false,
+        "generic_schedule_reachable": true,
+        "info_price_commission_supported": false,
+        "official_documentation": [
+          "https://www.developer.saxo/openapi/referencedocs/hist/v1/transactions/get__hist",
+          "https://www.developer.saxo/openapi/referencedocs/trade/v1/infoprices"
+        ],
+        "public_source_sha256": "0ac338977db2d8b4ff9087def17090b56f57f2a2c8701e68ce1be3b7254d2ac4",
+        "public_source_size_bytes": 182156,
+        "public_url": "https://www.home.saxo/rates-and-conditions/commissions-charges-and-margin-schedule",
+        "source_kind": "Saxo official public pricing publication",
+        "values_extracted_or_accepted": false
+      },
+      "provider_data_version": "0ac338977db2d8b4ff9087def17090b56f57f2a2c8701e68ce1be3b7254d2ac4",
+      "provider_id": "SAXO_OFFICIAL_PUBLIC_PRICING",
+      "published_at_utc": null,
+      "quality_state": "NOT_EVALUATED",
+      "receipt_id": "c2-20260731T014948Z-fee-source-probe",
+      "receipt_sha256": "122453eaa92434460605ca7fe22351c2b4e9039875724905f6b628c518e2f9f6",
+      "revision_state": "NOT_EVALUATED",
+      "schema_version": 1,
+      "source_as_of": "2026-07-31",
+      "source_observed_at_utc": "2026-07-31T01:49:48Z",
+      "supersedes_receipt_id": "c2-20260731T000955Z-fees",
+      "values_modified": false,
+      "warning_ids": []
+    }
+  ],
+  "schema_version": 1
+}

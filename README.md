@@ -34,7 +34,7 @@ Saxo OpenAPIと移管済みCSVから取得した市場データを、再現可�
 - 売買ルール、特徴量、シグナル、予測モデルの実装
 - PnL、コスト評価、WFO、Holdout、ポートフォリオ最適化
 - Saxoへの注文、precheck、口座・ポジション操作
-- 品質FAILを隠す補間、価格修正、手動DELETE
+- 品質FAILを隠す補間、価格修正、手動DELETE（C2 ETF11の明示WARN付き有界overlayはraw/canonical非変更の例外契約）
 - 外部ネットワークへのDBまたはRead APIの直接公開
 
 戦略プロジェクトは本DBを変更せず、Read APIまたは検証済みParquetを入力として利用します。PostgreSQLへの直接接続は運用・保守用途に限定し、通常のデータ連携インターフェースにはしません。
@@ -101,6 +101,8 @@ Saxo SIM OpenAPI / immutable CSV
 | 固定研究snapshotからOHLCを取得 | `GET /api/v1/snapshots/{snapshot_id}/bars` | snapshot 1の検証済み1H |
 | データの在庫・品質・鮮度を確認 | `GET /api/v1/operations/*` | allow-list済みの8種類 |
 | datasetとsnapshotを識別 | `GET /api/v1/manifests` | 再現性・lineage確認 |
+| Strategy向け外部データ契約を確認 | `GET /api/v1/strategy-data/contracts` / `status` | current signal、official close、calendar、cash/quote/feeのavailabilityをfail-closed表示 |
+| C2 SIM Read受領手順を確認 | [C2 SIM Read短命session・決定手順](docs/c2_sim_read_session_and_decision_flow_20260731.md) | 認証値を保存せずcapability・11 ETF reference/atomic quoteをreceipt候補化 |
 | 人が期間・OHLC・品質を確認 | Web UI | localhost限定、完全read-only |
 | 人またはAIが商品・系列の意味を確認 | Web UI / local MCP | 公式リンク付き、投資助言は対象外 |
 | 大量データを受け渡す | `market_db.export_parquet` | SHA-256とread-backを検証 |
@@ -209,14 +211,27 @@ serverは`saxo_research_v13`を直接読み、snapshot ID、cutoff、manifest SH
 
 日常の定期更新にはSaxo SIM OAuth PKCEを使用します。初回だけユーザーがSaxoへloginし、refresh credentialをmacOS Keychainへ保存します。access tokenはscheduler processのメモリだけで保持し、refresh時に返る新しいrefresh tokenでKeychain値を置き換えます。token値はfile、`.env`、DB、manifest、log、ブラウザstorageへ保存しません。
 
+C2 SIM Readも同じKeychain rotationを使用し、毎回のaccess token手入力は廃止しました。OAuth完了後は、provider/gateが未決定でも、利用者の明示クリックによりSIMの初回GET-only技術観測（15 GET）を実行できます。この観測はresponse形式・account/instrument identity・11 ETF quote整合性だけを確認し、raw保存、receipt/DB登録、periodic、allocation/PnL評価、注文へ進みません。provider、official close、total-return、SLA、distribution、fee、receipt acceptanceは後続の`SIM_ALLOCATION/PAPER_EVALUATION` gateであり、`LIVE_ORDER_ELIGIBILITY`は引き続き禁止です。SIM/AppKey/accountのbinding、GET allow-list、kill switch、失効時fail-closed、初回だけ必要な人間操作は[`C2 SIM Read 初回OAuth・自動更新runbook`](docs/c2_sim_read_oauth_keychain_runbook_20260731.md)を参照してください。
+
+2026-07-31の通常取引時間内の再観測は`SUCCEEDED / PASS_WITH_WARNINGS`、GET 15件、write/DB/receipt/order 0件だった。ETF11のidentityは一致した一方、全件が`PriceType=NoAccess`でBid/Ask未提供だった。Saxo公式情報では、純SIMのdemo accountへ非FX market dataは提供されず、SaxoTraderのOpenAPI Accessでmarket-data免責に同意する操作もSIM自体には価格を追加しない。これはOAuth/App Key障害や価格値破損ではない。
+
+C2は四半期リバランスの低頻度検証であり、ティック、リアルタイム、二方向Bid/Askを初回観測・通常監視・`SIM_ALLOCATION/PAPER_EVALUATION`の必須条件にしない。通常監視は1時間ごとの遅延`Indicative`価格、またはsaxo_db Read APIの正規日次終値を使う。`DelayedByMinutes > 0`と`PriceType=Indicative`は正常値として受け入れ、少なくとも`Mid`、`Bid`、`Ask`のどれか一つが正値なら低頻度reference priceとして扱う。`NoAccess`の場合は日次終値fallbackを選び、低頻度paper評価全体を停止しない。実約定確認が必要な将来段階だけは別contractで扱い、現在は対象外である。
+
+この日次終値fallbackで進める限り、現在必要な利用者設定はない。Saxoの遅延InfoPriceも併用する場合だけ、公式手順どおりDeveloper Portalの`Apps > Live Applications`からSIMをLIVE accountへlinkし、LIVE側SaxoTraderの`Account/Settings > Other > OpenAPI Access`でmarket-data免責に同意する一つの設定フローが必要になる。今回、この外部設定・契約追加は実行していない。根拠と代替評価は[`C2 SIM ETF11 quote NoAccess調査結果`](docs/c2_sim_quote_noaccess_resolution_20260731.md)、機械可読方針は[`c2_low_frequency_price_policy_v1.json`](specs/c2_low_frequency_price_policy_v1.json)を参照してください。
+
+日次fallbackはC2専用`GET /api/v1/c2/daily-close-status`で、ETF11全銘柄の`native_ohlc` actual terminal closeと鮮度を取得する。この`close`は低頻度reference priceであり、total return、primary-exchange official close、execution priceではない。60分足の短い内部欠落は最大2本だけ別overlayへ前値補完できるが、raw/canonicalを変更せず`AVAILABLE_WITH_IMPUTATION_WARNING`、元timestamp、理由、連続欠落数を返す。補完された1Hは`GET /api/v1/c2/hourly-overlay`で明示的に取得し、generic `/api/v1/bars`へ混在させない。規則と未適用手順は[`C2 ETF11有界補完仕様`](docs/c2_etf11_bounded_imputation_design_20260801.md)を参照する。
+
 Developer PortalのApplication ManagementでSIMアプリを作成し、PKCE用redirect URIを`http://localhost/saxo/oauth/callback`（portなし）として登録する。SaxoのPKCE登録ではportを指定せず、実行時callbackだけが`http://localhost:8765/saxo/oauth/callback`を使用する。AppKeyはOAuth client IDでありtokenではないが、repositoryへ固定せず実行環境から与える。
 
+Operator UIの起動・コード更新は、ポート8765のlistenerをrepo cwd・起動command・`/health`で照合する単一ランチャーを使います。同一Operator UIだけを引き継ぎ、不明processは停止しません。DB3 schedulerには作用しません。
+
 ```bash
-export SAXO_OAUTH_APP_KEY='<SIM application key>'
-.venv/bin/python -m market_db.operator_ui
+.venv/bin/python -m market_db.operator_ui_service restart --port 8765
 ```
 
 <http://127.0.0.1:8765/>で「Saxo OAuth接続」を選択し、Saxo画面で初回認証する。`AUTH_READY`後に「定期更新を開始」を選択する。Operator UIからの汎用reconcileはreview-first policyで無効である。DataVersion warningはRead APIでreviewし、apply承認を別記録したeventだけを専用CLIで明示適用する。Keychain経路のaccess tokenはprocess memoryだけで使用し、画面・log・DB・fileへ表示／保存しない。
+
+App Key未設定時はC2欄に`SIM_OAUTH_APP_KEY_NOT_SET`の日本語説明、Saxo Portalで確認するPKCE／redirect URI／trading disabled、画面内のApp Key設定欄が表示され、OAuthボタンは無効になる。利用者が「安全に保存してOAuthを有効化」を押した場合だけ、PKCE public client identifierをrefresh credentialとは別のmacOS Keychain entryへ保存する。値は再表示・HTML・log・DB・Git・browser storageへ残さず、保存成功後は同じUI processでOAuth設定を再読込するため再起動は不要である。削除・置換も別確認付きの明示操作だけで行う。
 
 今後のDataVersion変更は`REVIEW_PENDING / AVAILABLE_WITH_REVISION_WARNING`として監査記録し、scheduler、対象instrument、category、serviceを自動停止しない。新versionのChart JSONと限定sample差分はrevision evidenceとして隔離し、明示review・applyまでcurrent curated、watermark、4H/1Dへ混在させない。reviewとapplyの固定手順は[`data_version_warning_review_policy_20260728.md`](docs/data_version_warning_review_policy_20260728.md)を参照する。
 
@@ -231,7 +246,7 @@ export SAXO_OAUTH_APP_KEY='<SIM application key>'
 
 schedulerはdata jobがない時間もtoken期限を監視してrefresh chainを維持する。現在の一時scopeは`all_except_usdjpy_provider_quarantine_20260727`で、EURUSDとETF 11系列（SPY、IWM、EFA、EEM、VNQ、SHY、IEF、TLT、TIP、LQD、GLD）だけを取得する。USDJPYはprovider DataVersion `29738069`の内容品質blockerが解消するまで対象外である。scope正本は[`periodic_scheduler_scope_v1.json`](specs/source_collection/periodic_scheduler_scope_v1.json)、実行中の値は`.runtime/periodic_update/state.json`の`scheduler_scope`で確認する。各slotはinstrument laneで独立し、future DataVersion warningはlaneもサービスもdegradedへ変えない。
 
-ETFはXNYS calendarの営業日・短縮日を使い、株式・REIT、債券・Credit、Goldの各instrument laneを各完成可能なregular 1Hのbar終了15秒後から取得する。第1barは10:30:15 ETに開始し、10:33 ETをdeadlineとする。EURUSDはSBFX 24x5 calendarに従って毎UTC時03分に取得し、時10分をdeadlineとする。401はrefresh後1回再試行し、network／429／未確定barは有限回だけretryする。canonical watermarkやinstrument driftの実障害は系列単位、future DataVersion変更は非停止warningとして記録する。認証・timeout・429はinterface/operational、未確定barはdata-not-ready、値異常はdata qualityとして分離する。
+ETFはXNYS calendarの営業日・短縮日を使い、株式・REIT、債券・Credit、Goldの各instrument laneを各完成可能なregular 1Hのbar終了15秒後から取得する。第1barは10:30:15 ETに開始し、10:33 ETをdeadlineとする。加えてsession終了45分後にETF11各銘柄の独立`etf_daily_close` laneを実行し、最終regular-session 1Hと派生1Dの同一session到達を確認する。過去slotの`DATA_NOT_READY` retry枯渇は監査証跡として残すが、次のhourly/daily slotを永久停止しない。EURUSDはSBFX 24x5 calendarに従って毎UTC時03分に取得し、時10分をdeadlineとする。401はrefresh後1回再試行し、network／429／未確定barは有限回だけretryする。canonical watermarkやinstrument driftの実障害は系列単位、future DataVersion変更は非停止warningとして記録する。認証・timeout・429はinterface/operational、未確定barはdata-not-ready、値異常はdata qualityとして分離する。
 
 FX 1Hの履歴coverage WARNは`python -m market_db.fx_gap_report`でexpected slotとcurated/rawを照合する。結果は`manifests/fx_gap_classification/`にJSON・CSV・Markdownで保存し、欠損値の補間、forward fill、別provider代替は行わない。`series-status`の`components.coverage_assessment`から同じ証跡pathを確認できる。
 
@@ -297,12 +312,17 @@ SAXO_DB_INTEGRATION=1 .venv/bin/python -m pytest
 - FX研究候補: AUDUSD・USDCAD・USDCHF — `PUBLISHED / AVAILABLE_WITH_WARNINGS`、独立scheduler稼働中
 - DPU3: current total-return定期取得 — BLOCKED_SOURCE_PROVIDER_NOT_CONFIGURED
 - TRR1: ETF11固定期間total-return研究契約 — PASS（EEMのみ既知warning、値修正0）
+- C2外部データ契約surface — migration `0034`/`0035`適用済み / common calendarはwarning付き利用可 / 未確定sourceはfail-closed
+- C2 SIM Read短命session — 実装・unit test済み / 現在は`AUTH_CONFIG_MISSING`かつ運用gate決定待ち
 
 これらはデータ基盤の実装・運用ゲートです。戦略の優位性や収益性を証明するものではありません。旧計画に含まれるRT0以降の戦略文書は履歴資料として保持しますが、このリポジトリの現行スコープには含めません。
 
 ## 主要ドキュメント
 
 - [外部プロジェクト向けRead APIインターフェース](docs/read_api_interface.md)
+- [Strategy Analysis向け外部データ契約・引渡し](docs/strategy_external_data_contract_handoff_20260730.md)
+- [C2 SIM Read短命session・provider／運用gate決定手順](docs/c2_sim_read_session_and_decision_flow_20260731.md)
+- [C2 SIM Read認証 実行readiness結果](docs/c2_sim_read_auth_execution_readiness_20260731.md)
 - [固定期間total-return研究公開整合](docs/total_return_fixed_window_research_publication_20260729.md)
 - [FX追加3通貨ペアの実装計画](docs/fx_additional_pairs_implementation_plan_20260727.md)
 - [FX追加3通貨ペアの事前調査](docs/fx_additional_pairs_preimplementation_investigation_20260727.md)

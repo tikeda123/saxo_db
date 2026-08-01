@@ -3,8 +3,10 @@
 Normal acquisition records future DataVersion changes as non-blocking warning
 evidence.  This module keeps review and apply as separate manual actions.  An
 apply requires an audited APPROVE_APPLY decision and an exact event identity;
-there is no scheduler entry point or automatic full-history fallback.  Values
-are never repaired, swapped, clamped, filled or interpolated.
+there is no scheduler entry point or automatic full-history fallback.  Canonical
+provider values are never repaired, swapped, clamped, filled or interpolated.
+An independently audited C2-only overlay may be appended after canonical
+rebuild, but it never changes the accepted provider rows.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from typing import Any, Iterable, Mapping, Sequence
 from psycopg.types.json import Jsonb
 
 from .connection import MARKET_DB, connect, project_root
+from .c2_imputation import refresh_c2_imputation_overlay
 from .derive_bars import rebuild
 from .incremental_update import (
     DATASET_ID,
@@ -635,6 +638,18 @@ def _insert_revision_event(
                 ),
             )
             event_id = int(cursor.fetchone()[0])
+    # A warning-only event already owns its immutable detection step.  Review
+    # and apply append new comparison steps; reusing 1..N would collide with
+    # the event's primary key and roll the whole guarded transaction back.
+    cursor.execute(
+        """
+        SELECT COALESCE(MAX(step_number),0)
+        FROM ops.data_version_revision_step
+        WHERE revision_event_id=%s
+        """,
+        (event_id,),
+    )
+    step_offset = int(cursor.fetchone()[0])
     cursor.executemany(
         """
         INSERT INTO ops.data_version_revision_step (
@@ -648,7 +663,7 @@ def _insert_revision_event(
         [
             (
                 event_id,
-                index,
+                step_offset + index,
                 WINDOW_COUNTS[min(index - 1, len(WINDOW_COUNTS) - 1)],
                 item.compared_to_utc,
                 item.compared_from_utc,
@@ -816,6 +831,9 @@ def _commit_bounded_revision(
                     raise RuntimeError("FAILED_BOUNDED_REVISION_WATERMARK_UPDATE")
 
                 derived = rebuild(cursor, instrument_ids=(state.instrument_id,))
+                c2_imputation = refresh_c2_imputation_overlay(
+                    cursor, instrument_ids=(state.instrument_id,)
+                )
                 replacement = {
                     "policy_id": REVISION_POLICY_ID,
                     "inserted_rows": inserted_rows,
@@ -823,6 +841,7 @@ def _commit_bounded_revision(
                     "removed_rows": final.removed_rows,
                     "raw_rows": raw_rows,
                     "derived": derived,
+                    "c2_imputation_overlay": c2_imputation,
                     "affected_from_utc": _utc_text(affected_from),
                     "affected_to_utc": _utc_text(affected_to),
                     "other_instruments_touched": 0,

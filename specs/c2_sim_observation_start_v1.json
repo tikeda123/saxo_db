@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "contract_id": "c2_sim_observation_start_v1",
+  "environment": "SIM",
+  "purpose": "first explicit GET-only technical observation before downstream provider and evaluation decisions",
+  "start_requirements": {
+    "auth_status": "AUTH_READY",
+    "portal_trading_setting_ack": "SIM_APP_TRADING_DISABLED_GET_ONLY",
+    "explicit_same_origin_user_action": true,
+    "csrf_required": true,
+    "kill_switch_state": "OFF"
+  },
+  "allowed_get_plan": [
+    {"endpoint_id": "session_capabilities", "planned_calls": 1},
+    {"endpoint_id": "accounts_me", "planned_calls": 1},
+    {"endpoint_id": "balances_me", "planned_calls": 1},
+    {"endpoint_id": "instrument_detail", "planned_calls": 11},
+    {"endpoint_id": "info_prices", "planned_calls": 1, "atomic_instrument_count": 11}
+  ],
+  "minimum_response_checks": [
+    "response_object_shape",
+    "account_identity_fingerprint_present",
+    "canonical_etf11_instrument_identity_exact",
+    "quote_uic_set_complete_and_unique",
+    "at_least_one_of_mid_bid_or_ask_positive_when_provider_declares_price_available",
+    "realtime_and_two_sided_bid_ask_not_required_for_low_frequency_c2",
+    "ask_not_below_bid_when_both_sides_are_available",
+    "declared_NoAccess_NoMarket_Pending_or_closed_market_without_price_is_warning_not_data_quality_failure",
+    "quote_timestamp_utc_and_not_future_when_price_is_available",
+    "price_source_and_price_type_present_when_price_is_available",
+    "write_request_count_zero"
+  ],
+  "non_blocking_for_initial_observation": [
+    "SIGNAL_TOTAL_RETURN_DAILY provider selection",
+    "VALUATION_PRICE_DAILY official-close provider selection",
+    "calendar and provider SLA",
+    "distribution revision lookback",
+    "account fee tier and net PnL quality",
+    "receipt registration and publication"
+  ],
+  "downstream_gates": {
+    "SIM_ALLOCATION_PAPER_EVALUATION": "uses hourly delayed Indicative reference or managed daily close; real-time/tick/two-sided BidAsk are not required and NoAccess selects the daily-close fallback",
+    "LIVE_ORDER_ELIGIBILITY": "prohibited; no order or account mutation capability is granted by this contract"
+  },
+  "raw_response_persistence_allowed": false,
+  "sanitized_last_result_runtime_audit": {
+    "allowed": true,
+    "path": ".runtime/c2/sim_observation_status.json",
+    "retention": "last_result_only",
+    "file_mode": "0600",
+    "allowed_content": "state, attempt count, timestamps, sanitized counters, public instrument keys, response-check metrics and error code only",
+    "forbidden_content": "raw response, token, account/client identifier, account fingerprint, price values, balance values, receipt or DB rows"
+  },
+  "receipt_registration_allowed": false,
+  "periodic_execution_allowed": false,
+  "write_methods_allowed": [],
+  "orders_allowed": false,
+  "prechecks_allowed": false,
+  "account_mutations_allowed": false
+}

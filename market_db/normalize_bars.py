@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable
 
@@ -253,3 +253,60 @@ def merge_pages(pages: Iterable[Iterable[NormalizedBar]]) -> list[NormalizedBar]
     if not ordered:
         return []
     return [replace(bar, is_complete=index < len(ordered) - 1) for index, bar in enumerate(ordered)]
+
+
+def mark_terminal_session_bar_complete(
+    bars: Iterable[NormalizedBar],
+    *,
+    session_open_utc: datetime,
+    session_close_utc: datetime,
+) -> list[NormalizedBar]:
+    """Finalize only a proven exchange-session terminal bar.
+
+    ``merge_pages`` deliberately leaves the newest provider row incomplete.
+    For an exchange-traded instrument the final regular-session 60-minute
+    bucket may be shorter than 60 minutes (for XNYS it starts at 19:30 UTC and
+    ends at the 20:00 UTC close during daylight time).  It is safe to mark that
+    row complete only when all of the following are true:
+
+    * the row is exactly the calendar-derived terminal bucket start;
+    * Saxo supplied a non-negative ``DelayedByMinutes`` value; and
+    * the immutable row's retrieval time is at or after session close plus that
+      provider delay.
+
+    No market value, timestamp, DataVersion, or provenance field is changed.
+    Missing/invalid calendar or delay evidence fails closed and preserves the
+    incomplete flag.
+    """
+
+    ordered = list(bars)
+    if not ordered:
+        return ordered
+    if session_open_utc.tzinfo is None or session_close_utc.tzinfo is None:
+        return ordered
+    session_open = session_open_utc.astimezone(timezone.utc)
+    session_close = session_close_utc.astimezone(timezone.utc)
+    duration_seconds = (session_close - session_open).total_seconds()
+    if duration_seconds <= 0:
+        return ordered
+
+    latest_index = max(range(len(ordered)), key=lambda index: ordered[index].time_utc)
+    latest = ordered[latest_index]
+    if latest.time_utc.tzinfo is None or latest.retrieved_at_utc.tzinfo is None:
+        return ordered
+    if latest.is_complete or latest.delayed_by_minutes is None:
+        return ordered
+    if latest.delayed_by_minutes < 0:
+        return ordered
+
+    terminal_slot_index = int((duration_seconds - 1) // 3600)
+    terminal_start = session_open + timedelta(hours=terminal_slot_index)
+    if latest.time_utc != terminal_start:
+        return ordered
+
+    complete_after = session_close + timedelta(minutes=latest.delayed_by_minutes)
+    if latest.retrieved_at_utc < complete_after:
+        return ordered
+
+    ordered[latest_index] = replace(latest, is_complete=True)
+    return ordered

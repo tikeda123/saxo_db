@@ -1,0 +1,54 @@
+{
+  "review_id": "c2_etf11_dataversion_revision_readonly_review_20260801",
+  "review_scope": {
+    "instrument_keys": ["spy", "iwm", "efa", "eem", "vnq", "shy", "ief", "tlt", "tip", "lqd", "gld"],
+    "horizon_minutes": 60,
+    "price_basis": "native_ohlc",
+    "comparison_target": "accepted curated rows versus immutable Saxo revision evidence"
+  },
+  "operation_counters": {
+    "database_writes": 0,
+    "saxo_get_requests": 0,
+    "orders_or_prechecks_sent": 0,
+    "usdjpy_touched": false
+  },
+  "decision": {
+    "overall": "DO_NOT_APPLY_YET",
+    "curated_60m_eligible_count": 9,
+    "curated_60m_blocked_count": 2,
+    "c2_daily_derived_eligible_count": 0,
+    "reason": "The 2026-07-31 19:30Z terminal bar is incomplete under the current normalization contract for all 11 instruments; TIP and GLD also lack two expected 2026-07-29 regular-session slots."
+  },
+  "common_findings": {
+    "source_hashes_match": true,
+    "provider_content_stable_across_repeated_samples": true,
+    "duplicate_timestamps": 0,
+    "out_of_order_timestamps": 0,
+    "null_nonpositive_or_ohlc_violations": 0,
+    "removed_rows": 0,
+    "content_difference_rows_per_instrument": 1,
+    "version_only_rows_per_instrument": 20,
+    "difference_classification": "previously accepted incomplete bar finalized by the provider sample",
+    "latest_provider_complete_time_utc": "2026-07-31T18:30:00Z",
+    "raw_terminal_incomplete_time_utc": "2026-07-31T19:30:00Z"
+  },
+  "series": [
+    {"instrument_key":"spy","revision_event_id":18,"old_data_version":29751202,"new_data_version":29749571,"comparison_from_utc":"2026-07-23T14:30:00Z","comparison_to_utc":"2026-07-31T19:30:00Z","provider_rows":48,"matched_rows":21,"version_only_rows":20,"new_rows":27,"removed_rows":0,"difference_time_utc":"2026-07-28T13:30:00Z","difference_fields":["close","volume","is_complete"],"repeated_samples":6,"curated_60m":"ELIGIBLE_FOR_GUARDED_BOUNDED_APPLY","c2_daily_derived":"BLOCKED_INCOMPLETE_SESSION","overall":"DO_NOT_APPLY_YET"},
+    {"instrument_key":"iwm","revision_event_id":19,"old_data_version":29752148,"new_data_version":29750537,"comparison_from_utc":"2026-07-23T14:30:00Z","comparison_to_utc":"2026-07-31T19:30:00Z","provider_rows":48,"matched_rows":21,"version_only_rows":20,"new_rows":27,"removed_rows":0,"difference_time_utc":"2026-07-28T13:30:00Z","difference_fields":["close","volume","is_complete"],"repeated_samples":6,"curated_60m":"ELIGIBLE_FOR_GUARDED_BOUNDED_APPLY","c2_daily_derived":"BLOCKED_INCOMPLETE_SESSION","overall":"DO_NOT_APPLY_YET"},
+    {"instrument_key":"efa","revision_event_id":20,"old_data_version":29752151,"new_data_version":29751157,"comparison_from_utc":"2026-07-23T14:30:00Z","comparison_to_utc":"2026-07-31T19:30:00Z","provider_rows":48,"matched_rows":21,"version_only_rows":20,"new_rows":27,"removed_rows":0,"difference_time_utc":"2026-07-28T13:30:00Z","difference_fields":["high","close","volume","is_complete"],"repeated_samples":5,"curated_60m":"ELIGIBLE_FOR_GUARDED_BOUNDED_APPLY","c2_daily_derived":"BLOCKED_INCOMPLETE_SESSION","overall":"DO_NOT_APPLY_YET"},
+    {"instrument_key":"eem","revision_event_id":21,"old_data_version":29752155,"new_data_version":29751157,"comparison_from_utc":"2026-07-23T15:30:00Z","comparison_to_utc":"2026-07-31T19:30:00Z","provider_rows":47,"matched_rows":21,"version_only_rows":20,"new_rows":26,"removed_rows":0,"difference_time_utc":"2026-07-28T14:30:00Z","difference_fields":["high","close","volume","is_complete"],"repeated_samples":5,"curated_60m":"ELIGIBLE_FOR_GUARDED_BOUNDED_APPLY","c2_daily_derived":"BLOCKED_INCOMPLETE_SESSION","overall":"DO_NOT_APPLY_YET"},
+    {"instrument_key":"vnq","revision_event_id":22,"old_data_version":29753236,"new_data_version":29752449,"comparison_from_utc":"2026-07-23T15:30:00Z","comparison_to_utc":"2026-07-31T19:30:00Z","provider_rows":47,"matched_rows":21,"version_only_rows":20,"new_rows":26,"removed_rows":0,"difference_time_utc":"2026-07-28T14:30:00Z","difference_fields":["close","volume","is_complete"],"repeated_samples":5,"curated_60m":"ELIGIBLE_FOR_GUARDED_BOUNDED_APPLY","c2_daily_derived":"BLOCKED_INCOMPLETE_SESSION","overall":"DO_NOT_APPLY_YET"},
+    {"instrument_key":"shy","revision_event_id":51,"old_data_version":29752511,"new_data_version":29755044,"comparison_from_utc":"2026-07-23T14:30:00Z","comparison_to_utc":"2026-07-31T19:30:00Z","provider_rows":48,"matched_rows":21,"version_only_rows":20,"new_rows":27,"removed_rows":0,"difference_time_utc":"2026-07-28T13:30:00Z","difference_fields":["close","volume","is_complete"],"repeated_samples":2,"curated_60m":"ELIGIBLE_FOR_GUARDED_BOUNDED_APPLY","c2_daily_derived":"BLOCKED_INCOMPLETE_SESSION","overall":"DO_NOT_APPLY_YET"},
+    {"instrument_key":"ief","revision_event_id":53,"old_data_version":29753231,"new_data_version":29759067,"comparison_from_utc":"2026-07-23T14:30:00Z","comparison_to_utc":"2026-07-31T19:30:00Z","provider_rows":48,"matched_rows":21,"version_only_rows":20,"new_rows":27,"removed_rows":0,"difference_time_utc":"2026-07-28T13:30:00Z","difference_fields":["close","volume","is_complete"],"repeated_samples":2,"curated_60m":"ELIGIBLE_FOR_GUARDED_BOUNDED_APPLY","c2_daily_derived":"BLOCKED_INCOMPLETE_SESSION","overall":"DO_NOT_APPLY_YET"},
+    {"instrument_key":"tlt","revision_event_id":55,"old_data_version":29752511,"new_data_version":29750537,"comparison_from_utc":"2026-07-23T14:30:00Z","comparison_to_utc":"2026-07-31T19:30:00Z","provider_rows":48,"matched_rows":21,"version_only_rows":20,"new_rows":27,"removed_rows":0,"difference_time_utc":"2026-07-28T13:30:00Z","difference_fields":["close","volume","is_complete"],"repeated_samples":2,"curated_60m":"ELIGIBLE_FOR_GUARDED_BOUNDED_APPLY","c2_daily_derived":"BLOCKED_INCOMPLETE_SESSION","overall":"DO_NOT_APPLY_YET"},
+    {"instrument_key":"tip","revision_event_id":57,"old_data_version":29753233,"new_data_version":29759068,"comparison_from_utc":"2026-07-23T14:30:00Z","comparison_to_utc":"2026-07-31T19:30:00Z","provider_rows":46,"matched_rows":21,"version_only_rows":20,"new_rows":25,"removed_rows":0,"difference_time_utc":"2026-07-28T13:30:00Z","difference_fields":["close","volume","is_complete"],"repeated_samples":2,"missing_expected_times_utc":["2026-07-29T13:30:00Z","2026-07-29T14:30:00Z"],"curated_60m":"DO_NOT_APPLY","c2_daily_derived":"BLOCKED_INCOMPLETE_SESSION","overall":"DO_NOT_APPLY_YET"},
+    {"instrument_key":"lqd","revision_event_id":59,"old_data_version":29753233,"new_data_version":29759068,"comparison_from_utc":"2026-07-23T14:30:00Z","comparison_to_utc":"2026-07-31T19:30:00Z","provider_rows":48,"matched_rows":21,"version_only_rows":20,"new_rows":27,"removed_rows":0,"difference_time_utc":"2026-07-28T13:30:00Z","difference_fields":["volume","is_complete"],"repeated_samples":2,"curated_60m":"ELIGIBLE_FOR_GUARDED_BOUNDED_APPLY","c2_daily_derived":"BLOCKED_INCOMPLETE_SESSION","overall":"DO_NOT_APPLY_YET"},
+    {"instrument_key":"gld","revision_event_id":23,"old_data_version":29752711,"new_data_version":29749768,"comparison_from_utc":"2026-07-23T15:30:00Z","comparison_to_utc":"2026-07-31T19:30:00Z","provider_rows":45,"matched_rows":21,"version_only_rows":20,"new_rows":24,"removed_rows":0,"difference_time_utc":"2026-07-28T14:30:00Z","difference_fields":["close","volume","is_complete"],"repeated_samples":3,"missing_expected_times_utc":["2026-07-29T13:30:00Z","2026-07-29T14:30:00Z"],"curated_60m":"DO_NOT_APPLY","c2_daily_derived":"BLOCKED_INCOMPLETE_SESSION","overall":"DO_NOT_APPLY_YET"}
+  ],
+  "reproduction": {
+    "command": ".venv/bin/python -m scripts.review_c2_etf11_revision",
+    "database_role_for_public_state": "saxo_app_reader",
+    "database_role_for_audit_tables": "saxo_ingest with SET TRANSACTION READ ONLY",
+    "script_relative_path": "scripts/review_c2_etf11_revision.py"
+  }
+}

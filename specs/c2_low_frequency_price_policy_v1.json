@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "policy_id": "c2_low_frequency_price_policy_v1",
+  "purpose": "quarterly rebalance SIM observation and paper evaluation",
+  "normal_monitoring_cadence": [
+    "HOURLY_DELAYED_REFERENCE",
+    "DAILY_CLOSE"
+  ],
+  "realtime_required": false,
+  "tick_data_required": false,
+  "two_sided_bid_ask_required": false,
+  "accepted_infoprice_types": [
+    "Indicative",
+    "Tradable"
+  ],
+  "delayed_by_minutes_greater_than_zero_is_normal": true,
+  "reference_price_preference": [
+    "Quote.Mid",
+    "midpoint(Quote.Bid,Quote.Ask)",
+    "Quote.Bid",
+    "Quote.Ask"
+  ],
+  "minimum_numeric_price_fields": 1,
+  "provided_values_must_be_positive": true,
+  "crossed_bid_ask_is_quality_failure_when_both_exist": true,
+  "noaccess_policy": {
+    "initial_observation": "PASS_WITH_WARNINGS",
+    "normal_monitoring": "USE_DAILY_CLOSE_FALLBACK",
+    "sim_paper_evaluation": "USE_DAILY_CLOSE_FALLBACK",
+    "data_quality_failure": false
+  },
+  "daily_close_fallback": {
+    "owner": "saxo_db",
+    "read_path": "existing read-only daily bars/valuation price surface",
+    "price_claim": "managed daily close; not execution price and not total return unless separately identified",
+    "provider_sla_required_for_initial_observation": false,
+    "realtime_feed_required": false
+  },
+  "bounded_hourly_gap_overlay": {
+    "policy_id": "c2_etf_bounded_previous_valid_v1",
+    "scope": "ETF11 1H native_ohlc C2 paper monitoring only",
+    "source_kind": "IMPUTED_PREVIOUS_VALID",
+    "maximum_consecutive_missing_bars": 2,
+    "maximum_missing_bars_per_session": 2,
+    "calendar_verification_required": true,
+    "right_actual_anchor_required": true,
+    "session_open_gap_requires_previous_verified_session_actual_terminal": true,
+    "actual_session_terminal_close_required": true,
+    "recursive_imputation_allowed": false,
+    "synthetic_ohlc_rule": "O=H=L=C=previous actual close",
+    "synthetic_volume": null,
+    "raw_or_accepted_source_mutation_allowed": false,
+    "availability_with_imputation": "AVAILABLE_WITH_IMPUTATION_WARNING",
+    "prohibited_claims": [
+      "official primary exchange close",
+      "total return",
+      "execution price"
+    ],
+    "blockers": [
+      "more than two missing bars in a session",
+      "more than two consecutive missing bars",
+      "missing or non-actual daily close terminal bar",
+      "missing left or right actual anchor",
+      "unverified calendar",
+      "DataVersion or lineage mismatch",
+      "invalid actual OHLC"
+    ]
+  },
+  "future_execution_stage": {
+    "in_scope": false,
+    "may_define_separate_bid_ask_and_execution_price_contract": true
+  },
+  "orders_prechecks_cancels_account_mutations_allowed": false
+}

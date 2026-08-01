@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "session_contract_id": "c2_saxo_sim_ephemeral_read_session_v1",
+  "environment": "SIM",
+  "purpose": "C2 low-frequency account context, instrument reference and delayed/indicative price observation",
+  "credential_input": "in-memory function argument supplied by the approved OAuth owner",
+  "forbidden_credential_inputs": [
+    "command-line argument",
+    "environment variable",
+    "repository file",
+    "receipt payload",
+    "log or exception text"
+  ],
+  "credential_persistence_allowed": false,
+  "max_session_seconds": 900,
+  "minimum_remaining_token_seconds": 5,
+  "allowed_endpoint_ids": [
+    "session_capabilities",
+    "accounts_me",
+    "balances_me",
+    "instrument_detail",
+    "info_prices",
+    "historical_transactions"
+  ],
+  "write_methods_allowed": [],
+  "instrument_keys": [
+    "spy",
+    "iwm",
+    "efa",
+    "eem",
+    "vnq",
+    "shy",
+    "ief",
+    "tlt",
+    "tip",
+    "lqd",
+    "gld"
+  ],
+  "sequence": [
+    "validate accepted operational-gate and approved provider-decision documents before client construction",
+    "validate token expiry and create bounded SIM-only client",
+    "GET session capabilities",
+    "GET accounts and balances; emit only HMAC account fingerprint and non-sensitive currency metadata",
+    "GET 11 instrument details and validate canonical UIC/AssetType/symbol/currency/tradability/quantity rules",
+    "GET all 11 InfoPrices in one response and validate exact UIC set, available reference price integrity, age, delay and observation span; real-time and two-sided Bid/Ask are not required",
+    "build schema-validated redacted receipts in memory",
+    "close session and release token/client references",
+    "register receipts only in a separate explicitly invoked append-only step"
+  ],
+  "failure_state_mapping": {
+    "authentication_permission_network": "BLOCKED_INTERFACE_OPERATIONAL",
+    "source_or_policy_decision_missing": "BLOCKED_EXTERNAL_CONTRACT",
+    "quote_not_ready_or_too_old": "DATA_NOT_READY",
+    "malformed_missing_duplicate_or_crossed_value": "FAIL_DATA_QUALITY"
+  },
+  "raw_response_persistence_allowed": false,
+  "automatic_receipt_registration": false,
+  "orders_prechecks_cancels_account_mutations_allowed": false
+}

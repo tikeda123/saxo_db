@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -8,6 +8,8 @@ import pytest
 from market_db.read_api import (
     MAX_BAR_ROWS,
     bar_rows,
+    c2_daily_close_status_payload,
+    c2_hourly_overlay_payload,
     create_app,
     operation_rows,
     ordered_content_sha256,
@@ -194,6 +196,170 @@ def test_daily_bar_query_uses_date_bounds():
     assert "derivation_version='db3_accepted_1h_calendar_v1'" in statement
     assert params[1].isoformat() == "2026-07-01"
     assert params[2].isoformat() == "2026-07-17"
+
+
+def test_c2_daily_close_status_separates_freshness_scheduler_and_weekend_wait():
+    close = datetime(2026, 7, 31, 20, tzinfo=timezone.utc)
+    next_due = datetime(2026, 8, 3, 20, 45, tzinfo=timezone.utc)
+    rows = [
+        {
+            "instrument_key": key,
+            "symbol": key.upper(),
+            "category": "equity_reit",
+            "latest_session_date": date(2026, 7, 31),
+            "price_basis": "native_ohlc",
+            "is_complete": True,
+            "quality_status": "PASS",
+            "source_last_ingestion_run_id": 1200,
+            "expected_session_date": date(2026, 7, 31),
+            "latest_expected_complete_time_utc": close - timedelta(minutes=90),
+            "next_session_date": date(2026, 8, 3),
+            "next_expected_time_utc": next_due,
+        }
+        for key in ("spy", "iwm", "efa", "eem", "vnq", "shy", "ief", "tlt", "tip", "lqd", "gld")
+    ]
+    reader = FakeReader([rows])
+    payload = c2_daily_close_status_payload(
+        reader,
+        scheduler_status={
+            "status": "PASS",
+            "scheduler": {"service_status": "RUNNING"},
+            "orders_or_prechecks_sent": 0,
+        },
+    )
+
+    assert payload["state"]["status"] == "PASS"
+    assert payload["state"]["current_count"] == 11
+    assert payload["state"]["scheduler_status"] == "RUNNING"
+    assert payload["state"]["market_wait_status"] == "NEXT_SESSION_WAIT_NON_BLOCKING"
+    assert payload["state"]["next_expected_bar_time_utc"] == next_due
+    assert payload["price_semantics"]["realtime_or_bid_ask_required"] is False
+    assert payload["state"]["orders_or_prechecks_sent"] == 0
+    assert payload["state"]["write_requests_to_saxo"] == 0
+    assert "analytics.v_c2_daily_close_status_latest" in reader.calls[0][0]
+
+
+def test_c2_daily_close_keeps_actual_close_available_with_imputation_warning():
+    rows = [
+        {
+            "instrument_key": key,
+            "symbol": key.upper(),
+            "category": "equity_reit",
+            "latest_session_date": date(2026, 7, 31),
+            "price_basis": "native_ohlc",
+            "close": Decimal("100"),
+            "is_complete": True,
+            "quality_status": "WARN" if key == "tip" else "PASS",
+            "imputed_bar_count": 2 if key == "tip" else 0,
+            "imputation_status": (
+                "PASS_WITH_IMPUTATION_WARNING" if key == "tip" else "PASS"
+            ),
+            "warning_ids": (
+                ["C2_BOUNDED_IMPUTED_PREVIOUS_VALID"] if key == "tip" else []
+            ),
+            "source_last_ingestion_run_id": 1200,
+            "expected_session_date": date(2026, 7, 31),
+            "latest_expected_complete_time_utc": datetime(2026, 7, 31, 19, 30, tzinfo=timezone.utc),
+            "next_session_date": date(2026, 8, 3),
+            "next_expected_time_utc": datetime(2026, 8, 3, 20, 45, tzinfo=timezone.utc),
+        }
+        for key in ("spy", "iwm", "efa", "eem", "vnq", "shy", "ief", "tlt", "tip", "lqd", "gld")
+    ]
+    payload = c2_daily_close_status_payload(
+        FakeReader([rows]),
+        scheduler_status={"status": "PASS", "scheduler": {"service_status": "RUNNING"}},
+    )
+
+    assert payload["state"]["status"] == "AVAILABLE_WITH_IMPUTATION_WARNING"
+    assert payload["state"]["imputation_warning_count"] == 1
+    tip = next(row for row in payload["series"] if row["instrument_key"] == "tip")
+    assert tip["close"] == Decimal("100")
+    assert tip["imputed_bar_count"] == 2
+    assert payload["price_semantics"]["daily_close_must_be_actual_provider_row"] is True
+    assert payload["price_semantics"]["not_execution_price"] is True
+
+
+def test_c2_hourly_overlay_exposes_imputation_lineage_and_claim_boundaries():
+    start = datetime(2026, 7, 29, 13, 30, tzinfo=timezone.utc)
+    end = datetime(2026, 7, 29, 16, 30, tzinfo=timezone.utc)
+    rows = [{
+        "instrument_key": "tip",
+        "time_utc": start,
+        "price_basis": "native_ohlc",
+        "open": Decimal("99"), "high": Decimal("99"),
+        "low": Decimal("99"), "close": Decimal("99"), "volume": None,
+        "is_complete": True,
+        "source_kind": "IMPUTED_PREVIOUS_VALID",
+        "quality_status": "WARN",
+        "warning_ids": ["C2_BOUNDED_IMPUTED_PREVIOUS_VALID"],
+        "imputation_reason": "PROVIDER_SESSION_OPEN_ROWS_MISSING",
+        "source_time_utc": datetime(2026, 7, 28, 19, 30, tzinfo=timezone.utc),
+        "consecutive_gap_index": 1,
+        "consecutive_gap_count": 2,
+        "candidate_data_version": 29759068,
+        "source_data_version": 29759068,
+        "source_ingestion_run_id": 1200,
+        "source_payload_sha256": "a" * 64,
+        "source_artifact_relative_path": "data/acquisition/runs/x/chart_0001.json",
+        "imputation_policy_id": "c2_etf_bounded_previous_valid_v1",
+        "official_close_claim": False,
+        "total_return_claim": False,
+        "execution_price_claim": False,
+    }]
+    payload = c2_hourly_overlay_payload(
+        FakeReader([rows]), instrument_key="tip", start=start, end=end, limit=100
+    )
+
+    assert payload["availability_status"] == "AVAILABLE_WITH_IMPUTATION_WARNING"
+    assert payload["imputed_row_count"] == 1
+    assert payload["claims"] == {
+        "official_close": False, "total_return": False, "execution_price": False
+    }
+    assert payload["rows"][0]["source_time_utc"] < payload["rows"][0]["time_utc"]
+
+    app = create_app(FakeReader([rows]))
+    response = app.test_client().get(
+        "/api/v1/c2/hourly-overlay?instrument_key=tip&"
+        "start=2026-07-29T13:30:00Z&end=2026-07-29T16:30:00Z&limit=100"
+    )
+    assert response.status_code == 200
+    assert response.get_json()["imputed_row_count"] == 1
+
+
+def test_c2_daily_close_endpoint_keeps_stale_data_available_with_warning():
+    rows = [{
+        "instrument_key": "spy", "symbol": "SPY", "category": "equity_reit",
+        "latest_session_date": date(2026, 7, 27),
+        "price_basis": "native_ohlc", "is_complete": True,
+        "quality_status": "PASS", "source_last_ingestion_run_id": 982,
+        "expected_session_date": date(2026, 7, 31),
+        "latest_expected_complete_time_utc": datetime(2026, 7, 31, 18, 30, tzinfo=timezone.utc),
+        "next_session_date": date(2026, 8, 3),
+        "next_expected_time_utc": datetime(2026, 8, 3, 13, 30, tzinfo=timezone.utc),
+        "revision_availability_status": "AVAILABLE_WITH_REVISION_WARNING",
+        "revision_status": "REVIEW_PENDING",
+        "revision_review_status": "PENDING_REVIEW",
+        "revision_reason_code": "DATA_VERSION_CHANGED_REVIEW_PENDING",
+        "observed_provider_data_version": 2,
+        "last_accepted_data_version": 1,
+    }]
+    app = create_app(
+        FakeReader([rows]),
+        periodic_status_loader=lambda: {"status": "BLOCKED_STALE_PID"},
+    )
+    response = app.test_client().get("/api/v1/c2/daily-close-status")
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["state"]["status"] == "AVAILABLE_WITH_FRESHNESS_WARNING"
+    assert payload["state"]["stale_count"] == 1
+    assert payload["state"]["scheduler_status"] == "BLOCKED_STALE_PID"
+    assert payload["state"]["interface_blockers"] == ["BLOCKED_STALE_PID"]
+    assert payload["state"]["revision_warning_count"] == 1
+    assert payload["state"]["market_wait_status"] == "REVISION_REVIEW_PENDING"
+    assert payload["series"][0]["availability_status"] == "AVAILABLE_WITH_REVISION_WARNING"
+    assert payload["series"][0]["freshness_status"] == "STALE"
+    assert payload["series"][0]["update_status"] == "REVIEW_PENDING_DATA_NOT_ADVANCED"
 
 
 def _snapshot_manifest():

@@ -44,7 +44,14 @@
       "deadline_minute_utc": 15,
       "calendar_id": "SBFX_24X5"
     },
-    "etf_slots_unchanged": true
+    "etf_hourly_slots_unchanged": true,
+    "etf_daily_close": {
+      "slot_kind": "etf_daily_close",
+      "isolation": "one_instrument_per_slot",
+      "due_offset": "session_close_plus_45_minutes",
+      "deadline_offset": "session_close_plus_90_minutes",
+      "verification": "canonical_final_1h_and_derived_1d_same_session"
+    }
   },
   "security": {
     "allowed_saxo_methods": ["GET"],

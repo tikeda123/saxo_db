@@ -148,6 +148,8 @@ def test_bounded_discovery_reuses_the_persisted_detection_event():
             self.executed.append((statement, params))
 
         def fetchone(self):
+            if "MAX(step_number)" in self.executed[-1][0]:
+                return (1,)
             return self.selected
 
         def executemany(self, statement, params):
@@ -184,6 +186,7 @@ def test_bounded_discovery_reuses_the_persisted_detection_event():
     assert not any("INSERT INTO ops.data_version_revision_event" in statement for statement in statements)
     assert not any("DELETE FROM ops.data_version_revision_step" in statement for statement in statements)
     assert cursor.steps[0][0] == 77
+    assert cursor.steps[0][1] == 2
 
 
 def test_approved_apply_requires_the_separately_reviewed_event_identity():
@@ -206,6 +209,8 @@ def test_approved_apply_requires_the_separately_reviewed_event_identity():
             self.executed.append((statement, params))
 
         def fetchone(self):
+            if "MAX(step_number)" in self.executed[-1][0]:
+                return (1,)
             return (88,)
 
         def executemany(self, statement, params):
@@ -241,3 +246,4 @@ def test_approved_apply_requires_the_separately_reviewed_event_identity():
     assert any("UPDATE ops.data_version_revision_event" in item for item in statements)
     assert not any("INSERT INTO ops.data_version_revision_event" in item for item in statements)
     assert cursor.steps[0][0] == 88
+    assert cursor.steps[0][1] == 2

@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: saxo_db read API
-  version: 1.2.5
+  version: 1.3.0
   description: >-
     Loopback-only, read-only data-management API. All responses are bounded;
     snapshot and total-return endpoints support signed, query-bound cursors.
@@ -114,11 +114,88 @@ paths:
           description: >-
             Read-only service availability with separate warning_series and
             degraded_series collections.
+  /api/v1/c2/daily-close-status:
+    get:
+      operationId: c2DailyCloseStatus
+      description: >-
+        Read-only ETF11 daily native-OHLC close availability for C2 low-frequency
+        paper evaluation. Freshness is evaluated against completed XNYS sessions
+        after a 45-minute publication allowance. Weekend and holiday waits are
+        non-blocking; scheduler/interface failures remain separate from data quality.
+        A bounded C2-only hourly imputation is reported as a warning, while the
+        returned daily close itself must remain an actual provider row.
+      responses:
+        '200':
+          description: ETF11 latest session, as-of, freshness, quality, and update state.
+        '503': {description: Read database unavailable}
+  /api/v1/c2/hourly-overlay:
+    get:
+      operationId: c2HourlyOverlay
+      description: >-
+        Explicit C2 ETF11 actual-plus-imputed 1H overlay. IMputed rows use
+        source_kind=IMPUTED_PREVIOUS_VALID and include reason, source timestamp,
+        consecutive gap count, DataVersion and lineage hash. They are never
+        official close, total return or execution-price observations; canonical
+        raw and curated bars are unchanged.
+      parameters:
+        - {name: instrument_key, in: query, required: true, schema: {type: string}}
+        - {name: start, in: query, required: true, schema: {type: string, format: date-time}}
+        - {name: end, in: query, required: true, schema: {type: string, format: date-time}}
+        - {name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 10000}}
+      responses:
+        '200': {description: Actual and explicitly marked bounded-imputation rows.}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '503': {description: Read database or migration 0036 unavailable}
   /api/v1/manifests:
     get:
       operationId: manifests
       responses:
-        '200': {description: Dataset, snapshot, and fixed-window total-return research contracts}
+        '200': {description: Dataset, snapshot, total-return research, and Strategy external-data contract manifests}
+  /api/v1/strategy-data/contracts:
+    get:
+      operationId: strategyExternalDataContracts
+      description: >-
+        Manifest-verified C2 external-data contract registry. A completed schema
+        does not imply operational availability; unresolved providers, account
+        context, receipts, or SLAs remain BLOCKED_EXTERNAL_CONTRACT.
+      responses:
+        '200': {$ref: '#/components/responses/StrategyExternalContracts'}
+        '503': {$ref: '#/components/responses/StrategyExternalContractIntegrityFailure'}
+  /api/v1/strategy-data/status:
+    get:
+      operationId: strategyExternalDataStatus
+      description: >-
+        Contract and latest immutable receipt state with quality, freshness,
+        revision, and cost confidence kept as independent dimensions.
+      responses:
+        '200': {$ref: '#/components/responses/StrategyExternalStatus'}
+        '503': {$ref: '#/components/responses/StrategyExternalContractIntegrityFailure'}
+  /api/v1/strategy-data/receipts:
+    get:
+      operationId: strategyExternalDataReceipts
+      parameters:
+        - {$ref: '#/components/parameters/DatasetRole'}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200': {$ref: '#/components/responses/StrategyExternalReceipts'}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+  /api/v1/strategy-data/calendars/{calendar_id}:
+    get:
+      operationId: strategyExternalCalendar
+      description: >-
+        Bounded, versioned and hashable accepted common-calendar receipt.
+        Unaccepted catalog seeds are not published. The 2026 ARCX/XNAS
+        intersection is AVAILABLE_WITH_WARNINGS because source pages do not
+        expose a machine-readable publication timestamp.
+      parameters:
+        - {$ref: '#/components/parameters/CalendarId'}
+        - {$ref: '#/components/parameters/StartDate'}
+        - {$ref: '#/components/parameters/EndDate'}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200': {$ref: '#/components/responses/StrategyExternalCalendar'}
+        '400': {$ref: '#/components/responses/InvalidRequest'}
+        '404': {description: Calendar not found}
   /api/v1/layer-counts:
     get:
       operationId: layerCounts
@@ -203,6 +280,29 @@ components:
       required: false
       description: Opaque HMAC-SHA256 cursor returned as next_cursor.
       schema: {type: string, maxLength: 4096}
+    DatasetRole:
+      name: dataset_role
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [CURRENT_NATIVE_MARKET_BAR, SIGNAL_TOTAL_RETURN_DAILY, VALUATION_PRICE_DAILY, COMMON_REGULAR_SESSION_CALENDAR, DISTRIBUTION_DECLARATION, DISTRIBUTION_CASH_TRANSACTION, INSTRUMENT_REFERENCE, PROPOSAL_PRICE_SNAPSHOT, FEE_ESTIMATE_AND_ACTUAL, CURRENCY_AND_AMOUNT_UNIT, REVISION_AND_LATENCY_STATE]
+    CalendarId:
+      name: calendar_id
+      in: path
+      required: true
+      schema: {type: string, maxLength: 128}
+    StartDate:
+      name: start
+      in: query
+      required: true
+      schema: {type: string, format: date}
+    EndDate:
+      name: end
+      in: query
+      required: true
+      description: Exclusive session-date boundary.
+      schema: {type: string, format: date}
   responses:
     InvalidRequest:
       description: Invalid bounded query or cursor encoding.
@@ -229,6 +329,11 @@ components:
       content:
         application/json:
           schema: {$ref: '#/components/schemas/Error'}
+    StrategyExternalContractIntegrityFailure:
+      description: Contract fixture or manifest hash validation failed.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
     BarPage:
       description: Bounded current-data bar page; cursor is not required.
       content:
@@ -244,6 +349,26 @@ components:
       content:
         application/json:
           schema: {$ref: '#/components/schemas/TotalReturnPage'}
+    StrategyExternalContracts:
+      description: Manifest-verified external contract bundle.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/StrategyExternalContracts'}
+    StrategyExternalStatus:
+      description: Contract and latest immutable receipt status.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/StrategyExternalStatus'}
+    StrategyExternalReceipts:
+      description: Bounded immutable receipt page; empty until migration and accepted receipts exist.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/StrategyExternalReceipts'}
+    StrategyExternalCalendar:
+      description: Versioned and content-hashed calendar evidence.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/StrategyExternalCalendar'}
   schemas:
     Error:
       type: object
@@ -288,3 +413,53 @@ components:
             contract_revision: {type: string, enum: ['1.2']}
             rows: {type: array, items: {type: object}}
             series: {type: object}
+    StrategyExternalContracts:
+      type: object
+      required: [api_version, contract_revision, read_only, bundle_id, bundle_status, manifest_sha256, contracts]
+      properties:
+        api_version: {type: integer, enum: [1]}
+        contract_revision: {type: string, enum: ['1.2']}
+        read_only: {type: boolean, enum: [true]}
+        bundle_id: {type: string}
+        bundle_status: {type: string, enum: [BLOCKED_EXTERNAL_CONTRACT]}
+        manifest_sha256: {$ref: '#/components/schemas/Sha256'}
+        contracts: {type: array, minItems: 11, maxItems: 11, items: {type: object}}
+    StrategyExternalStatus:
+      type: object
+      required: [api_version, contract_revision, read_only, overall, migration_status, blocked_roles, sources]
+      properties:
+        api_version: {type: integer, enum: [1]}
+        contract_revision: {type: string, enum: ['1.2']}
+        read_only: {type: boolean, enum: [true]}
+        overall: {type: string, enum: [AVAILABLE, BLOCKED_EXTERNAL_CONTRACT]}
+        migration_status: {type: string, enum: [APPLIED, NOT_APPLIED]}
+        blocked_roles: {type: array, items: {type: string}}
+        sources: {type: array, minItems: 11, maxItems: 11, items: {type: object}}
+    StrategyExternalReceipts:
+      type: object
+      required: [api_version, contract_revision, read_only, migration_status, row_count, rows]
+      properties:
+        api_version: {type: integer, enum: [1]}
+        contract_revision: {type: string, enum: ['1.2']}
+        read_only: {type: boolean, enum: [true]}
+        migration_status: {type: string, enum: [APPLIED, NOT_APPLIED]}
+        dataset_role: {type: string, nullable: true}
+        row_count: {type: integer, minimum: 0, maximum: 1000}
+        rows: {type: array, items: {type: object}}
+    StrategyExternalCalendar:
+      type: object
+      required: [api_version, contract_revision, dataset_role, contract_state, availability_state, common_calendar_verified, evidence_only, calendar, row_count, sessions]
+      properties:
+        api_version: {type: integer, enum: [1]}
+        contract_revision: {type: string, enum: ['1.2']}
+        dataset_role: {type: string, enum: [COMMON_REGULAR_SESSION_CALENDAR]}
+        contract_state: {type: string}
+        availability_state: {type: string}
+        common_calendar_verified: {type: boolean, enum: [true]}
+        evidence_only: {type: boolean, enum: [false]}
+        calendar: {type: object}
+        row_count: {type: integer, minimum: 0, maximum: 5000}
+        sessions: {type: array, items: {type: object}}
+    Sha256:
+      type: string
+      pattern: '^[0-9a-f]{64}$'

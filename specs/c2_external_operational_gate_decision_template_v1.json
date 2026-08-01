@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "decision_type": "C2_OPERATIONAL_GATES",
+  "status": "DECISION_REQUIRED",
+  "instructions_ja": "数値と許容方針を決定してからACCEPTEDへ変更する。未決定のnullを推測で補完しない。",
+  "account_context": {
+    "environment": "SIM",
+    "require_all_11_etfs": true,
+    "accepted_base_currencies": null
+  },
+  "quote": {
+    "evaluation_mode": null,
+    "max_quote_age_seconds": null,
+    "max_atomic_span_seconds": null,
+    "max_delayed_by_minutes": null,
+    "allow_sim_delayed_quotes": null,
+    "accepted_price_types": null,
+    "require_two_sided_bid_ask": null
+  },
+  "fee": {
+    "unknown_policy": null,
+    "allowed_values": [
+      "BLOCK_CONSUMER",
+      "AVAILABLE_WITH_WARNING_SIM_RESEARCH_ONLY"
+    ]
+  },
+  "distribution_revision": {
+    "issuer_revision_lookback_business_days": null,
+    "cash_correction_lookback_calendar_days": null,
+    "require_negative_event_state": null
+  },
+  "sla": {
+    "role_max_lag_seconds": null,
+    "late_state": "DATA_NOT_READY",
+    "interface_failure_state": "BLOCKED_INTERFACE_OPERATIONAL",
+    "quality_failure_state": "FAIL_DATA_QUALITY"
+  },
+  "accepted_by": null,
+  "accepted_at_utc": null,
+  "notes": null
+}

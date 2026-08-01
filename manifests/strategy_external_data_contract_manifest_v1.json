@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "bundle_id": "c2_strategy_external_data_contract_v1",
+  "status": "BLOCKED_EXTERNAL_CONTRACT",
+  "purpose": "Machine-verifiable contract and receipt schema handed from saxo_db to Strategy Analysis; this manifest does not assert operational source availability.",
+  "files": [
+    {
+      "relative_path": "specs/strategy_external_data_contract_v1.json",
+      "sha256": "0136aab0f3a4bbf879400547a2fc152e2bc95316e343992fb3219b5762306632"
+    },
+    {
+      "relative_path": "specs/strategy_external_data_receipt_v1.schema.json",
+      "sha256": "4fc7d9b023ddd01203322acdaf800f642e950a1a4c8afe6eac350ed7f67c82c2"
+    }
+  ],
+  "runtime_actions": {
+    "production_database_migration_applied": false,
+    "read_api_restarted": false,
+    "scheduler_changed": false,
+    "saxo_acquisition_or_refetch": false,
+    "oauth_or_account_operation": false,
+    "orders": 0,
+    "prechecks": 0
+  }
+}

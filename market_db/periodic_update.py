@@ -10,7 +10,7 @@ import os
 import signal
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
@@ -45,12 +45,15 @@ POLL_SECONDS = 15.0
 RETRY_SECONDS = 30.0
 MAX_TRANSIENT_SLOT_ATTEMPTS = 4
 MAX_CATCHUP_AGE = timedelta(hours=6)
+COMPLETED_SLOT_HISTORY_LIMIT = 1024
 FIRST_PUBLISH_OFFSET = timedelta(hours=1, seconds=15)
 EQUITY_DEADLINE_OFFSET = timedelta(hours=1, minutes=3)
 FX_PUBLISH_MINUTE = 3
 FX_DEADLINE_MINUTE = 10
 CANDIDATE_FX_PUBLISH_MINUTE = 6
 CANDIDATE_FX_DEADLINE_MINUTE = 15
+ETF_DAILY_CLOSE_PUBLISH_OFFSET = timedelta(minutes=45)
+ETF_DAILY_CLOSE_DEADLINE_OFFSET = timedelta(minutes=90)
 
 
 def _utc_text(value: datetime) -> str:
@@ -74,6 +77,7 @@ class ScheduleSlot:
     instrument_keys: tuple[str, ...]
     expected_latest_complete: Mapping[str, datetime]
     trigger: str
+    expected_latest_session: Mapping[str, date] = field(default_factory=dict)
 
     def public_dict(self) -> dict[str, Any]:
         return {
@@ -84,6 +88,9 @@ class ScheduleSlot:
             "instrument_keys": list(self.instrument_keys),
             "expected_latest_complete": {
                 key: _utc_text(value) for key, value in self.expected_latest_complete.items()
+            },
+            "expected_latest_session": {
+                key: value.isoformat() for key, value in self.expected_latest_session.items()
             },
         }
 
@@ -121,6 +128,7 @@ SCHEDULER_SCOPES = {
             "equity_regular_1h",
             "bond_credit_regular_1h",
             "gold_regular_1h",
+            "etf_daily_close",
             "fx_hourly",
         ),
         reason="full managed-series schedule",
@@ -134,6 +142,7 @@ SCHEDULER_SCOPES = {
             "equity_regular_1h",
             "bond_credit_regular_1h",
             "gold_regular_1h",
+            "etf_daily_close",
             "fx_hourly",
         ),
         reason="USDJPY provider DataVersion content-quality quarantine",
@@ -150,6 +159,7 @@ SCHEDULER_SCOPES = {
             "equity_regular_1h",
             "bond_credit_regular_1h",
             "gold_regular_1h",
+            "etf_daily_close",
             "fx_hourly",
             "fx_research_candidates_hourly",
         ),
@@ -186,6 +196,10 @@ def _apply_scheduler_scope(
             key: value for key, value in slot.expected_latest_complete.items()
             if key in included
         }
+        expected_sessions = {
+            key: value for key, value in slot.expected_latest_session.items()
+            if key in included
+        }
         trigger = slot.trigger
         if profile_id in {
             USDJPY_QUARANTINE_SCOPE_PROFILE,
@@ -204,6 +218,10 @@ def _apply_scheduler_scope(
                     instrument_keys=(instrument_key,),
                     expected_latest_complete={instrument_key: expected[instrument_key]},
                     trigger=f"{trigger}_{instrument_key}",
+                    expected_latest_session=(
+                        {instrument_key: expected_sessions[instrument_key]}
+                        if instrument_key in expected_sessions else {}
+                    ),
                 )
             )
     return tuple(selected)
@@ -416,6 +434,28 @@ def build_schedule_slots(
                     trigger="scheduled_gold_regular_1h",
                 )
             )
+        # C2 is a low-frequency paper workflow.  One independent post-close
+        # lane refreshes each ETF after Saxo has had time to publish the final
+        # (possibly partial-hour) regular-session bar.  It reuses the canonical
+        # 1H raw -> curated -> derived 1D path; it never requests a quote feed.
+        session_seconds = int((close_time - session.open_time_utc).total_seconds())
+        expected_slots = max(1, (session_seconds + 3599) // 3600)
+        final_bar_start = session.open_time_utc.astimezone(timezone.utc) + timedelta(
+            hours=expected_slots - 1
+        )
+        daily_due = close_time + ETF_DAILY_CLOSE_PUBLISH_OFFSET
+        slots.append(
+            ScheduleSlot(
+                slot_id=f"etf-daily-close-{session.session_date.isoformat()}",
+                kind="etf_daily_close",
+                due_at_utc=daily_due,
+                deadline_utc=close_time + ETF_DAILY_CLOSE_DEADLINE_OFFSET,
+                instrument_keys=ETF_KEYS,
+                expected_latest_complete={key: final_bar_start for key in ETF_KEYS},
+                trigger="scheduled_etf_daily_close",
+                expected_latest_session={key: session.session_date for key in ETF_KEYS},
+            )
+        )
     ordered = tuple(sorted(slots, key=lambda item: (item.due_at_utc, item.kind)))
     return _apply_scheduler_scope(ordered, scope_profile)
 
@@ -443,6 +483,27 @@ def latest_complete_watermarks(instrument_keys: Iterable[str]) -> dict[str, date
                 JOIN catalog.instrument i USING (instrument_id)
                 WHERE i.provider='Saxo OpenAPI' AND i.environment='SIM'
                   AND w.horizon_minutes=60 AND lower(i.market_key)=ANY(%s)
+                """,
+                (list(selected),),
+            )
+            rows = cursor.fetchall()
+    return {str(key): value for key, value in rows if value is not None}
+
+
+def latest_complete_daily_sessions(instrument_keys: Iterable[str]) -> dict[str, date]:
+    selected = tuple(str(key).lower() for key in instrument_keys)
+    with connect(
+        "saxo_ingest", MARKET_DB, application_name="saxo_db_periodic_daily_sessions"
+    ) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SET TRANSACTION READ ONLY")
+            cursor.execute(
+                """
+                SELECT b.instrument_key,MAX(b.session_date)
+                FROM analytics.v_c2_daily_close_status_latest b
+                WHERE b.derivation_status IN ('PASS','PASS_WITH_IMPUTATION_WARNING')
+                  AND b.instrument_key=ANY(%s)
+                GROUP BY b.instrument_key
                 """,
                 (list(selected),),
             )
@@ -516,10 +577,30 @@ def evaluate_expected_watermarks(
     }
 
 
+def evaluate_expected_sessions(
+    expected: Mapping[str, date], observed: Mapping[str, date]
+) -> dict[str, Any]:
+    lagging = {
+        key: {
+            "expected_at_or_after": value.isoformat(),
+            "observed": None if observed.get(key) is None else observed[key].isoformat(),
+        }
+        for key, value in expected.items()
+        if observed.get(key) is None or observed[key] < value
+    }
+    return {
+        "status": "PASS" if not lagging else "DATA_NOT_READY",
+        "lagging": lagging,
+        "observed": {key: value.isoformat() for key, value in observed.items()},
+    }
+
+
 def _error_domain(error_code: str | None) -> str:
     selected = str(error_code or "")
     if not selected:
         return "none"
+    if selected.startswith("RETRY_EXHAUSTED:"):
+        return _error_domain(selected.split(":", 1)[1])
     if (
         selected.startswith("AUTH_")
         or selected.startswith("BLOCKED_TOKEN")
@@ -668,6 +749,14 @@ def _terminal_blocker_still_applies(
     slot: ScheduleSlot,
     selected_watermark_revision: str,
 ) -> bool:
+    # A completed-bar publication delay belongs to the originating slot.  It
+    # must remain visible as evidence, but must not suppress the next hourly or
+    # post-close daily attempt for the same instrument indefinitely.
+    if blocker and blocker.get("origin_slot_id") != slot.slot_id:
+        if blocker.get("error_code") == "RETRY_EXHAUSTED:DATA_NOT_READY":
+            return False
+        if blocker.get("error_domain") in {"interface_auth", "interface_operational"}:
+            return False
     return bool(
         blocker
         and blocker.get("status") in {
@@ -704,12 +793,16 @@ class PeriodicExecutor:
         full_refetch_runner: Callable[..., dict[str, Any]] = run_full_refetch,
         revision_reconcile_runner: Callable[..., dict[str, Any]] | None = None,
         watermark_loader: Callable[[Iterable[str]], dict[str, datetime]] = latest_complete_watermarks,
+        daily_session_loader: Callable[[Iterable[str]], dict[str, date]] = (
+            latest_complete_daily_sessions
+        ),
     ) -> None:
         self.oauth_manager = oauth_manager
         self.incremental_runner = incremental_runner
         self.full_refetch_runner = full_refetch_runner
         self.revision_reconcile_runner = revision_reconcile_runner
         self.watermark_loader = watermark_loader
+        self.daily_session_loader = daily_session_loader
 
     def _client(self, *, force_refresh: bool = False) -> SaxoClient:
         token = self.oauth_manager.access_token(force_refresh=force_refresh)
@@ -779,12 +872,21 @@ class PeriodicExecutor:
             watermark = evaluate_expected_watermarks(slot.expected_latest_complete, observed)
             status = str(watermark["status"])
             error_code = None if status == "PASS" else "DATA_NOT_READY"
+            daily_close_gate = None
+            if status == "PASS" and slot.expected_latest_session:
+                observed_sessions = self.daily_session_loader(slot.instrument_keys)
+                daily_close_gate = evaluate_expected_sessions(
+                    slot.expected_latest_session, observed_sessions
+                )
+                status = str(daily_close_gate["status"])
+                error_code = None if status == "PASS" else "DATA_NOT_READY"
             return {
                 "status": status,
                 "error_code": error_code,
                 "error_domain": _error_domain(error_code),
                 "slot": slot.public_dict(),
                 "watermark_gate": watermark,
+                "daily_close_gate": daily_close_gate,
                 "started_at_utc": _utc_text(started_at),
                 "finished_at_utc": _utc_text(datetime.now(timezone.utc)),
                 "orders_or_prechecks_sent": 0,
@@ -864,6 +966,23 @@ def _completed_through(
         and tuple(sorted(slot.instrument_keys)) == tuple(sorted(selected.instrument_keys))
         and slot.due_at_utc <= selected.due_at_utc
     }
+
+
+def _append_completed_slots(
+    previous: Iterable[str], additions: Iterable[str]
+) -> list[str]:
+    """Keep a bounded completion history in completion order, not lexical order."""
+
+    selected: list[str] = []
+    seen: set[str] = set()
+    for value in (*tuple(previous), *tuple(additions)):
+        slot_id = str(value)
+        if slot_id in seen:
+            selected.remove(slot_id)
+        else:
+            seen.add(slot_id)
+        selected.append(slot_id)
+    return selected[-COMPLETED_SLOT_HISTORY_LIMIT:]
 
 
 def candidate_scope_readiness() -> dict[str, Any]:
@@ -971,6 +1090,9 @@ def run_daemon(
         }
     )
     completed = set(str(value) for value in state.get("completed_slots", []))
+    completed_order = _append_completed_slots(
+        (), (str(value) for value in state.get("completed_slots", []))
+    )
     next_attempt: dict[str, datetime] = {}
     terminal_blockers = dict(state.get("terminal_blockers") or {})
     # Error-domain policy can be corrected independently of the immutable
@@ -1044,8 +1166,15 @@ def run_daemon(
                 )
                 state["last_job"] = result
                 if result.get("status") == "PASS":
-                    completed.update(_completed_through(slots, selected))
-                    state["completed_slots"] = sorted(completed)[-256:]
+                    newly_completed = _completed_through(slots, selected)
+                    completed.update(newly_completed)
+                    scheduled_order = [
+                        slot.slot_id for slot in slots if slot.slot_id in newly_completed
+                    ]
+                    completed_order = _append_completed_slots(
+                        completed_order, scheduled_order
+                    )
+                    state["completed_slots"] = completed_order
                     next_attempt.pop(selected.slot_id, None)
                     transient_attempts.pop(selected.slot_id, None)
                     for blocker_key, stored in list(terminal_blockers.items()):
@@ -1177,7 +1306,9 @@ def main(argv: Iterable[str] | None = None) -> int:
         return 0
 
     try:
-        oauth = SaxoOAuthManager(OAuthConfig.from_environment(callback_port=args.callback_port))
+        oauth = SaxoOAuthManager(
+            OAuthConfig.from_local_configuration(callback_port=args.callback_port)
+        )
         executor = PeriodicExecutor(oauth)
         if args.command == "run-once":
             result = executor.execute(

@@ -34,6 +34,7 @@ from market_db.normalize_bars import (
     BarQualityError,
     CrossedQuoteViolation,
     RejectedBar,
+    mark_terminal_session_bar_complete,
     merge_pages,
     normalize_chart_page,
     normalize_chart_page_quarantining_fx_extrema,
@@ -257,6 +258,7 @@ def test_revision_warning_writer_cannot_mutate_accepted_or_derived_data():
         assert forbidden not in source
     assert "revision_warning_recorded_no_curated_change" in source
     assert "WARNING_RECORDED" in source
+    assert "ops.ingestion_run_instrument_scope\n                    WHERE ingestion_run_id=%s AND instrument_key=%s\n                    FOR UPDATE" not in source
 
 
 def rejected_bar(time_utc, *, field="Low", bid="1.11749", ask="1.11726"):
@@ -323,6 +325,25 @@ def test_saxo_client_sanitizes_http_errors_and_blocks_non_sim():
     assert "secret details" not in str(captured.value)
     with pytest.raises(ValueError, match="only the Saxo SIM"):
         SaxoClient("secret", base_url="https://gateway.saxobank.com/openapi")
+
+
+def test_saxo_external_contract_reads_are_get_only_and_allow_listed():
+    transport = FakeTransport([HTTPResponse(200, {}, b'{"Data":[]}')] * 5)
+    client = SaxoClient("secret", transport=transport)
+    client.accounts_me()
+    client.balances_me()
+    client.session_capabilities()
+    client.historical_transactions(
+        from_date="2026-07-01", to_date="2026-07-31", uics=[36590],
+        transaction_type="CorporateAction",
+    )
+    client.info_prices(uics=[36590], asset_type="Etf", amount=1)
+    assert client.request_count == 5
+    assert client.write_request_count == 0
+    assert all(call[0] == "GET" for call in transport.calls)
+    assert all(call[1].startswith(SIM_BASE_URL) for call in transport.calls)
+    assert any("%24top=1000" in call[1] for call in transport.calls)
+    assert any("DelayedByMinutes" not in call[1] for call in transport.calls)
 
 
 def test_artifacts_are_atomic_relative_and_sensitive_fields_are_removed(tmp_path, monkeypatch):
@@ -446,6 +467,89 @@ def test_merge_pages_keeps_first_seen_complete_up_to_boundary_sample():
     assert boundary.close == Decimal("101")
     assert boundary.artifact_relative_path == "data/acquisition/newer.json"
     assert boundary.is_complete is True
+
+
+def test_terminal_session_bar_completes_only_after_close_plus_provider_delay():
+    spy = load_canonical_instruments()[0]
+    payload = chart_payload(["2026-07-31T19:30:00Z"])
+    payload["ChartInfo"]["DelayedByMinutes"] = 15
+    before_close = normalize_chart_page(
+        spy,
+        payload,
+        retrieved_at_utc=datetime(2026, 7, 31, 20, 14, 59, tzinfo=timezone.utc),
+        payload_sha256="a" * 64,
+        artifact_relative_path="data/acquisition/terminal-before.json",
+    )
+    after_close = normalize_chart_page(
+        spy,
+        payload,
+        retrieved_at_utc=datetime(2026, 7, 31, 20, 15, tzinfo=timezone.utc),
+        payload_sha256="b" * 64,
+        artifact_relative_path="data/acquisition/terminal-after.json",
+    )
+
+    before = mark_terminal_session_bar_complete(
+        merge_pages([before_close]),
+        session_open_utc=datetime(2026, 7, 31, 13, 30, tzinfo=timezone.utc),
+        session_close_utc=datetime(2026, 7, 31, 20, 0, tzinfo=timezone.utc),
+    )
+    after_merged = merge_pages([after_close])
+    after = mark_terminal_session_bar_complete(
+        after_merged,
+        session_open_utc=datetime(2026, 7, 31, 13, 30, tzinfo=timezone.utc),
+        session_close_utc=datetime(2026, 7, 31, 20, 0, tzinfo=timezone.utc),
+    )
+
+    assert before[0].is_complete is False
+    assert after[0].is_complete is True
+    assert after[0].open == after_merged[0].open
+    assert after[0].high == after_merged[0].high
+    assert after[0].low == after_merged[0].low
+    assert after[0].close == after_merged[0].close
+    assert after[0].volume == after_merged[0].volume
+    assert after[0].data_version == after_merged[0].data_version
+    assert after[0].payload_sha256 == after_merged[0].payload_sha256
+
+
+def test_terminal_session_completion_fails_closed_without_exact_evidence():
+    spy = load_canonical_instruments()[0]
+    payload = chart_payload(["2026-07-31T18:30:00Z"])
+    payload["ChartInfo"].pop("DelayedByMinutes")
+    bars = merge_pages([
+        normalize_chart_page(
+            spy,
+            payload,
+            retrieved_at_utc=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            payload_sha256="c" * 64,
+            artifact_relative_path="data/acquisition/non-terminal.json",
+        )
+    ])
+
+    completed = mark_terminal_session_bar_complete(
+        bars,
+        session_open_utc=datetime(2026, 7, 31, 13, 30, tzinfo=timezone.utc),
+        session_close_utc=datetime(2026, 7, 31, 20, 0, tzinfo=timezone.utc),
+    )
+
+    assert completed[0].is_complete is False
+
+    payload["ChartInfo"]["DelayedByMinutes"] = 0
+    wrong_slot = merge_pages([
+        normalize_chart_page(
+            spy,
+            payload,
+            retrieved_at_utc=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            payload_sha256="d" * 64,
+            artifact_relative_path="data/acquisition/wrong-terminal.json",
+        )
+    ])
+    still_incomplete = mark_terminal_session_bar_complete(
+        wrong_slot,
+        session_open_utc=datetime(2026, 7, 31, 13, 30, tzinfo=timezone.utc),
+        session_close_utc=datetime(2026, 7, 31, 20, 0, tzinfo=timezone.utc),
+    )
+
+    assert still_incomplete[0].is_complete is False
 
 
 def test_fx_bid_above_ask_and_wrong_horizon_fail_quality_gate():

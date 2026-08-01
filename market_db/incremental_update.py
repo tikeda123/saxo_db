@@ -16,6 +16,7 @@ from psycopg.types.json import Jsonb
 
 from .acquire_pages import ChartPage, fetch_chart_pages
 from .connection import MARKET_DB, connect, project_root
+from .c2_imputation import refresh_c2_imputation_overlay
 from .derive_bars import rebuild
 from .instrument_registry import (
     CanonicalInstrument,
@@ -28,6 +29,7 @@ from .normalize_bars import (
     BarQualityError,
     NormalizedBar,
     RejectedBar,
+    mark_terminal_session_bar_complete,
     merge_pages,
     normalize_chart_page,
     normalize_chart_page_quarantining_fx_extrema,
@@ -302,6 +304,52 @@ def _overlap_start(state: InstrumentState, instrument: CanonicalInstrument) -> d
     if row is None:
         raise BarQualityError("BLOCKED_WATERMARK_WITHOUT_OVERLAP")
     return row[0]
+
+
+def _finalize_etf_terminal_bar(
+    instrument: CanonicalInstrument,
+    state: InstrumentState,
+    bars: Iterable[NormalizedBar],
+) -> tuple[NormalizedBar, ...]:
+    """Use the verified local calendar to finalize a closed ETF terminal bar."""
+
+    selected = tuple(bars)
+    if instrument.asset_type != "Etf" or not selected:
+        return selected
+    terminal_time = max(bar.time_utc for bar in selected)
+    with connect(
+        "saxo_ingest", MARKET_DB,
+        application_name="saxo_db_terminal_bar_completion",
+    ) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SET TRANSACTION READ ONLY")
+            cursor.execute(
+                """
+                SELECT si.open_time_utc,si.close_time_utc
+                FROM catalog.instrument i
+                JOIN catalog.session_interval si
+                  ON si.session_calendar_id=i.session_calendar_id
+                JOIN catalog.session_calendar c
+                  ON c.session_calendar_id=si.session_calendar_id
+                WHERE i.instrument_id=%s
+                  AND si.session_status <> 'HOLIDAY'
+                  AND si.open_time_utc <= %s AND %s < si.close_time_utc
+                  AND c.metadata_json->>'verification_status'='VERIFIED'
+                ORDER BY si.interval_sequence
+                LIMIT 1
+                """,
+                (state.instrument_id, terminal_time, terminal_time),
+            )
+            row = cursor.fetchone()
+    if row is None:
+        return selected
+    return tuple(
+        mark_terminal_session_bar_complete(
+            selected,
+            session_open_utc=row[0],
+            session_close_utc=row[1],
+        )
+    )
 
 
 def _create_run(
@@ -978,9 +1026,16 @@ def _commit_acquired(
                 # The transaction only changes the acquired instruments.  A
                 # singleton scheduler lane must not rewrite derived rows for
                 # the other managed series.
+                acquired_instrument_ids = tuple(
+                    item.state.instrument_id for item in acquired
+                )
                 derived_counts = rebuild(
                     cursor,
-                    instrument_ids=(item.state.instrument_id for item in acquired),
+                    instrument_ids=acquired_instrument_ids,
+                )
+                c2_imputation = refresh_c2_imputation_overlay(
+                    cursor,
+                    instrument_ids=acquired_instrument_ids,
                 )
                 cursor.execute("DELETE FROM staging.market_bar WHERE ingestion_run_id=%s", (run_id,))
                 cursor.execute(
@@ -1003,6 +1058,7 @@ def _commit_acquired(
                             {
                                 "raw_rows": raw_rows,
                                 "derived": derived_counts,
+                                "c2_imputation": c2_imputation,
                                 "quarantine_policy_id": (
                                     quarantine_policy_id if quarantined_rows else None
                                 ),
@@ -1015,6 +1071,7 @@ def _commit_acquired(
                     raise RuntimeError("FAILED_RUN_STATUS_UPDATE")
     return {
         "derived": derived_counts,
+        "c2_imputation": c2_imputation,
         "inserted_rows": inserted_rows,
         "raw_rows": raw_rows,
         "rejected_rows": len(quarantined_rows),
@@ -1245,7 +1302,6 @@ def _record_revision_warning(
                     SELECT instrument_id,instrument_key,price_basis
                     FROM ops.ingestion_run_instrument_scope
                     WHERE ingestion_run_id=%s AND instrument_key=%s
-                    FOR UPDATE
                     """,
                     (run_id, revision_detection["instrument_key"]),
                 )
@@ -1526,7 +1582,9 @@ def run_incremental(
                 time_utc=overlap_start,
                 on_page=save_page,
             )
-            bars = tuple(merge_pages(normalized_pages))
+            bars = _finalize_etf_terminal_bar(
+                instrument, state, merge_pages(normalized_pages)
+            )
             if len(bars) < 2 or not any(bar.is_complete for bar in bars):
                 raise BarQualityError("INSUFFICIENT_INCREMENTAL_CHART_DATA")
             versions = {bar.data_version for bar in bars if bar.data_version is not None}
@@ -1718,7 +1776,9 @@ def run_full_refetch(
             time_utc=datetime.now(timezone.utc),
             on_page=save_page,
         )
-        bars = tuple(merge_pages(normalized_pages))
+        bars = _finalize_etf_terminal_bar(
+            instrument, state, merge_pages(normalized_pages)
+        )
         quarantined_rows = _validate_full_refetch_quarantine(
             (bar.time_utc for bar in bars),
             (rejected for page in rejected_pages for rejected in page),

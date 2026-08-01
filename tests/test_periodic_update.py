@@ -19,11 +19,13 @@ from market_db.periodic_update import (
     PeriodicExecutor,
     ScheduleSlot,
     _completed_through,
+    _append_completed_slots,
     _latest_due_per_kind,
     _record_terminal_blocker,
     _slot_sla_status,
     _terminal_blocker_still_applies,
     build_schedule_slots,
+    evaluate_expected_sessions,
     evaluate_expected_watermarks,
     fully_contained_hour_starts,
     retry_disposition,
@@ -67,6 +69,25 @@ def test_equity_schedule_starts_at_close_plus_15_seconds_and_deadlines_at_three_
     assert {slot.instrument_keys for slot in equity[:5]} == {
         (key,) for key in EQUITY_KEYS
     }
+
+
+def test_etf_daily_close_schedule_is_post_close_instrument_scoped_and_usdjpy_free():
+    now = datetime(2026, 7, 24, 12, tzinfo=timezone.utc)
+    slots = build_schedule_slots(
+        now, [equity_session()], scope_profile=ACTIVE_SCOPE_PROFILE
+    )
+    daily = [slot for slot in slots if slot.kind == "etf_daily_close"]
+
+    assert len(daily) == len(ETF_KEYS)
+    assert {slot.instrument_keys for slot in daily} == {(key,) for key in ETF_KEYS}
+    assert all(slot.due_at_utc == datetime(2026, 7, 24, 20, 45, tzinfo=timezone.utc) for slot in daily)
+    assert all(slot.deadline_utc == datetime(2026, 7, 24, 21, 30, tzinfo=timezone.utc) for slot in daily)
+    spy = next(slot for slot in daily if slot.instrument_keys == ("spy",))
+    assert spy.expected_latest_complete["spy"] == datetime(
+        2026, 7, 24, 19, 30, tzinfo=timezone.utc
+    )
+    assert spy.expected_latest_session == {"spy": date(2026, 7, 24)}
+    assert all("usdjpy" not in slot.instrument_keys for slot in daily)
 
 
 def test_usdjpy_quarantine_scope_schedules_all_etfs_and_eurusd_only():
@@ -238,6 +259,11 @@ def test_watermark_gate_distinguishes_data_not_ready_without_quality_failure():
     result = evaluate_expected_watermarks(expected, observed)
     assert result["status"] == "DATA_NOT_READY"
     assert set(result["lagging"]) == {"spy"}
+    daily = evaluate_expected_sessions(
+        {"spy": date(2026, 7, 24)}, {"spy": date(2026, 7, 23)}
+    )
+    assert daily["status"] == "DATA_NOT_READY"
+    assert daily["lagging"]["spy"]["observed"] == "2026-07-23"
 
 
 def test_executor_records_revision_warning_without_reconcile_or_degradation():
@@ -329,6 +355,15 @@ def test_scheduler_restart_catches_up_only_latest_slot_and_records_deadline_miss
     assert _latest_due_per_kind(slots, now, completed) == ()
 
 
+def test_completed_slot_history_keeps_recent_completion_order_not_lexical_order(monkeypatch):
+    monkeypatch.setattr(periodic_update_module, "COMPLETED_SLOT_HISTORY_LIMIT", 3)
+    result = _append_completed_slots(
+        ["fx-old-1", "fx-old-2", "fx-old-3"],
+        ["etf-daily-close-spy", "etf-daily-close-ief"],
+    )
+    assert result == ["fx-old-3", "etf-daily-close-spy", "etf-daily-close-ief"]
+
+
 def test_terminal_blocker_signature_survives_json_restart_and_releases_on_watermark_change():
     now = datetime(2026, 7, 27, 4, 3, tzinfo=timezone.utc)
     slot = ScheduleSlot(
@@ -350,6 +385,40 @@ def test_terminal_blocker_signature_survives_json_restart_and_releases_on_waterm
     assert blocker["required_action"].startswith("run guarded reconcile")
     assert retry_disposition(result["error_code"]) == "OPERATOR_ACTION_REQUIRED"
     assert retry_disposition("FAILED_NETWORK") == "TRANSIENT_RETRY"
+    assert periodic_update_module._error_domain("RETRY_EXHAUSTED:DATA_NOT_READY") == "data_not_ready"
+
+
+def test_exhausted_data_not_ready_evidence_does_not_block_a_later_slot():
+    first = ScheduleSlot(
+        "equity-first", "equity_regular_1h",
+        datetime(2026, 7, 24, 14, 30, tzinfo=timezone.utc),
+        datetime(2026, 7, 24, 14, 33, tzinfo=timezone.utc),
+        ("spy",), {}, "scheduled_test",
+    )
+    later = ScheduleSlot(
+        "etf-daily-close-2026-07-24-spy", "etf_daily_close",
+        datetime(2026, 7, 24, 20, 45, tzinfo=timezone.utc),
+        datetime(2026, 7, 24, 21, 30, tzinfo=timezone.utc),
+        ("spy",), {}, "scheduled_test", {"spy": date(2026, 7, 24)},
+    )
+    blocker = _record_terminal_blocker(
+        None,
+        first,
+        {"status": "DATA_NOT_READY", "error_code": "RETRY_EXHAUSTED:DATA_NOT_READY"},
+        "same-watermark",
+        first.due_at_utc,
+    )
+
+    assert _terminal_blocker_still_applies(blocker, first, "same-watermark")
+    assert not _terminal_blocker_still_applies(blocker, later, "same-watermark")
+
+    operational = {
+        **blocker,
+        "error_code": "FAILED_INSUFFICIENTPRIVILEGE",
+        "error_domain": "interface_operational",
+    }
+    assert _terminal_blocker_still_applies(operational, first, "same-watermark")
+    assert not _terminal_blocker_still_applies(operational, later, "same-watermark")
 
 
 def test_daemon_does_not_repeat_same_terminal_slot_after_restart(tmp_path, monkeypatch):

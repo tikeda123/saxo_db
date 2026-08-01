@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "input_contract_id": "c2_sim_read_operator_input_v1",
+  "status": "DEPRECATED_COMPATIBILITY_ONLY",
+  "replacement_contract_id": "c2_saxo_sim_oauth_keychain_v1",
+  "transport": {
+    "bind": "127.0.0.1",
+    "scheme": "http",
+    "same_origin_required": true,
+    "csrf_required": true,
+    "cache_control": "no-store",
+    "browser_storage_allowed": false
+  },
+  "fields": [
+    {
+      "name": "access_token",
+      "type": "password",
+      "required": true,
+      "max_length": 8192,
+      "persistence": "process_memory_only",
+      "response_echo": false,
+      "logging": false
+    },
+    {
+      "name": "lease_minutes",
+      "type": "integer",
+      "required": true,
+      "minimum": 1,
+      "maximum": 15
+    },
+    {
+      "name": "contract_ack",
+      "type": "constant",
+      "required": true,
+      "value": "SIM_READ_ONLY_NO_ORDER_NO_PERSISTENCE"
+    }
+  ],
+  "preconditions": [
+    "manual access token preparation is disabled in Operator UI",
+    "operational gate document is ACCEPTED and validates",
+    "environment is SIM",
+    "no automatic start",
+    "no Saxo request during credential preparation"
+  ],
+  "on_success": "compatibility-only internal tests; Operator UI rejects this route and uses OAuth Keychain rotation",
+  "on_expiry_or_clear": "all application references to token and fingerprint key are released",
+  "start_contract": "a separate same-origin CSRF-protected explicit-start action is required; this readiness phase does not expose that action",
+  "forbidden_operations": [
+    "OAuth authorization start",
+    "Saxo API request",
+    "receipt registration",
+    "order",
+    "precheck",
+    "cancel",
+    "fund or account mutation",
+    "scheduler change",
+    "refetch or backfill"
+  ]
+}

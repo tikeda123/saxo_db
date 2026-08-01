@@ -1,0 +1,83 @@
+{
+  "database_transaction_read_only": "on",
+  "database_writes": 0,
+  "generated_at_utc": "2026-08-01T07:25:18.140246Z",
+  "orders_or_prechecks_sent": 0,
+  "policy_id": "c2_etf_bounded_previous_valid_v1",
+  "production_apply_performed": false,
+  "review_id": "c2_etf11_bounded_imputation_candidate_review_20260801",
+  "saxo_get_requests": 0,
+  "series": [
+    {
+      "actual_slot_count": 5,
+      "blocker_ids": [],
+      "candidate_data_version": 29759068,
+      "expected_slot_count": 7,
+      "imputed_row_count": 2,
+      "imputed_rows": [
+        {
+          "consecutive_gap_count": 2,
+          "consecutive_gap_index": 1,
+          "provider_values_emitted": false,
+          "reason": "PROVIDER_SESSION_OPEN_ROWS_MISSING",
+          "source_artifact_relative_path": "data/acquisition/runs/20260801T004138Z-6c84518e/instruments/tip/chart_0001.json",
+          "source_kind": "IMPUTED_PREVIOUS_VALID",
+          "source_payload_sha256": "d82c5e3a807a4228d7d30f344ed23d38e756f44e31fcf0feb6851b4649339bc3",
+          "source_time_utc": "2026-07-28T19:30:00Z",
+          "time_utc": "2026-07-29T13:30:00Z"
+        },
+        {
+          "consecutive_gap_count": 2,
+          "consecutive_gap_index": 2,
+          "provider_values_emitted": false,
+          "reason": "PROVIDER_SESSION_OPEN_ROWS_MISSING",
+          "source_artifact_relative_path": "data/acquisition/runs/20260801T004138Z-6c84518e/instruments/tip/chart_0001.json",
+          "source_kind": "IMPUTED_PREVIOUS_VALID",
+          "source_payload_sha256": "d82c5e3a807a4228d7d30f344ed23d38e756f44e31fcf0feb6851b4649339bc3",
+          "source_time_utc": "2026-07-28T19:30:00Z",
+          "time_utc": "2026-07-29T14:30:00Z"
+        }
+      ],
+      "instrument_key": "tip",
+      "revision_event_id": 57,
+      "status": "PASS_WITH_IMPUTATION_WARNING",
+      "warning_ids": ["C2_BOUNDED_IMPUTED_PREVIOUS_VALID"]
+    },
+    {
+      "actual_slot_count": 5,
+      "blocker_ids": [],
+      "candidate_data_version": 29749768,
+      "expected_slot_count": 7,
+      "imputed_row_count": 2,
+      "imputed_rows": [
+        {
+          "consecutive_gap_count": 2,
+          "consecutive_gap_index": 1,
+          "provider_values_emitted": false,
+          "reason": "PROVIDER_SESSION_OPEN_ROWS_MISSING",
+          "source_artifact_relative_path": "data/acquisition/runs/20260801T003103Z-ec15d76e/instruments/gld/chart_0001.json",
+          "source_kind": "IMPUTED_PREVIOUS_VALID",
+          "source_payload_sha256": "c47bbd7eeb04c54c8ae084c0fcac3fa0e2d3e9ad4432630c944bd756fb2de859",
+          "source_time_utc": "2026-07-28T19:30:00Z",
+          "time_utc": "2026-07-29T13:30:00Z"
+        },
+        {
+          "consecutive_gap_count": 2,
+          "consecutive_gap_index": 2,
+          "provider_values_emitted": false,
+          "reason": "PROVIDER_SESSION_OPEN_ROWS_MISSING",
+          "source_artifact_relative_path": "data/acquisition/runs/20260801T003103Z-ec15d76e/instruments/gld/chart_0001.json",
+          "source_kind": "IMPUTED_PREVIOUS_VALID",
+          "source_payload_sha256": "c47bbd7eeb04c54c8ae084c0fcac3fa0e2d3e9ad4432630c944bd756fb2de859",
+          "source_time_utc": "2026-07-28T19:30:00Z",
+          "time_utc": "2026-07-29T14:30:00Z"
+        }
+      ],
+      "instrument_key": "gld",
+      "revision_event_id": 23,
+      "status": "PASS_WITH_IMPUTATION_WARNING",
+      "warning_ids": ["C2_BOUNDED_IMPUTED_PREVIOUS_VALID"]
+    }
+  ],
+  "usdjpy_touched": false
+}

@@ -33,6 +33,12 @@ from .data_ui import (
 )
 from .instrument_reference import instrument_catalog_payload, reference_for_key
 from .inspect import QUERY_SPECS
+from .strategy_external_contract import (
+    EXPECTED_ROLES as STRATEGY_EXTERNAL_ROLES,
+    StrategyExternalContractError,
+    public_strategy_external_contract,
+    public_strategy_external_status,
+)
 from .total_return_contract import (
     TotalReturnContractError,
     contract_for_request,
@@ -48,8 +54,13 @@ DEFAULT_PORT = 8766
 MAX_OPERATION_ROWS = 1_000
 MAX_BAR_ROWS = 10_000
 MAX_TOTAL_RETURN_ROWS = 10_000
+MAX_STRATEGY_RECEIPT_ROWS = 1_000
+MAX_STRATEGY_CALENDAR_ROWS = 5_000
 API_VERSION = 1
 CONTRACT_REVISION = "1.2"
+C2_DAILY_CLOSE_KEYS = (
+    "spy", "iwm", "efa", "eem", "vnq", "shy", "ief", "tlt", "tip", "lqd", "gld",
+)
 OPERATION_COMMANDS = (
     "inventory",
     "coverage",
@@ -161,6 +172,13 @@ class SnapshotReadError(RuntimeError):
 
 
 class TotalReturnReadError(RuntimeError):
+    def __init__(self, code: str, http_status: int) -> None:
+        super().__init__(code)
+        self.code = code
+        self.http_status = http_status
+
+
+class StrategyExternalReadError(RuntimeError):
     def __init__(self, code: str, http_status: int) -> None:
         super().__init__(code)
         self.code = code
@@ -614,6 +632,209 @@ def ordered_content_sha256(rows: Sequence[Mapping[str, Any]]) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
+def parse_iso_date(value: str, field: str) -> date:
+    try:
+        selected = date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"{field} must be an ISO date") from exc
+    if selected.isoformat() != value:
+        raise ValueError(f"{field} must be an ISO date")
+    return selected
+
+
+def strategy_external_migration_applied(reader: QueryReader) -> bool:
+    rows = reader.query(
+        "SELECT to_regclass('analytics.v_strategy_external_data_contract_status') "
+        "IS NOT NULL AS migration_applied"
+    )
+    return bool(rows and rows[0].get("migration_applied") is True)
+
+
+def strategy_external_status_rows(reader: QueryReader) -> list[dict[str, Any]]:
+    rows = reader.query(
+        """
+        SELECT edc_id, dataset_role, contract_id, contract_state,
+               availability_state, provider_id, dataset_id, price_basis,
+               horizon_minutes, target_read_endpoint, latest_receipt_id,
+               last_good_receipt_id,
+               source_as_of, source_observed_at_utc, available_at_utc,
+               accepted_at_utc, expected_by_utc, published_at_utc,
+               freshness_state, quality_state, revision_state,
+               cost_confidence, warning_ids, blocker_ids,
+               decision_required_ids, provider_data_version,
+               manifest_sha256, ordered_content_sha256, calendar_id
+        FROM analytics.v_strategy_external_data_contract_status
+        ORDER BY edc_id
+        """
+    )
+    return [
+        {
+            "edc_id": row["edc_id"],
+            "dataset_role": row["dataset_role"],
+            "contract_id": row["contract_id"],
+            "contract_state": row["contract_state"],
+            "availability_state": row["availability_state"],
+            "provider_id": row.get("provider_id"),
+            "dataset_id": row.get("dataset_id"),
+            "price_basis": row.get("price_basis"),
+            "horizon_minutes": row.get("horizon_minutes"),
+            "target_read_endpoint": row.get("target_read_endpoint"),
+            "latest_receipt_id": row.get("latest_receipt_id"),
+            "source_as_of": row.get("source_as_of"),
+            "source_observed_at_utc": row.get("source_observed_at_utc"),
+            "available_at_utc": row.get("available_at_utc"),
+            "accepted_at_utc": row.get("accepted_at_utc"),
+            "published_at_utc": row.get("published_at_utc"),
+            "freshness": {
+                "state": row["freshness_state"],
+                "expected_by_utc": row.get("expected_by_utc"),
+            },
+            "quality": {
+                "state": row["quality_state"],
+                "warning_ids": row.get("warning_ids") or [],
+                "blocker_ids": row.get("blocker_ids") or [],
+                "last_good_receipt_id": row.get("last_good_receipt_id"),
+            },
+            "revision": {
+                "state": row["revision_state"],
+                "provider_data_version": row.get("provider_data_version"),
+                "manifest_sha256": (
+                    str(row["manifest_sha256"]).strip()
+                    if row.get("manifest_sha256") is not None
+                    else None
+                ),
+                "ordered_content_sha256": (
+                    str(row["ordered_content_sha256"]).strip()
+                    if row.get("ordered_content_sha256") is not None
+                    else None
+                ),
+            },
+            "calendar_id": row.get("calendar_id"),
+            "cost_confidence": row["cost_confidence"],
+            "blocker_ids": row.get("blocker_ids") or [],
+            "decision_required_ids": row.get("decision_required_ids") or [],
+            "last_good_receipt_id": row.get("last_good_receipt_id"),
+        }
+        for row in rows
+    ]
+
+
+def strategy_external_receipts(
+    reader: QueryReader,
+    *,
+    dataset_role: str | None,
+    limit: int,
+) -> list[dict[str, Any]]:
+    if dataset_role is not None and dataset_role not in STRATEGY_EXTERNAL_ROLES:
+        raise ValueError("unknown dataset role")
+    return reader.query(
+        """
+        SELECT receipt_id, edc_id, dataset_role, contract_id,
+               availability_state, dataset_id, provider_id,
+               provider_data_version, lineage_id, manifest_sha256,
+               ordered_content_sha256, calendar_id, source_as_of,
+               source_observed_at_utc, available_at_utc,
+               accepted_at_utc, expected_by_utc, published_at_utc,
+               freshness_state, quality_state, revision_state,
+               cost_confidence, warning_ids, blocker_ids,
+               values_modified, interpolation_performed, payload,
+               receipt_sha256, supersedes_receipt_id, created_at_utc
+        FROM analytics.v_strategy_external_data_receipt
+        WHERE (%s::TEXT IS NULL OR dataset_role=%s)
+        ORDER BY created_at_utc DESC, receipt_id DESC
+        LIMIT %s
+        """,
+        (dataset_role, dataset_role, limit),
+    )
+
+
+def strategy_calendar_payload(
+    reader: QueryReader,
+    *,
+    calendar_id: str,
+    start: date,
+    end: date,
+    limit: int,
+) -> dict[str, Any]:
+    if not calendar_id or len(calendar_id) > 128 or start >= end:
+        raise ValueError("invalid calendar query")
+    receipt_rows = reader.query(
+        """
+        SELECT receipt_id,availability_state,provider_id,
+               provider_data_version,lineage_id,ordered_content_sha256,
+               source_observed_at_utc,accepted_at_utc,warning_ids,
+               blocker_ids,payload
+        FROM analytics.v_strategy_external_data_receipt
+        WHERE dataset_role='COMMON_REGULAR_SESSION_CALENDAR'
+          AND calendar_id=%s
+          AND availability_state IN ('AVAILABLE','AVAILABLE_WITH_WARNINGS')
+          AND accepted_at_utc IS NOT NULL
+        ORDER BY created_at_utc DESC,receipt_id DESC
+        LIMIT 1
+        """,
+        (calendar_id,),
+    )
+    if len(receipt_rows) != 1:
+        raise StrategyExternalReadError("CALENDAR_NOT_FOUND", 404)
+    contract = public_strategy_external_contract()
+    calendar_contract = next(
+        item
+        for item in contract["contracts"]
+        if item["dataset_role"] == "COMMON_REGULAR_SESSION_CALENDAR"
+    )
+    accepted = receipt_rows[0]
+    payload = accepted.get("payload") or {}
+    raw_sessions = payload.get("sessions") or []
+    try:
+        selected_sessions = [
+            row for row in raw_sessions
+            if isinstance(row, dict)
+            and isinstance(row.get("session_date"), str)
+            and start <= date.fromisoformat(row["session_date"]) < end
+        ]
+    except ValueError as exc:
+        raise StrategyExternalReadError("CALENDAR_RECEIPT_INVALID", 503) from exc
+    truncated = len(selected_sessions) > limit
+    sessions = selected_sessions[:limit]
+    metadata = {
+        key: payload.get(key)
+        for key in (
+            "calendar_id", "calendar_version", "tzdb_version",
+            "published_at_utc", "valid_from", "valid_to", "source_urls",
+            "normalized_sha256", "normalization", "source_sha256",
+        )
+    }
+    metadata.update(
+        {
+            "provider": accepted.get("provider_id"),
+            "provider_data_version": accepted.get("provider_data_version"),
+            "lineage_id": accepted.get("lineage_id"),
+            "receipt_id": accepted.get("receipt_id"),
+            "accepted_at_utc": accepted.get("accepted_at_utc"),
+            "source_observed_at_utc": accepted.get("source_observed_at_utc"),
+        }
+    )
+    return {
+        "api_version": API_VERSION,
+        "contract_revision": CONTRACT_REVISION,
+        "dataset_role": "COMMON_REGULAR_SESSION_CALENDAR",
+        "contract_id": calendar_contract["contract_id"],
+        "contract_state": calendar_contract["contract_state"],
+        "availability_state": accepted["availability_state"],
+        "blocker_ids": accepted.get("blocker_ids") or [],
+        "warning_ids": accepted.get("warning_ids") or [],
+        "decision_required_ids": calendar_contract["decision_required_ids"],
+        "common_calendar_verified": True,
+        "evidence_only": False,
+        "calendar": metadata,
+        "start": start,
+        "end": end,
+        "row_count": len(sessions),
+        "truncated": truncated,
+        "sessions": sessions,
+    }
+
+
 def _same_utc(left: Any, right: Any) -> bool:
     if left is None or right is None:
         return left is right
@@ -650,6 +871,235 @@ def bar_rows(
     lower: datetime | date = start.date() if query.date_bounds else start
     upper: datetime | date = end.date() if query.date_bounds else end
     return reader.query(query.statement, (instrument_key, lower, upper, limit + 1))
+
+
+def c2_daily_close_status_payload(
+    reader: QueryReader,
+    *,
+    scheduler_status: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Summarize ETF11 accepted daily closes against completed XNYS sessions."""
+
+    rows = reader.query(
+        """
+        WITH latest AS (
+            SELECT b.instrument_id,b.session_date,b.price_basis,TRUE AS is_complete,
+                   CASE WHEN b.derivation_status='PASS' THEN 'PASS' ELSE 'WARN' END
+                       AS quality_status,
+                   b.close,b.source_last_ingestion_run_id,b.imputed_bar_count,
+                   b.latest_imputed_session_date,
+                   b.derivation_status AS imputation_status,b.warning_ids
+            FROM analytics.v_c2_daily_close_status_latest b
+            WHERE b.instrument_key=ANY(%s)
+              AND b.derivation_status IN ('PASS','PASS_WITH_IMPUTATION_WARNING')
+        )
+        SELECT lower(i.market_key) AS instrument_key,i.symbol,i.category,
+               l.session_date AS latest_session_date,
+               l.price_basis,l.is_complete,l.quality_status,
+               l.close,l.source_last_ingestion_run_id,
+               COALESCE(l.imputed_bar_count,0) AS imputed_bar_count,
+               l.latest_imputed_session_date,
+               l.imputation_status,COALESCE(l.warning_ids,ARRAY[]::TEXT[]) AS warning_ids,
+               f.latest_expected_complete_time_utc::DATE AS expected_session_date,
+               f.latest_expected_complete_time_utc,
+               f.next_expected_time_utc::DATE AS next_session_date,
+               f.next_expected_time_utc,
+               r.availability_status AS revision_availability_status,
+               r.reconciliation_status AS revision_status,
+               r.review_status AS revision_review_status,
+               r.reason_code AS revision_reason_code,
+               r.new_data_version AS observed_provider_data_version,
+               r.last_accepted_data_version
+        FROM catalog.instrument i
+        LEFT JOIN latest l USING (instrument_id)
+        LEFT JOIN analytics.v_data_freshness f
+          ON f.instrument_id=i.instrument_id AND f.horizon_minutes=60
+         AND f.price_basis='native_ohlc'
+        LEFT JOIN ops.v_series_revision_availability r
+          ON r.instrument_key=i.market_key AND r.horizon_minutes=60
+         AND r.price_basis='native_ohlc'
+        WHERE lower(i.market_key)=ANY(%s)
+          AND i.active_to_utc IS NULL
+        ORDER BY array_position(%s::TEXT[],lower(i.market_key))
+        """,
+        (list(C2_DAILY_CLOSE_KEYS), list(C2_DAILY_CLOSE_KEYS), list(C2_DAILY_CLOSE_KEYS)),
+    )
+    series: list[dict[str, Any]] = []
+    for row in rows:
+        latest = row.get("latest_session_date")
+        expected = row.get("expected_session_date")
+        if latest is None or expected is None:
+            freshness = "NOT_EVALUATED"
+        elif latest >= expected:
+            freshness = "PASS"
+        else:
+            freshness = "STALE"
+        series.append(
+            {
+                **row,
+                "layer": "1d",
+                "freshness_status": freshness,
+                "update_status": (
+                    "REVIEW_PENDING_DATA_NOT_ADVANCED"
+                    if row.get("revision_availability_status")
+                    == "AVAILABLE_WITH_REVISION_WARNING"
+                    else
+                    "CURRENT" if freshness == "PASS"
+                    else "UPDATE_REQUIRED" if freshness == "STALE"
+                    else "NOT_EVALUATED"
+                ),
+                "availability_status": (
+                    row.get("revision_availability_status")
+                    if row.get("revision_availability_status")
+                    in {"AVAILABLE_WITH_REVISION_WARNING", "AVAILABLE_WITH_WARNINGS"}
+                    else "AVAILABLE" if latest is not None
+                    else "BLOCKED_DATA_NOT_AVAILABLE"
+                ),
+            }
+        )
+    scheduler = dict(scheduler_status or {})
+    lifecycle_status = str(scheduler.get("status") or "NOT_EVALUATED")
+    scheduler_runtime_status = str(
+        (scheduler.get("scheduler") or {}).get("service_status")
+        or ("RUNNING" if lifecycle_status == "PASS" else lifecycle_status)
+    )
+    stale_count = sum(row["freshness_status"] == "STALE" for row in series)
+    missing_count = sum(row["latest_session_date"] is None for row in series)
+    current_count = sum(row["freshness_status"] == "PASS" for row in series)
+    revision_warning_count = sum(
+        row.get("revision_availability_status") == "AVAILABLE_WITH_REVISION_WARNING"
+        for row in series
+    )
+    imputation_warning_count = sum(
+        int(row.get("imputed_bar_count") or 0) > 0 for row in series
+    )
+    next_expected = next(
+        (row.get("next_expected_time_utc") for row in series if row.get("next_expected_time_utc")),
+        None,
+    )
+    return {
+        "api_version": API_VERSION,
+        "contract_revision": CONTRACT_REVISION,
+        "generated_at_utc": datetime.now(timezone.utc),
+        "contract_id": "c2_etf11_native_ohlc_daily_close_v1",
+        "purpose": "C2_LOW_FREQUENCY_PAPER_REFERENCE_PRICE",
+        "price_semantics": {
+            "price_basis": "native_ohlc",
+            "value": "completed regular-session derived daily close",
+            "not_total_return": True,
+            "not_official_primary_exchange_close": True,
+            "not_execution_price": True,
+            "realtime_or_bid_ask_required": False,
+            "imputed_hourly_rows_may_exist": True,
+            "daily_close_must_be_actual_provider_row": True,
+        },
+        "freshness_policy": {
+            "calendar": "XNYS_US_EQUITY",
+            "expected_after_session_close_minutes": 45,
+            "weekend_or_holiday_wait_is_blocking": False,
+        },
+        "state": {
+            "status": (
+                "AVAILABLE_WITH_IMPUTATION_WARNING"
+                if len(series) == len(C2_DAILY_CLOSE_KEYS) and not stale_count
+                and not missing_count and imputation_warning_count
+                else "PASS" if len(series) == len(C2_DAILY_CLOSE_KEYS) and not stale_count and not missing_count
+                else "AVAILABLE_WITH_FRESHNESS_WARNING" if series and not missing_count
+                else "BLOCKED_DATA_NOT_AVAILABLE"
+            ),
+            "series_count": len(series),
+            "current_count": current_count,
+            "stale_count": stale_count,
+            "missing_count": missing_count,
+            "revision_warning_count": revision_warning_count,
+            "imputation_warning_count": imputation_warning_count,
+            "scheduler_status": scheduler_runtime_status,
+            "scheduler_lifecycle_status": lifecycle_status,
+            "interface_blockers": (
+                [] if lifecycle_status == "PASS"
+                else [lifecycle_status] if lifecycle_status not in {"NOT_EVALUATED", "STOPPED"}
+                else []
+            ),
+            "operational_warnings": (
+                [scheduler_runtime_status]
+                if scheduler_runtime_status == "RUNNING_DEGRADED" else []
+            ),
+            "market_wait_status": (
+                "NEXT_SESSION_WAIT_NON_BLOCKING" if not stale_count and not missing_count
+                else "REVISION_REVIEW_PENDING" if revision_warning_count
+                else "UPDATE_REQUIRED"
+            ),
+            "next_expected_bar_time_utc": next_expected,
+            "orders_or_prechecks_sent": 0,
+            "write_requests_to_saxo": 0,
+        },
+        "strategy_endpoint": "/api/v1/c2/daily-close-status",
+        "hourly_overlay_endpoint": (
+            "/api/v1/c2/hourly-overlay?instrument_key=<etf>&"
+            "start=<UTC>&end=<UTC>&limit=<N>"
+        ),
+        "series": series,
+        "read_only": True,
+    }
+
+
+def c2_hourly_overlay_payload(
+    reader: QueryReader,
+    *,
+    instrument_key: str,
+    start: datetime,
+    end: datetime,
+    limit: int,
+) -> dict[str, Any]:
+    """Return the explicit actual-plus-imputed C2 overlay, never canonical bars."""
+
+    key = instrument_key.strip().lower()
+    if key not in C2_DAILY_CLOSE_KEYS or start >= end:
+        raise ValueError("invalid C2 overlay request")
+    rows = reader.query(
+        """
+        SELECT instrument_key,time_utc,price_basis,open,high,low,close,volume,
+               is_complete,source_kind,quality_status,warning_ids,
+               imputation_reason,source_time_utc,consecutive_gap_index,
+               consecutive_gap_count,candidate_data_version,source_data_version,
+               source_ingestion_run_id,source_payload_sha256,
+               source_artifact_relative_path,imputation_policy_id,
+               official_close_claim,total_return_claim,execution_price_claim
+        FROM analytics.v_c2_market_bar_1h_overlay
+        WHERE instrument_key=%s AND time_utc >= %s AND time_utc < %s
+        ORDER BY time_utc
+        LIMIT %s
+        """,
+        (key, start, end, limit + 1),
+    )
+    truncated = len(rows) > limit
+    selected = rows[:limit]
+    imputed_count = sum(row.get("source_kind") == "IMPUTED_PREVIOUS_VALID" for row in selected)
+    return {
+        "api_version": API_VERSION,
+        "contract_revision": CONTRACT_REVISION,
+        "generated_at_utc": datetime.now(timezone.utc),
+        "contract_id": "c2_etf11_bounded_hourly_overlay_v1",
+        "instrument_key": key,
+        "layer": "1h",
+        "price_basis": "native_ohlc",
+        "availability_status": (
+            "AVAILABLE_WITH_IMPUTATION_WARNING" if imputed_count else "AVAILABLE"
+        ),
+        "warning_ids": (
+            ["C2_BOUNDED_IMPUTED_PREVIOUS_VALID"] if imputed_count else []
+        ),
+        "imputed_row_count": imputed_count,
+        "row_count": len(selected),
+        "truncated": truncated,
+        "claims": {
+            "official_close": False,
+            "total_return": False,
+            "execution_price": False,
+        },
+        "rows": selected,
+        "read_only": True,
+    }
 
 
 def series_status_payload(
@@ -1814,6 +2264,7 @@ def create_app(
     snapshot_reader: QueryReader | None = None,
     snapshot_manifest_loader: SnapshotManifestLoader = load_snapshot_manifest,
     cursor_secret: bytes | None = None,
+    periodic_status_loader: Callable[[], Mapping[str, Any]] | None = None,
 ) -> Flask:
     use_default_readers = reader is None
     selected_reader = reader or DatabaseReader()
@@ -1821,6 +2272,10 @@ def create_app(
     if selected_snapshot_reader is None and use_default_readers:
         selected_snapshot_reader = SnapshotDatabaseReader()
     cursor_codec = CursorCodec(cursor_secret or secrets.token_bytes(32))
+    if periodic_status_loader is None:
+        from .periodic_update_service import peek_service_status
+
+        periodic_status_loader = peek_service_status
     app = Flask(__name__)
     app.config.update(JSON_SORT_KEYS=True, MAX_CONTENT_LENGTH=16_384)
 
@@ -1929,6 +2384,31 @@ def create_app(
     @app.get("/api/v1/service-status")
     def service_status():
         return jsonify(json_value(revision_service_status_payload(selected_reader)))
+
+    @app.get("/api/v1/c2/daily-close-status")
+    def c2_daily_close_status():
+        try:
+            scheduler = periodic_status_loader() if periodic_status_loader else {}
+            payload = c2_daily_close_status_payload(
+                selected_reader, scheduler_status=scheduler
+            )
+        except ValueError:
+            return jsonify({"status": "FAILED", "error_code": "INVALID_REQUEST"}), 400
+        return jsonify(json_value(payload))
+
+    @app.get("/api/v1/c2/hourly-overlay")
+    def c2_hourly_overlay():
+        try:
+            payload = c2_hourly_overlay_payload(
+                selected_reader,
+                instrument_key=request.args.get("instrument_key", ""),
+                start=parse_utc(request.args.get("start", ""), "start"),
+                end=parse_utc(request.args.get("end", ""), "end"),
+                limit=parse_limit(request.args.get("limit"), MAX_BAR_ROWS),
+            )
+        except ValueError:
+            return jsonify({"status": "FAILED", "error_code": "INVALID_REQUEST"}), 400
+        return jsonify(json_value(payload))
 
     @app.get("/api/v1/bars")
     def bars():
@@ -2057,6 +2537,105 @@ def create_app(
             return jsonify({"status": "FAILED", "error_code": "INVALID_REQUEST"}), 400
         return jsonify(json_value(payload))
 
+    @app.get("/api/v1/strategy-data/contracts")
+    def strategy_data_contracts():
+        try:
+            payload = public_strategy_external_contract()
+        except StrategyExternalContractError as exc:
+            return jsonify({"status": "FAILED", "error_code": str(exc)}), 503
+        return jsonify(
+            json_value(
+                {
+                    "api_version": API_VERSION,
+                    "contract_revision": CONTRACT_REVISION,
+                    "read_only": True,
+                    **payload,
+                }
+            )
+        )
+
+    @app.get("/api/v1/strategy-data/status")
+    def strategy_data_status():
+        try:
+            migration_applied = strategy_external_migration_applied(selected_reader)
+            receipt_rows = (
+                strategy_external_status_rows(selected_reader)
+                if migration_applied
+                else []
+            )
+            payload = public_strategy_external_status(
+                receipt_rows,
+                migration_applied=migration_applied,
+            )
+        except StrategyExternalContractError as exc:
+            return jsonify({"status": "FAILED", "error_code": str(exc)}), 503
+        return jsonify(
+            json_value(
+                {
+                    "api_version": API_VERSION,
+                    "contract_revision": CONTRACT_REVISION,
+                    "read_only": True,
+                    "generated_at_utc": datetime.now(timezone.utc),
+                    **payload,
+                }
+            )
+        )
+
+    @app.get("/api/v1/strategy-data/receipts")
+    def strategy_data_receipts():
+        try:
+            dataset_role = request.args.get("dataset_role", "").strip().upper() or None
+            if dataset_role is not None and dataset_role not in STRATEGY_EXTERNAL_ROLES:
+                raise ValueError("unknown dataset role")
+            limit = parse_limit(
+                request.args.get("limit"), MAX_STRATEGY_RECEIPT_ROWS
+            )
+            migration_applied = strategy_external_migration_applied(selected_reader)
+            rows = (
+                strategy_external_receipts(
+                    selected_reader,
+                    dataset_role=dataset_role,
+                    limit=limit,
+                )
+                if migration_applied
+                else []
+            )
+        except ValueError:
+            return jsonify({"status": "FAILED", "error_code": "INVALID_REQUEST"}), 400
+        return jsonify(
+            json_value(
+                {
+                    "api_version": API_VERSION,
+                    "contract_revision": CONTRACT_REVISION,
+                    "read_only": True,
+                    "migration_status": "APPLIED" if migration_applied else "NOT_APPLIED",
+                    "dataset_role": dataset_role,
+                    "row_count": len(rows),
+                    "rows": rows,
+                }
+            )
+        )
+
+    @app.get("/api/v1/strategy-data/calendars/<calendar_id>")
+    def strategy_data_calendar(calendar_id: str):
+        try:
+            payload = strategy_calendar_payload(
+                selected_reader,
+                calendar_id=calendar_id.strip(),
+                start=parse_iso_date(request.args.get("start", ""), "start"),
+                end=parse_iso_date(request.args.get("end", ""), "end"),
+                limit=parse_limit(
+                    request.args.get("limit"), MAX_STRATEGY_CALENDAR_ROWS
+                ),
+            )
+        except StrategyExternalReadError as exc:
+            return jsonify({"status": "FAILED", "error_code": exc.code}), exc.http_status
+        except StrategyExternalContractError as exc:
+            return jsonify({"status": "FAILED", "error_code": str(exc)}), 503
+        except ValueError:
+            return jsonify({"status": "FAILED", "error_code": "INVALID_REQUEST"}), 400
+        return jsonify(json_value(payload))
+
     @app.get("/api/v1/manifests")
     def manifests():
         datasets = selected_reader.query(
@@ -2086,12 +2665,17 @@ def create_app(
             ]
         except TotalReturnContractError:
             research_contracts = []
+        try:
+            strategy_external_contract = public_strategy_external_contract()
+        except StrategyExternalContractError:
+            strategy_external_contract = None
         return jsonify(
             json_value(
                 {
                     "datasets": datasets,
                     "snapshots": snapshots,
                     "total_return_research_contracts": research_contracts,
+                    "strategy_external_data_contract": strategy_external_contract,
                 }
             )
         )

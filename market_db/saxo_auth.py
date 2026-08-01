@@ -34,6 +34,8 @@ SIM_TOKEN_URL = "https://sim.logonvalidation.net/token"
 DEFAULT_CALLBACK_PORT = 8764
 CALLBACK_PATH = "/saxo/oauth/callback"
 APP_KEY_ENV = "SAXO_OAUTH_APP_KEY"
+APP_KEY_KEYCHAIN_SERVICE = "com.tikeda.saxodb.oauth.sim.app-key"
+APP_KEY_KEYCHAIN_ACCOUNT = "operator-ui"
 KEYCHAIN_SERVICE = "com.tikeda.saxodb.oauth.sim"
 MIN_REFRESH_MARGIN_SECONDS = 30
 ACCESS_REFRESH_MARGIN_SECONDS = 300
@@ -74,6 +76,33 @@ class OAuthConfig:
     @classmethod
     def from_environment(cls, *, callback_port: int = DEFAULT_CALLBACK_PORT) -> "OAuthConfig":
         return cls(os.environ.get(APP_KEY_ENV, "").strip(), callback_port=callback_port)
+
+    @classmethod
+    def from_local_configuration(
+        cls,
+        *,
+        callback_port: int = DEFAULT_CALLBACK_PORT,
+        app_key_store: CredentialStore | None = None,
+    ) -> "OAuthConfig":
+        """Load the public client identifier from env or the Operator Keychain.
+
+        The value is needed in process memory for OAuth refresh, but is never
+        emitted to logs, argv, runtime state, or database receipts.
+        """
+
+        selected = os.environ.get(APP_KEY_ENV, "").strip()
+        if not selected:
+            store = app_key_store or MacOSKeychainStore(
+                service=APP_KEY_KEYCHAIN_SERVICE
+            )
+            raw = store.get(APP_KEY_KEYCHAIN_ACCOUNT)
+            if raw is None:
+                raise SaxoAuthError("AUTH_CONFIG_MISSING")
+            try:
+                selected = raw.decode("utf-8").strip()
+            except UnicodeDecodeError:
+                raise SaxoAuthError("AUTH_APP_KEY_KEYCHAIN_VALUE_INVALID") from None
+        return cls(selected, callback_port=callback_port)
 
     @property
     def redirect_uri(self) -> str:
@@ -379,9 +408,16 @@ class SaxoOAuthManager:
             refresh_token = str(payload["refresh_token"])
             access_seconds = int(payload["expires_in"])
             refresh_seconds = int(payload["refresh_token_expires_in"])
+            token_type = str(payload["token_type"])
         except (KeyError, TypeError, ValueError):
             raise SaxoAuthError("AUTH_TOKEN_RESPONSE_INVALID") from None
-        if not access_token or not refresh_token or access_seconds <= 0 or refresh_seconds <= 0:
+        if (
+            not access_token
+            or not refresh_token
+            or access_seconds <= 0
+            or refresh_seconds <= 0
+            or token_type.casefold() != "bearer"
+        ):
             raise SaxoAuthError("AUTH_TOKEN_RESPONSE_INVALID")
         now = self.clock()
         credential = RefreshCredential(
@@ -446,6 +482,14 @@ class SaxoOAuthManager:
         if self._lease is None:
             raise SaxoAuthError("AUTH_TOKEN_RESPONSE_INVALID")
         return self._lease.access_token
+
+    def access_lease(self, *, force_refresh: bool = False) -> AccessLease:
+        """Return a process-local lease without exposing it through status/logs."""
+
+        self.access_token(force_refresh=force_refresh)
+        if self._lease is None or self._lease.expires_at_epoch <= self.clock():
+            raise SaxoAuthError("AUTH_TOKEN_RESPONSE_INVALID")
+        return self._lease
 
     def status(self) -> dict[str, Any]:
         now = self.clock()

@@ -1,0 +1,129 @@
+{
+  "manifest_relative_path": "manifests/strategy_external_data_contract_manifest_v1.json",
+  "receipt_count": 1,
+  "receipts": [
+    {
+      "accepted_at_utc": null,
+      "account_fingerprint": null,
+      "availability_state": "BLOCKED_EXTERNAL_CONTRACT",
+      "available_at_utc": "2026-07-31T01:41:51Z",
+      "blocker_ids": [
+        "BLOCKED_EXTERNAL_CONTRACT_ISSUER_REVISION_MONITOR_NOT_VERIFIED"
+      ],
+      "calendar_id": null,
+      "contract_id": "c2_edc04_distribution_declaration_v1",
+      "cost_confidence": "NOT_APPLICABLE",
+      "dataset_id": null,
+      "dataset_role": "DISTRIBUTION_DECLARATION",
+      "expected_by_utc": null,
+      "freshness_state": "NOT_EVALUATED_SLA",
+      "interpolation_performed": false,
+      "lineage_id": "issuer-official-http-source-probe-v1",
+      "manifest_sha256": "9e127e9fbed32b226b6a048c21868587e897c26bf437addaaa0ad9f214e25c97",
+      "ordered_content_sha256": null,
+      "payload": {
+        "all_sources_reachable": true,
+        "instrument_count": 11,
+        "negative_distribution_event_semantics_verified": false,
+        "published_at_utc_exposed": false,
+        "revision_identity": "HTTP response content SHA-256 at source_observed_at_utc",
+        "source_kind": "issuer official product publications",
+        "sources": [
+          {
+            "distribution_marker_present": true,
+            "instrument_key": "eem",
+            "sha256": "dd9fd0e507b54402bc33446e1e14dd0d63215a9a306ac7c08e482875c0639d80",
+            "size_bytes": 1676345,
+            "url": "https://www.ishares.com/us/products/239637/ishares-msci-emerging-markets-etf"
+          },
+          {
+            "distribution_marker_present": true,
+            "instrument_key": "efa",
+            "sha256": "1f48f228fa1e9b3e03c3536ad867649612a7f7e5ec6276e5a3ce0f954ed8d57a",
+            "size_bytes": 1671750,
+            "url": "https://www.ishares.com/us/products/239623/ishares-msci-eafe-etf"
+          },
+          {
+            "distribution_marker_present": true,
+            "instrument_key": "gld",
+            "sha256": "8cad8f61c6153efa5bf882c082ed95be1a10fcc5d06aa55103ed4c2469fe8e40",
+            "size_bytes": 175795,
+            "url": "https://www.ssga.com/us/en/individual/etfs/spdr-gold-shares-gld"
+          },
+          {
+            "distribution_marker_present": true,
+            "instrument_key": "ief",
+            "sha256": "46aef5a9e7a0dbfe1a0eab5f90755bca7547593d51e215f303c08632d490a384",
+            "size_bytes": 1848194,
+            "url": "https://www.ishares.com/us/products/239456/ishares-710-year-treasury-bond-etf"
+          },
+          {
+            "distribution_marker_present": true,
+            "instrument_key": "iwm",
+            "sha256": "d7bc707db4d6d60f0b14f9b9a12fb570df0326f27e9d9e22a41bb5416d5245a5",
+            "size_bytes": 1694334,
+            "url": "https://www.ishares.com/us/products/239710/ishares-russell-2000-etf"
+          },
+          {
+            "distribution_marker_present": true,
+            "instrument_key": "lqd",
+            "sha256": "51bf0034dda43ab9e9841b90f29f640490c6864c773ad9502b39d7123b6c3de6",
+            "size_bytes": 1846829,
+            "url": "https://www.ishares.com/us/products/239566/ishares-iboxx-investment-grade-corporate-bond-etf"
+          },
+          {
+            "distribution_marker_present": true,
+            "instrument_key": "shy",
+            "sha256": "258d5864d024e94465b1310c5761f672586b74499e1b6d4fc7bb0e11970b7cf3",
+            "size_bytes": 1845300,
+            "url": "https://www.ishares.com/us/products/239452/ishares-1-3-year-treasury-bond-etf"
+          },
+          {
+            "distribution_marker_present": true,
+            "instrument_key": "spy",
+            "sha256": "0180327b2907933d2215bdc84cc963faba59753b1234a0686935b53da91dbcf8",
+            "size_bytes": 229532,
+            "url": "https://www.ssga.com/us/en/individual/etfs/state-street-spdr-sp-500-etf-trust-spy"
+          },
+          {
+            "distribution_marker_present": true,
+            "instrument_key": "tip",
+            "sha256": "96c0a5ff38d37c2993525be38de18a29c19af4bd17a67c3358f086954e3492fd",
+            "size_bytes": 1853896,
+            "url": "https://www.ishares.com/us/products/239467/ishares-tips-bond-etf"
+          },
+          {
+            "distribution_marker_present": true,
+            "instrument_key": "tlt",
+            "sha256": "d367ffb2da969998424f60c0c9de5ac1a7866aa7beeeb786c361b1f8548c3d06",
+            "size_bytes": 1849269,
+            "url": "https://www.ishares.com/us/products/239454/TLT"
+          },
+          {
+            "distribution_marker_present": false,
+            "instrument_key": "vnq",
+            "sha256": "8d5f7879aa5f921f7ad8a69c2c690440f74e01f00d415e2cc0aa051dbf14792b",
+            "size_bytes": 59015,
+            "url": "https://investor.vanguard.com/investment-products/etfs/profile/vnq"
+          }
+        ],
+        "structured_correction_history_verified": false,
+        "values_extracted_or_accepted": false
+      },
+      "provider_data_version": "b37598be2cce916dbb90b7de035806399547b2455b9ecc9cb9bf77162f53ba27",
+      "provider_id": "ETF_ISSUER_OFFICIAL_PUBLICATIONS",
+      "published_at_utc": null,
+      "quality_state": "NOT_EVALUATED",
+      "receipt_id": "c2-20260731T014151Z-issuer-source-probe",
+      "receipt_sha256": "4de13ea76130e2c002c61280c4405502d8c538e42ea01a3095273908e379c7f8",
+      "revision_state": "NOT_EVALUATED",
+      "schema_version": 1,
+      "source_as_of": "2026-07-31",
+      "source_observed_at_utc": "2026-07-31T01:41:51Z",
+      "supersedes_receipt_id": "c2-20260731T000955Z-distribution-source",
+      "values_modified": false,
+      "warning_ids": []
+    }
+  ],
+  "schema_version": 1
+}

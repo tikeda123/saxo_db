@@ -228,6 +228,8 @@ export SAXO_OAUTH_APP_KEY='<SIM application key>'
 - OAuth reconcileは各normal/full-refetch step前にaccess tokenを取得し、full-refetch前は強制refreshする。20分access tokenを13系列の全reconcileへ固定しない。
 - 一時scope `all_except_usdjpy_provider_quarantine_20260727`はEURUSDとETF 11系列だけを有効にし、USDJPYを`BLOCKED_PROVIDER_CONTENT_QUALITY`として除外する。正本は`specs/source_collection/periodic_scheduler_scope_v1.json`、実行値はservice／scheduler stateの`scheduler_scope`で照合する。
 - XNYS regular slotは株式・REIT（SPY、IWM、EFA、EEM、VNQ）、債券・Credit（SHY、IEF、TLT、TIP、LQD）、Gold（GLD）をinstrument lane別transactionで取得する。あるinstrumentのblockerで同category内の他instrumentも停止しない。
+- XNYS session終了45分後に`etf_daily_close`をETF11のinstrument lane別に実行する。C2専用日足はactual terminal 1Hを必須とし、短い内部欠落だけをmigration 0036の明示WARN付きoverlayで最大2本補完できる。3本以上、terminal欠落、lineage不一致は当該instrumentだけをBLOCKEDにし、他銘柄・serviceは継続する。raw/canonical/既存derivedを補完で上書きせず、日次close自体を別providerやquote feedから取得しない。
+- `RETRY_EXHAUSTED:DATA_NOT_READY`は元slotの監査証跡であり、次のhourly/daily slotを抑止しない。週末・休場日は新barを要求せず、`/api/v1/c2/daily-close-status`の`NEXT_SESSION_WAIT_NON_BLOCKING`を確認する。
 - FX hourly slotはSBFX 24x5 calendarでEURUSDだけを取得する。USDJPYは訂正版DataVersion確認、guard付きfull-refetch PASS、通常run連続2回PASSまでscheduleへ戻さない。
 - USDJPYの隔離中監視は全履歴取得ではなく、専用の`usdjpy_version_watch`を使う。`status`はDB read-only、`probe`はSaxo Chartを`Count=1`で1回だけGETする。同じ既知quarantine DataVersionならrawを追加保存せず、新versionだけをisolated provider evidenceとして保存する。curated、raw DB、watermark、publicationは変更せず、full-refetchも開始しない。
 

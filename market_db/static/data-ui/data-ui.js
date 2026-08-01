@@ -27,6 +27,7 @@ const VIEW_TITLES = {
   catalog: "商品・データ辞書",
   series: "系列チャート",
   quality: "品質・鮮度",
+  "daily-close": "C2日次終値",
   runs: "取込・由来",
   operations: "バックアップ・ストレージ",
 };
@@ -662,6 +663,44 @@ async function renderQuality() {
     <section class="event-list">${eventCards(data.historical_open_events || [], "HISTORICAL eventはありません。")}</section>`;
 }
 
+async function renderDailyClose() {
+  showLoading();
+  const data = await api("/api/v1/c2/daily-close-status");
+  setAsOf(data.generated_at_utc);
+  const summary = data.state || {};
+  page.innerHTML = `
+    <section class="kpi-grid">
+      ${kpi("公開状態", summary.status || "NOT_EVALUATED", "ETF11 daily close")}
+      ${kpi("最新", summary.current_count || 0, "freshness PASS")}
+      ${kpi("要更新", summary.stale_count || 0, "STALE", (summary.stale_count || 0) > 0)}
+      ${kpi("未収録", summary.missing_count || 0, "missing", (summary.missing_count || 0) > 0)}
+      ${kpi("DataVersion警告", summary.revision_warning_count || 0, "review pending", (summary.revision_warning_count || 0) > 0)}
+      ${kpi("限定補完警告", summary.imputation_warning_count || 0, "最大2本 / session", (summary.imputation_warning_count || 0) > 0)}
+      ${kpi("Scheduler", summary.scheduler_status || "NOT_EVALUATED", "operational state", summary.scheduler_status !== "PASS")}
+      ${kpi("次の期待bar", formatTime(summary.next_expected_bar_time_utc), "weekend / holiday wait is non-blocking")}
+    </section>
+    <div class="section-head"><div><span class="section-tag">LOW FREQUENCY PAPER</span><h2>ETF11 日次終値の鮮度</h2><p>regular sessionの完成1Hから生成したnative OHLC日足です。短い内部欠落は最大2本だけ前の実closeでC2専用overlayへ補完し、WARNと来歴を必ず表示します。日次close自体はprovider実値が必須です。リアルタイム、tick、Bid/Askは不要で、Total Return、公式取引所終値、約定価格とは別です。</p></div></div>
+    ${genericRowsTable(data.series, [
+      {key:"instrument_key",label:"銘柄",render:value=>`<strong>${escapeHtml(String(value).toUpperCase())}</strong>`},
+      {key:"latest_session_date",label:"最新session / as-of"},
+      {key:"latest_expected_complete_time_utc",label:"期待bar",render:value=>formatTime(value)},
+      {key:"expected_session_date",label:"期待session"},
+      {key:"freshness_status",label:"鮮度",render:value=>badge(value)},
+      {key:"quality_status",label:"品質",render:value=>badge(value)},
+      {key:"imputation_status",label:"補完状態",render:value=>badge(value)},
+      {key:"imputed_bar_count",label:"補完本数",className:"numeric",render:formatNumber},
+      {key:"warning_ids",label:"補完警告",render:value=>escapeHtml((value || []).join(", ") || "—")},
+      {key:"update_status",label:"更新",render:value=>badge(value)},
+      {key:"revision_review_status",label:"Revision",render:value=>badge(value)},
+      {key:"source_last_ingestion_run_id",label:"Run",className:"numeric",render:formatNumber},
+    ])}
+    <article class="panel"><p><strong>補完された1Hを確認:</strong> <code>/api/v1/c2/hourly-overlay</code> は実barと補完barを区別し、元timestamp・理由・連続欠落数を返します。canonical raw/curatedは変更しません。</p><div class="metric-strip">
+      <span class="metric-chip"><small>市場待ち</small><strong>${badge(summary.market_wait_status)}</strong></span>
+      <span class="metric-chip"><small>Saxo write</small><strong>${formatNumber(summary.write_requests_to_saxo)}</strong></span>
+      <span class="metric-chip"><small>order / precheck</small><strong>${formatNumber(summary.orders_or_prechecks_sent)}</strong></span>
+    </div></article>`;
+}
+
 function genericRowsTable(rows, columns) {
   if (!rows?.length) return `<div class="empty">データはありません。</div>`;
   return `<div class="table-panel"><div class="table-scroll"><table><thead><tr>${columns.map(column => `<th>${escapeHtml(column.label)}</th>`).join("")}</tr></thead><tbody>${rows.map(row => `<tr>${columns.map(column => `<td class="${column.className || ""}">${column.render ? column.render(row[column.key], row) : escapeHtml(row[column.key] ?? "—")}</td>`).join("")}</tr>`).join("")}</tbody></table></div></div>`;
@@ -722,6 +761,7 @@ async function render() {
     else if (view === "catalog") await renderCatalog();
     else if (view === "series") await renderSeries(route.id);
     else if (view === "quality") await renderQuality();
+    else if (view === "daily-close") await renderDailyClose();
     else if (view === "runs") await renderRuns();
     else if (view === "operations") await renderOperations();
   } catch (error) { showError(error); }

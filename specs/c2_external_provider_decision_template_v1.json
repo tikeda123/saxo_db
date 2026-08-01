@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "decision_type": "C2_EXTERNAL_PROVIDER_SELECTION",
+  "instructions_ja": "providerの新規選定・契約はユーザー決定である。推測値を入力せず、証拠文書が揃ったroleだけAPPROVEDへ変更する。",
+  "decisions": [
+    {
+      "dataset_role": "SIGNAL_TOTAL_RETURN_DAILY",
+      "status": "DECISION_REQUIRED",
+      "provider_id": null,
+      "provider_legal_name": null,
+      "source_contract_reference": null,
+      "license_and_redistribution_status": null,
+      "definition_id": null,
+      "required_definition": "11 ETF adjusted total-return index including distributions with reproducible revision history",
+      "instrument_set": null,
+      "coverage_start": null,
+      "publication_sla": null,
+      "revision_policy": null,
+      "lineage_method": null,
+      "content_identity_method": null,
+      "approved_by": null,
+      "approved_at_utc": null,
+      "notes": null
+    },
+    {
+      "dataset_role": "VALUATION_PRICE_DAILY",
+      "status": "DECISION_REQUIRED",
+      "provider_id": null,
+      "provider_legal_name": null,
+      "source_contract_reference": null,
+      "license_and_redistribution_status": null,
+      "definition_id": null,
+      "required_definition": "unadjusted primary-listing-exchange official closing price with venue/date/revision identity",
+      "instrument_set": null,
+      "coverage_start": null,
+      "publication_sla": null,
+      "revision_policy": null,
+      "lineage_method": null,
+      "content_identity_method": null,
+      "approved_by": null,
+      "approved_at_utc": null,
+      "notes": null
+    }
+  ]
+}

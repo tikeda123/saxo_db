@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "contract_id": "c2_saxo_sim_oauth_keychain_v1",
+  "environment": "SIM",
+  "initial_human_action": "one explicit AppKey Keychain save followed by one PKCE authorization in the loopback Operator UI",
+  "credential_store": "macOS Keychain",
+  "persisted_values": [
+    "SIM AppKey public client identifier in a separate user-confirmed Keychain entry",
+    "rotating refresh credential",
+    "PKCE code verifier",
+    "refresh expiry",
+    "SIM AppKey fingerprint",
+    "opaque HMAC account binding key and fingerprint"
+  ],
+  "forbidden_persistence": [
+    "access token",
+    "authorization code",
+    "raw account identifier",
+    "client identifier",
+    "token response body"
+  ],
+  "app_key_configuration": {
+    "input": "loopback Operator UI password field shown only while unset",
+    "write_trigger": "explicit same-origin CSRF-protected browser click only",
+    "keychain_service": "com.tikeda.saxodb.oauth.sim.app-key",
+    "redisplay_allowed": false,
+    "browser_storage_allowed": false,
+    "database_or_repository_persistence_allowed": false,
+    "delete_or_replace": "separate explicit confirmation"
+  },
+  "access_token_persistence": "process_memory_only",
+  "refresh_rotation_required": true,
+  "refresh_concurrency": "single repository-owned file lock then reread latest Keychain credential",
+  "refresh_keeper": "Operator UI maintains only the OAuth token chain before provider and gate decisions; it never constructs a Saxo OpenAPI client",
+  "environment_binding": "SIM authorization, token and OpenAPI endpoints only",
+  "account_binding": "first accepted GET preflight stores only an HMAC fingerprint; later mismatch fails closed",
+  "read_only_ack": "SIM_APP_TRADING_DISABLED_GET_ONLY",
+  "read_only_enforcement": [
+    "Saxo SIM application must have trading disabled at registration",
+    "C2 client exposes allow-listed GET methods only",
+    "write request counter must remain zero"
+  ],
+  "kill_switch": ".runtime/c2/sim_read_disabled",
+  "kill_switch_effect": "block token refresh and every new or active C2 session operation without deleting evidence",
+  "gate_separation": {
+    "oauth_and_refresh_readiness": "allowed before provider and operational-gate decisions",
+    "sim_observation_start": "allowed after AUTH_READY, explicit SIM trading-disabled acknowledgement and kill-switch check; provider, SLA, fee and receipt decisions are non-blocking",
+    "sim_allocation_and_paper_evaluation": "blocked until the required provider, valuation, fee, accounting, SLA and accepted-receipt gates are complete",
+    "live_order_eligibility": "prohibited; this credential adapter grants no order or account-mutation capability"
+  },
+  "expiry_failure": "AUTH_LOGIN_REQUIRED and no API call",
+  "refresh_failure": "BLOCKED_INTERFACE_OPERATIONAL and no fallback token source",
+  "remote_revocation": "remove application access in SaxoTraderGO; local disconnect deletes only the Keychain entries",
+  "write_methods_allowed": [],
+  "backward_compatibility": "the existing in-memory EphemeralSIMReadSession remains the execution core; direct token paste is deprecated and disabled in Operator UI"
+}

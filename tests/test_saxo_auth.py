@@ -8,6 +8,7 @@ import pytest
 
 from market_db.saxo_auth import (
     APP_KEY_ENV,
+    APP_KEY_KEYCHAIN_ACCOUNT,
     CALLBACK_PATH,
     MacOSKeychainStore,
     OAuthConfig,
@@ -68,6 +69,20 @@ def test_pkce_authorization_url_is_sim_localhost_and_has_no_secret(monkeypatch):
     assert query["redirect_uri"] == [f"http://localhost:8764{CALLBACK_PATH}"]
     assert pending.code_verifier not in pending.authorization_url
     assert 43 <= len(pending.code_verifier) <= 128
+
+
+def test_local_oauth_configuration_uses_operator_keychain_without_exposing_value(monkeypatch):
+    monkeypatch.delenv(APP_KEY_ENV, raising=False)
+    store = MemoryStore()
+    store.put(APP_KEY_KEYCHAIN_ACCOUNT, b"keychain-public-client-id")
+
+    config = OAuthConfig.from_local_configuration(
+        callback_port=8765, app_key_store=store
+    )
+
+    assert config.callback_port == 8765
+    assert config.app_key == "keychain-public-client-id"
+    assert config.app_key not in json.dumps({"fingerprint": config.app_key_fingerprint})
 
 
 def test_authorization_persists_only_refresh_credential_and_redacts_status():
@@ -210,3 +225,31 @@ def test_non_sim_oauth_endpoints_and_empty_app_key_are_blocked():
         OAuthConfig("")
     with pytest.raises(SaxoAuthError, match="AUTH_NON_SIM_ENDPOINT_BLOCKED"):
         OAuthConfig("app", token_url="https://example.invalid/token")
+
+
+def test_token_response_requires_bearer_type_and_access_lease_stays_process_local():
+    now = 5_000_000.0
+    store = MemoryStore()
+    bad = token_response("access", "refresh")
+    bad["token_type"] = "unexpected"
+    manager = SaxoOAuthManager(
+        OAuthConfig("sim-app-key"),
+        store=store,
+        transport=FakeOAuthTransport([bad]),
+        clock=lambda: now,
+    )
+    with pytest.raises(SaxoAuthError, match="AUTH_TOKEN_RESPONSE_INVALID"):
+        manager.complete_authorization(manager.begin_authorization(), "code")
+    assert store.values == {}
+
+    manager = SaxoOAuthManager(
+        OAuthConfig("sim-app-key"),
+        store=store,
+        transport=FakeOAuthTransport([token_response("access", "refresh")]),
+        clock=lambda: now,
+    )
+    manager.complete_authorization(manager.begin_authorization(), "code")
+    lease = manager.access_lease()
+    assert lease.access_token == "access"
+    assert lease.expires_at_epoch == now + 1200
+    assert b"access" not in store.values[manager.config.keychain_account]

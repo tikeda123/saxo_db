@@ -94,6 +94,7 @@ Docker container内の`127.0.0.1`はcontainer自身を指すため、そのま�
 | GET | `/health` | DB roleとread-only状態のhealth check |
 | GET | `/api/v1/operations/{command}` | inventory、品質、運用情報 |
 | GET | `/api/v1/bars` | PASS済みOHLCの期間取得 |
+| GET | `/api/v1/c2/daily-close-status` | ETF11日次closeのlatest session、as-of、freshness、quality、更新状態 |
 | GET | `/api/v1/snapshots/{snapshot_id}/bars` | 固定研究snapshotの検証済み1H OHLC |
 | GET | `/api/v1/total-return` | 承認mapping済みETF total-return日次 |
 | GET | `/api/v1/manifests` | dataset、research snapshot識別 |
@@ -165,6 +166,24 @@ Pythonでは`float`ではなく`decimal.Decimal`を推奨します。volumeはnu
 - responseのfield削除、意味変更、型変更は`v1`では行わない。
 - operationsとbarsのresponseは`api_version`、`contract_revision`、`generated_at_utc`を返す。
 - consumerは`api_version=1`を確認し、対応済み`contract_revision`未満なら停止する。
+
+### 4.5 C2低頻度日次close status
+
+```bash
+curl --fail 'http://127.0.0.1:8766/api/v1/c2/daily-close-status'
+```
+
+ETF11のC2専用`native_ohlc`派生1Dについて、`latest_session_date`をXNYS calendar由来の`expected_session_date`と比較する。`freshness_status=PASS`だけをcurrentとし、遅延時は値を隠さず`AVAILABLE_WITH_FRESHNESS_WARNING`と`UPDATE_REQUIRED`を返す。scheduler停止・stale PIDは`interface_blockers`へ出し、値異常のdata-quality statusと混同しない。週末・休場日の次session待ちは`NEXT_SESSION_WAIT_NON_BLOCKING`であり、新しい市場データが存在しないことをFAILにしない。
+
+短い1H欠落をC2限定overlayで補ったsessionは`imputed_bar_count`、`imputation_status=PASS_WITH_IMPUTATION_WARNING`、`warning_ids`を返す。日次`close`は補完値ではなくsession terminalのactual provider rowである。3本以上、terminal欠落、anchor/lineage/DataVersion不一致はinstrument単位でBLOCKEDとなるが、他銘柄やservice全体を停止しない。
+
+補完された1Hと来歴は次で取得する。
+
+```bash
+curl --fail 'http://127.0.0.1:8766/api/v1/c2/hourly-overlay?instrument_key=tip&start=2026-07-29T13:00:00Z&end=2026-07-30T00:00:00Z&limit=100'
+```
+
+補完rowは`source_kind=IMPUTED_PREVIOUS_VALID`、`imputation_reason`、`source_time_utc`、`consecutive_gap_index/count`、DataVersion、artifact/hashを返す。official close、total return、execution priceのclaimは全てfalseである。generic `/api/v1/bars`には補完rowを含めない。migration 0036適用前はこのC2 overlay contractは未公開である。
 
 ## 5. 運用情報 `/api/v1/operations/{command}`
 
@@ -653,7 +672,13 @@ response:
         "freshness_required": false
       }
     }
-  ]
+  ],
+  "strategy_external_data_contract": {
+    "bundle_id": "c2_strategy_external_data_contract_v1",
+    "bundle_status": "BLOCKED_EXTERNAL_CONTRACT",
+    "manifest_sha256": "<64-hex>",
+    "contracts": []
+  }
 }
 ```
 
@@ -738,6 +763,35 @@ curl --fail --get 'http://127.0.0.1:8766/api/v1/total-return' \
 ```
 
 contract `etf11_full_history_20260712_v1`は11 ETF共通の2004-11-18〜2026-07-10、各5,443行をhash固定したGET-only契約です。2024-07-01〜2026-06-30を指定すると各501行を返します。専用Holdout契約、期間の秘匿、一回取得制限はありません。各銘柄のsource-file SHA-256、full-history ordered content SHA-256、source manifest、total-return定義を固定し、値の再取得・補正は行いません。EEMの既知2 outlierは値変更なしのwarningです。詳細は[Full-history共通研究公開](total_return_full_history_research_publication_20260730.md)を参照してください。
+
+### 9.0.3 Strategy Analysis向け外部データ契約
+
+C2のcurrent signal、official close、共通calendar、配当cash transaction／訂正、quote、fee、currency quantumは、既存の研究total-returnと同一のavailabilityとして扱いません。最初に契約bundleと状態を取得します。
+
+```bash
+curl --fail http://127.0.0.1:8766/api/v1/strategy-data/contracts
+curl --fail http://127.0.0.1:8766/api/v1/strategy-data/status
+curl --fail --get 'http://127.0.0.1:8766/api/v1/strategy-data/receipts' \
+  --data-urlencode 'dataset_role=SIGNAL_TOTAL_RETURN_DAILY' \
+  --data-urlencode 'limit=100'
+```
+
+`contracts`はrepo fixtureとmanifest SHA-256を検証して返す。`status`はmigration `0034`適用後、最新immutable receiptを結合する。未適用なら`migration_status=NOT_APPLIED`、receipt未発行なら`BLOCKED_EXTERNAL_CONTRACT`または`NOT_EVALUATED`であり、空配列をPASSと解釈してはいけない。
+
+quality、freshness、revision、cost confidenceは独立fieldである。interface障害は`BLOCKED_INTERFACE_OPERATIONAL`、値の明示異常は`FAIL_DATA_QUALITY`、期待データの未確定は`DATA_NOT_READY`であり相互変換しない。`UNKNOWN` feeを0 USDに変換しない。
+
+accepted common calendarはboundedな日付範囲で取得する。
+
+```bash
+curl --fail --get 'http://127.0.0.1:8766/api/v1/strategy-data/calendars/ARCX_XNAS_COMMON_REGULAR_2026' \
+  --data-urlencode 'start=2026-01-01' \
+  --data-urlencode 'end=2027-01-01' \
+  --data-urlencode 'limit=100'
+```
+
+responseは`calendar_version=arcx_xnas_common_2026_v1`と`normalized_sha256`を持つ。NYSE/NYSE ArcaとNasdaqの2026年公式calendarを正規化したintersectionは`common_calendar_verified=true`、`evidence_only=false`、`AVAILABLE_WITH_WARNINGS`である。公式pageに機械可読なpublication timestampがないため`SOURCE_PUBLISHED_AT_NOT_EXPOSED`を返す。未acceptedのcatalog seedは公開せず404とし、存在だけで共通calendarをPASSにしない。
+
+詳細、blocker、decision registry、rollout手順は[Strategy Analysis向け外部データ契約・引渡し](strategy_external_data_contract_handoff_20260730.md)を参照する。
 
 ### 9.1 系列を検索
 
