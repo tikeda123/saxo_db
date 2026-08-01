@@ -62,6 +62,14 @@ native OHLCとETF total-returnは意味が異なるため、同一系列とし�
 
 `NOT_EVALUATED`はPASSではありません。calendarや鮮度判定の根拠が不足している状態を、そのまま保持します。
 
+### C2 ETF11の現在状態
+
+2026-08-01の適用証跡では、ETF11（SPY、IWM、EFA、EEM、VNQ、SHY、IEF、TLT、TIP、LQD、GLD）は全銘柄が`latest_session_date=2026-07-31`、`freshness_status=PASS`、欠損銘柄0です。SPY/IWM/EFA/EEM/VNQ/SHY/IEF/TLT/LQDは`PASS`、TIP/GLDは2026-07-29 13:30Z・14:30Zの各2本だけをC2専用overlayで`IMPUTED_PREVIOUS_VALID`としたため`WARN`です。補完はraw/canonicalを変更せず、generic `/api/v1/bars`、total-return、official close、execution priceには混在させません。
+
+Read APIは`GET /api/v1/c2/daily-close-status`で11/11系列を返し、healthは`PASS`、roleは`saxo_app_reader`、transactionはread-only、全体状態は`AVAILABLE_WITH_IMPUTATION_WARNING`です。schedulerは`all_except_usdjpy_with_fx_research_candidates_20260727`で`RUNNING / AUTH_READY`、USDJPYはprovider content-quality quarantineのため取得対象外のままです。根拠は[`C2 ETF11有界補完の実DB適用証跡`](manifests/c2_etf11_bounded_imputation_live_apply_20260801.json)と[`C2 ETF11有界補完仕様・結果`](docs/c2_etf11_bounded_imputation_design_20260801.md)を参照してください。
+
+これはデータ基盤の利用可能性であり、Strategy Analysisの戦略、配分、PnL、WFO/Holdout、売買判断の合格を意味しません。本リポジトリは市場データと品質・lineage・Read APIを提供するだけで、注文、precheck、取消、口座・資金操作を行いません。コードの厳密なGit版は固定値をREADMEへ転記せず、`git rev-parse HEAD`と`git status --short --branch`で確認します。
+
 ## 構成
 
 ```text
@@ -219,7 +227,7 @@ C2は四半期リバランスの低頻度検証であり、ティック、リア
 
 この日次終値fallbackで進める限り、現在必要な利用者設定はない。Saxoの遅延InfoPriceも併用する場合だけ、公式手順どおりDeveloper Portalの`Apps > Live Applications`からSIMをLIVE accountへlinkし、LIVE側SaxoTraderの`Account/Settings > Other > OpenAPI Access`でmarket-data免責に同意する一つの設定フローが必要になる。今回、この外部設定・契約追加は実行していない。根拠と代替評価は[`C2 SIM ETF11 quote NoAccess調査結果`](docs/c2_sim_quote_noaccess_resolution_20260731.md)、機械可読方針は[`c2_low_frequency_price_policy_v1.json`](specs/c2_low_frequency_price_policy_v1.json)を参照してください。
 
-日次fallbackはC2専用`GET /api/v1/c2/daily-close-status`で、ETF11全銘柄の`native_ohlc` actual terminal closeと鮮度を取得する。この`close`は低頻度reference priceであり、total return、primary-exchange official close、execution priceではない。60分足の短い内部欠落は最大2本だけ別overlayへ前値補完できるが、raw/canonicalを変更せず`AVAILABLE_WITH_IMPUTATION_WARNING`、元timestamp、理由、連続欠落数を返す。補完された1Hは`GET /api/v1/c2/hourly-overlay`で明示的に取得し、generic `/api/v1/bars`へ混在させない。規則と未適用手順は[`C2 ETF11有界補完仕様`](docs/c2_etf11_bounded_imputation_design_20260801.md)を参照する。
+日次fallbackはC2専用`GET /api/v1/c2/daily-close-status`で、ETF11全銘柄の`native_ohlc` actual terminal closeと鮮度を取得する。この`close`は低頻度reference priceであり、total return、primary-exchange official close、execution priceではない。60分足の短い内部欠落は最大2本だけ別overlayへ前値補完できるが、raw/canonicalを変更せず`AVAILABLE_WITH_IMPUTATION_WARNING`、元timestamp、理由、連続欠落数を返す。補完された1Hは`GET /api/v1/c2/hourly-overlay`で明示的に取得し、generic `/api/v1/bars`へ混在させない。規則と実DB適用結果は[`C2 ETF11有界補完仕様・結果`](docs/c2_etf11_bounded_imputation_design_20260801.md)を参照する。
 
 Developer PortalのApplication ManagementでSIMアプリを作成し、PKCE用redirect URIを`http://localhost/saxo/oauth/callback`（portなし）として登録する。SaxoのPKCE登録ではportを指定せず、実行時callbackだけが`http://localhost:8765/saxo/oauth/callback`を使用する。AppKeyはOAuth client IDでありtokenではないが、repositoryへ固定せず実行環境から与える。
 
@@ -238,13 +246,13 @@ App Key未設定時はC2欄に`SIM_OAUTH_APP_KEY_NOT_SET`の日本語説明、Sa
 ```bash
 .venv/bin/python -m market_db.saxo_auth status --callback-port 8765
 .venv/bin/python -m market_db.periodic_update schedule \
-  --scope-profile all_except_usdjpy_provider_quarantine_20260727
+  --scope-profile all_except_usdjpy_with_fx_research_candidates_20260727
 .venv/bin/python -m market_db.periodic_update_service start --callback-port 8765 \
-  --scope-profile all_except_usdjpy_provider_quarantine_20260727
+  --scope-profile all_except_usdjpy_with_fx_research_candidates_20260727
 .venv/bin/python -m market_db.periodic_update_service status
 ```
 
-schedulerはdata jobがない時間もtoken期限を監視してrefresh chainを維持する。現在の一時scopeは`all_except_usdjpy_provider_quarantine_20260727`で、EURUSDとETF 11系列（SPY、IWM、EFA、EEM、VNQ、SHY、IEF、TLT、TIP、LQD、GLD）だけを取得する。USDJPYはprovider DataVersion `29738069`の内容品質blockerが解消するまで対象外である。scope正本は[`periodic_scheduler_scope_v1.json`](specs/source_collection/periodic_scheduler_scope_v1.json)、実行中の値は`.runtime/periodic_update/state.json`の`scheduler_scope`で確認する。各slotはinstrument laneで独立し、future DataVersion warningはlaneもサービスもdegradedへ変えない。
+schedulerはdata jobがない時間もtoken期限を監視してrefresh chainを維持する。現在のscopeは`all_except_usdjpy_with_fx_research_candidates_20260727`で、ETF 11系列、EURUSD、研究候補FX 3系列（AUDUSD、USDCAD、USDCHF）を取得する。USDJPYはprovider content-quality blockerが解消するまで対象外である。scope正本は[`fx_research_candidate_scheduler_scope_v1.json`](specs/source_collection/fx_research_candidate_scheduler_scope_v1.json)、実行中の値は`.runtime/periodic_update/state.json`の`scheduler_scope`で確認する。各slotはinstrument laneで独立し、future DataVersion warningはlaneもサービスもdegradedへ変えない。
 
 ETFはXNYS calendarの営業日・短縮日を使い、株式・REIT、債券・Credit、Goldの各instrument laneを各完成可能なregular 1Hのbar終了15秒後から取得する。第1barは10:30:15 ETに開始し、10:33 ETをdeadlineとする。加えてsession終了45分後にETF11各銘柄の独立`etf_daily_close` laneを実行し、最終regular-session 1Hと派生1Dの同一session到達を確認する。過去slotの`DATA_NOT_READY` retry枯渇は監査証跡として残すが、次のhourly/daily slotを永久停止しない。EURUSDはSBFX 24x5 calendarに従って毎UTC時03分に取得し、時10分をdeadlineとする。401はrefresh後1回再試行し、network／429／未確定barは有限回だけretryする。canonical watermarkやinstrument driftの実障害は系列単位、future DataVersion変更は非停止warningとして記録する。認証・timeout・429はinterface/operational、未確定barはdata-not-ready、値異常はdata qualityとして分離する。
 
@@ -310,10 +318,11 @@ SAXO_DB_INTEGRATION=1 .venv/bin/python -m pytest
 - DPU1: OAuth PKCE・Keychain rotation・定期更新service — PASS / `AUTH_READY`で稼働中
 - DPU2: ETF11・EURUSD scheduler — PASS / USDJPYだけprovider-quality quarantine
 - FX研究候補: AUDUSD・USDCAD・USDCHF — `PUBLISHED / AVAILABLE_WITH_WARNINGS`、独立scheduler稼働中
+- C2 ETF11日次close — 11/11銘柄が2026-07-31まで到達、freshness `PASS` / TIP・GLDのみ各2本の有界overlayにより`AVAILABLE_WITH_IMPUTATION_WARNING`
 - DPU3: current total-return定期取得 — BLOCKED_SOURCE_PROVIDER_NOT_CONFIGURED
 - TRR1: ETF11固定期間total-return研究契約 — PASS（EEMのみ既知warning、値修正0）
 - C2外部データ契約surface — migration `0034`/`0035`適用済み / common calendarはwarning付き利用可 / 未確定sourceはfail-closed
-- C2 SIM Read短命session — 実装・unit test済み / 現在は`AUTH_CONFIG_MISSING`かつ運用gate決定待ち
+- C2 SIM Read短命session — `AUTH_READY`、初回観測は`SUCCEEDED / PASS_WITH_WARNINGS` / 純SIMのETF quoteは`NoAccess`のため低頻度paper監視はRead API日次closeを使用
 
 これらはデータ基盤の実装・運用ゲートです。戦略の優位性や収益性を証明するものではありません。旧計画に含まれるRT0以降の戦略文書は履歴資料として保持しますが、このリポジトリの現行スコープには含めません。
 
