@@ -64,11 +64,13 @@ native OHLCとETF total-returnは意味が異なるため、同一系列とし�
 
 ### C2 ETF11の現在状態
 
-2026-08-01の適用証跡では、ETF11（SPY、IWM、EFA、EEM、VNQ、SHY、IEF、TLT、TIP、LQD、GLD）は全銘柄が`latest_session_date=2026-07-31`、`freshness_status=PASS`、欠損銘柄0です。SPY/IWM/EFA/EEM/VNQ/SHY/IEF/TLT/LQDは`PASS`、TIP/GLDは2026-07-29 13:30Z・14:30Zの各2本だけをC2専用overlayで`IMPUTED_PREVIOUS_VALID`としたため`WARN`です。補完はraw/canonicalを変更せず、generic `/api/v1/bars`、total-return、official close、execution priceには混在させません。
+2026-08-04 15:13 UTCのread-only確認では、ETF11（SPY、IWM、EFA、EEM、VNQ、SHY、IEF、TLT、TIP、LQD、GLD）は全銘柄が`latest_session_date=2026-08-03`、次の期待sessionが`2026-08-04`、`freshness_status=STALE`、`update_status=UPDATE_REQUIRED`です。欠損銘柄は0で、全系列の最新日足自体は`AVAILABLE`です。これは確認時点で次sessionの日次closeが未到達であることを示す鮮度警告であり、品質破損を意味しません。固定値は運用中に変わるため、利用時は必ず`GET /api/v1/c2/daily-close-status`で再確認してください。
 
-Read APIは`GET /api/v1/c2/daily-close-status`で11/11系列を返し、healthは`PASS`、roleは`saxo_app_reader`、transactionはread-only、全体状態は`AVAILABLE_WITH_IMPUTATION_WARNING`です。schedulerは`all_except_usdjpy_with_fx_research_candidates_20260727`で`RUNNING / AUTH_READY`、USDJPYはprovider content-quality quarantineのため取得対象外のままです。根拠は[`C2 ETF11有界補完の実DB適用証跡`](manifests/c2_etf11_bounded_imputation_live_apply_20260801.json)と[`C2 ETF11有界補完仕様・結果`](docs/c2_etf11_bounded_imputation_design_20260801.md)を参照してください。
+TIP/GLDには、2026-07-29 13:30Z・14:30Zの各2本だけをC2専用overlayで`IMPUTED_PREVIOUS_VALID`とした既知の警告が残ります。両銘柄は`quality_status=WARN`、`imputation_status=PASS_WITH_IMPUTATION_WARNING`で、他9銘柄は`quality_status=PASS`です。補完はraw/canonicalを変更せず、generic `/api/v1/bars`、total-return、official close、execution priceには混在させません。
 
-これはデータ基盤の利用可能性であり、Strategy Analysisの戦略、配分、PnL、WFO/Holdout、売買判断の合格を意味しません。本リポジトリは市場データと品質・lineage・Read APIを提供するだけで、注文、precheck、取消、口座・資金操作を行いません。コードの厳密なGit版は固定値をREADMEへ転記せず、`git rev-parse HEAD`と`git status --short --branch`で確認します。
+同じ確認時点でRead APIはhealth `PASS`、role `saxo_app_reader`、transaction read-onlyです。scheduler processと認証は`PASS / AUTH_READY`ですが、SPY/IWM/EFA/SHY/IEF/TLT/TIP/LQDの当日第1 1H slotが`RETRY_EXHAUSTED:DATA_NOT_READY`となり、serviceはinstrument単位の`RUNNING_DEGRADED`です。EEM/VNQ/GLD、FX laneやRead APIまで全停止した状態ではありません。scopeは`all_except_usdjpy_with_fx_research_candidates_20260727`を維持し、USDJPYはprovider content-quality quarantineのため取得対象外のままです。根拠は[`C2 ETF11有界補完の実DB適用証跡`](manifests/c2_etf11_bounded_imputation_live_apply_20260801.json)と[`C2 ETF11有界補完仕様・結果`](docs/c2_etf11_bounded_imputation_design_20260801.md)を参照してください。
+
+これはデータ基盤の利用可能性であり、Strategy Analysisの戦略、配分、PnL、WFO/Holdout、売買判断の合格を意味しません。本リポジトリは市場データと品質・lineage・Read APIを提供するだけで、注文、precheck、取消、口座・資金操作を行いません。過去のC2紙上トライアルやStrategy側の注文テストも、本リポジトリの機能または合格実績には含めません。コードの厳密なGit版は固定値をREADMEへ転記せず、`git rev-parse HEAD`と`git status --short --branch`で確認します。
 
 ## 構成
 
@@ -315,10 +317,10 @@ SAXO_DB_INTEGRATION=1 .venv/bin/python -m pytest
 - DMI3: stable total-return API — PASS
 - DMI4: cursor・consumer contract kit — PASS
 - DMI5: Read API lifecycle・non-data operational preflight — PASS
-- DPU1: OAuth PKCE・Keychain rotation・定期更新service — PASS / `AUTH_READY`で稼働中
-- DPU2: ETF11・EURUSD scheduler — PASS / USDJPYだけprovider-quality quarantine
+- DPU1: OAuth PKCE・Keychain rotation・定期更新service — 実装PASS / 2026-08-04 15:13 UTC時点は`AUTH_READY`・service `RUNNING_DEGRADED`
+- DPU2: ETF11・EURUSD scheduler — scope有効 / SPY・IWM・EFA・SHY・IEF・TLT・TIP・LQDは当日第1 1Hの`DATA_NOT_READY`でinstrument単位degraded、USDJPYはprovider-quality quarantine
 - FX研究候補: AUDUSD・USDCAD・USDCHF — `PUBLISHED / AVAILABLE_WITH_WARNINGS`、独立scheduler稼働中
-- C2 ETF11日次close — 11/11銘柄が2026-07-31まで到達、freshness `PASS` / TIP・GLDのみ各2本の有界overlayにより`AVAILABLE_WITH_IMPUTATION_WARNING`
+- C2 ETF11日次close — 2026-08-04 15:13 UTC時点で11/11銘柄が2026-08-03まで到達、次session待ちで全系列`STALE / UPDATE_REQUIRED`、欠損銘柄0 / TIP・GLDのみ各2本の有界overlay警告
 - DPU3: current total-return定期取得 — BLOCKED_SOURCE_PROVIDER_NOT_CONFIGURED
 - TRR1: ETF11固定期間total-return研究契約 — PASS（EEMのみ既知warning、値修正0）
 - C2外部データ契約surface — migration `0034`/`0035`適用済み / common calendarはwarning付き利用可 / 未確定sourceはfail-closed
