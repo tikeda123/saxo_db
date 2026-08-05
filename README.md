@@ -135,6 +135,8 @@ docker compose -p saxo-market-data up -d postgres
 
 secretは`.secrets/`にだけ保存し、Git、`.env`、terminal引数、ログへ出力しません。より詳しい初回構築、migration、障害対応は[データ管理・運用ランブック](docs/database_operations_runbook.md)を参照してください。
 
+別のMacへ安全に再構築する場合は、旧MacのKeychain、token、`.runtime/`、DB volume・実データ、log、backupをcopyせず、[別Mac構築ランブック](docs/new_mac_setup_runbook.md)に従ってclean cloneから開始してください。
+
 ### PostgreSQLの起動と確認
 
 ```bash
@@ -330,6 +332,7 @@ SAXO_DB_INTEGRATION=1 .venv/bin/python -m pytest
 
 ## 主要ドキュメント
 
+- [別Mac構築ランブック](docs/new_mac_setup_runbook.md)
 - [外部プロジェクト向けRead APIインターフェース](docs/read_api_interface.md)
 - [Strategy Analysis向け外部データ契約・引渡し](docs/strategy_external_data_contract_handoff_20260730.md)
 - [C2 SIM Read短命session・provider／運用gate決定手順](docs/c2_sim_read_session_and_decision_flow_20260731.md)
