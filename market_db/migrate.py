@@ -119,6 +119,29 @@ def list_migrations(directory: Path | None = None) -> list[Path]:
     return paths
 
 
+def select_migrations(
+    directory: Path | None = None,
+    *,
+    through: str | None = None,
+) -> list[Path]:
+    """Return the ordered migration prefix ending at ``through``.
+
+    A clean database must stop at 0018 before either the licensed legacy
+    bundle or the repository synthetic smoke seed is imported.  Migration
+    0019 intentionally validates the eleven ETF mappings and therefore cannot
+    be applied to an empty schema.  The boundary is explicit and fail-closed;
+    arbitrary gaps are not supported.
+    """
+
+    paths = list_migrations(directory)
+    if through is None:
+        return paths
+    numbers = [migration_number(path) for path in paths]
+    if through not in numbers:
+        raise MigrationError(f"unknown migration boundary: {through}")
+    return [path for path in paths if migration_number(path) <= through]
+
+
 def _role_exists(cursor: Any, role: str) -> bool:
     cursor.execute("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = %s)", (role,))
     return bool(cursor.fetchone()[0])
@@ -237,9 +260,11 @@ def apply_database_migrations(
     database: str,
     *,
     directory: Path | None = None,
+    through: str | None = None,
 ) -> list[dict[str, str]]:
-    paths = list_migrations(directory)
-    by_number = {migration_number(path): path for path in paths}
+    all_paths = list_migrations(directory)
+    paths = select_migrations(directory, through=through)
+    by_number = {migration_number(path): path for path in all_paths}
     bootstrap_path = by_number["0001"]
     bootstrap_checksum = migration_sha256(bootstrap_path)
     results: list[dict[str, str]] = []
@@ -302,11 +327,17 @@ def validate_applied_checksums(directory: Path | None = None) -> list[dict[str, 
     return results
 
 
-def run_all(directory: Path | None = None) -> dict[str, Any]:
+def run_all(
+    directory: Path | None = None,
+    *,
+    through: str | None = None,
+) -> dict[str, Any]:
     bootstrap = bootstrap_cluster()
     migrations: list[dict[str, str]] = []
     for database in (MARKET_DB, RESEARCH_DB, FORWARD_DB):
-        migrations.extend(apply_database_migrations(database, directory=directory))
+        migrations.extend(
+            apply_database_migrations(database, directory=directory, through=through)
+        )
     checksums = validate_applied_checksums(directory)
     return {"bootstrap": bootstrap, "migrations": migrations, "checksums": checksums}
 
@@ -314,18 +345,26 @@ def run_all(directory: Path | None = None) -> dict[str, Any]:
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("command", nargs="?", choices=("all", "bootstrap", "apply", "validate"), default="all")
+    parser.add_argument(
+        "--through",
+        metavar="NNNN",
+        help="apply only the contiguous migration prefix through NNNN",
+    )
     args = parser.parse_args(list(argv) if argv is not None else None)
+
+    if args.through and args.command not in {"all", "apply"}:
+        parser.error("--through is valid only with all or apply")
 
     if args.command == "bootstrap":
         result: Any = bootstrap_cluster()
     elif args.command == "apply":
         result = []
         for database in (MARKET_DB, RESEARCH_DB, FORWARD_DB):
-            result.extend(apply_database_migrations(database))
+            result.extend(apply_database_migrations(database, through=args.through))
     elif args.command == "validate":
         result = validate_applied_checksums()
     else:
-        result = run_all()
+        result = run_all(through=args.through)
     print(json.dumps(result, sort_keys=True))
     return 0
 

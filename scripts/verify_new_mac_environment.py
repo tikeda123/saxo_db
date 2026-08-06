@@ -24,6 +24,8 @@ REQUIRED_REPOSITORY_FILES = (
     "requirements.txt",
     "db/migrations/0001_bootstrap.sql",
     "scripts/create_local_db_secrets.py",
+    "scripts/verify_bootstrap_seed.py",
+    "bootstrap/seed/manifest.json",
 )
 REQUIRED_GITIGNORE_ENTRIES = (
     ".env",

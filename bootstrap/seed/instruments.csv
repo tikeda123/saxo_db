@@ -1,0 +1,12 @@
+instrument_key,symbol,uic,asset_type,category,currency,exchange_id
+spy,SPY:SYNTHETIC,990001,Stock,equity_reit,USD,XTEST
+iwm,IWM:SYNTHETIC,990002,Stock,equity_reit,USD,XTEST
+efa,EFA:SYNTHETIC,990003,Stock,equity_reit,USD,XTEST
+eem,EEM:SYNTHETIC,990004,Stock,equity_reit,USD,XTEST
+vnq,VNQ:SYNTHETIC,990005,Stock,equity_reit,USD,XTEST
+shy,SHY:SYNTHETIC,990006,Stock,bond_credit,USD,XTEST
+ief,IEF:SYNTHETIC,990007,Stock,bond_credit,USD,XTEST
+tlt,TLT:SYNTHETIC,990008,Stock,bond_credit,USD,XTEST
+tip,TIP:SYNTHETIC,990009,Stock,bond_credit,USD,XTEST
+lqd,LQD:SYNTHETIC,990010,Stock,bond_credit,USD,XTEST
+gld,GLD:SYNTHETIC,990011,Stock,gold,USD,XTEST

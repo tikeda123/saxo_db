@@ -4,13 +4,28 @@ import hashlib
 
 import pytest
 
-from market_db.migrate import MigrationError, list_migrations, migration_number, migration_sha256
+from market_db.migrate import (
+    MigrationError,
+    list_migrations,
+    migration_number,
+    migration_sha256,
+    select_migrations,
+)
 
 
 def test_repository_migrations_are_declared_and_ordered():
     paths = list_migrations()
     assert [migration_number(path) for path in paths] == [f"{number:04d}" for number in range(1, 39)]
     assert all(migration_sha256(path) == hashlib.sha256(path.read_bytes()).hexdigest() for path in paths)
+
+
+def test_clean_database_can_stop_at_pre_data_migration_boundary():
+    selected = select_migrations(through="0018")
+    assert migration_number(selected[-1]) == "0018"
+    assert "0019" not in {migration_number(path) for path in selected}
+
+    with pytest.raises(MigrationError, match="unknown migration boundary"):
+        select_migrations(through="9999")
 
 
 def test_revision_warning_migration_separates_warning_review_and_apply():

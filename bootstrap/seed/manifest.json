@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "seed_id": "saxo_db_synthetic_bootstrap_v1",
+  "purpose": "migration_csv_import_read_api_smoke_only",
+  "origin": "project_authored_synthetic_values",
+  "contains_upstream_market_data": false,
+  "contains_personal_or_account_data": false,
+  "contains_credentials": false,
+  "research_or_operational_eligibility": "SYNTHETIC_BOOTSTRAP_ONLY",
+  "redistribution_assessment": "PROJECT_AUTHORED_NO_UPSTREAM_DATA",
+  "files": {
+    "instruments.csv": {"rows": 11, "size_bytes": 643, "sha256": "5616f8f19b8b830b2af4a3fb1949dfaa7854cf14666526ef7602c6187fd995b3"},
+    "market_bars_1h.csv": {"rows": 22, "size_bytes": 1128, "sha256": "f0e5ad7c4469ddd1bb5dccc81c986dce6977777e06c523cce42fcbf4746724ad"},
+    "total_return_daily.csv": {"rows": 22, "size_bytes": 552, "sha256": "855c9e588762fa7287463cf769cfde88ee7996ad975a59430ffda92077f03c13"}
+  }
+}

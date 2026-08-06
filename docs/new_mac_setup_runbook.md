@@ -1,10 +1,10 @@
 # saxo_db 別Mac構築ランブック
 
-更新日: 2026-08-05 JST
+更新日: 2026-08-07 JST
 
 対象: 新しいmacOS端末へ`Saxo DB`のコード、ローカルPostgreSQL、Read API、任意のSaxo SIM定期更新を再現可能に構築する運用者
 
-既定状態: **schemaとread-only interfaceだけを構築し、Saxo API・scheduler・注文・口座・資金操作は開始しない**
+既定状態: **Git管理の人工CSVでschema/import/read-only interfaceの配線だけを確認し、Saxo API・scheduler・研究利用・注文・口座・資金操作は開始しない**
 
 ## 1. 目的と対象範囲
 
@@ -16,12 +16,14 @@
 - loopback限定Read API / データ管理Web UI
 - 新Macで人が再認証した場合だけ有効化できるGET-only Saxo SIM scheduler
 - health、reader role、read-only transaction、data quality状態の検証手順
+- 外部市場データを含まないGit管理のsynthetic CSV smoke seed
 
 次は対象外である。
 
 - 売買戦略、特徴量、WFO/Holdout、PnL、allocationの実装・実行
 - 注文、precheck、取消、position、口座、資金の操作
 - 既存MacのKeychain、token、runtime、Docker volume、DB実データ、log、backupの複製
+- public GitHubを使ったSaxo/Yahoo/FRED由来69 CSVの配布
 - 新Mac構築と同時に行うSaxo full-refetch、USDJPY再開、quarantine解除
 - LaunchAgentのinstall、LAN/InternetへのDB・API公開
 
@@ -78,7 +80,8 @@ Docker DesktopとColimaのdaemonを同時に使わない。`docker context show`
 | 分類 | 対象 | 扱い |
 |---|---|---|
 | 正規に取得 | Git管理されたcode、migration、docs、specs、manifest | `origin/main`からcloneする |
-| 条件付き | `data/import/`のimmutable CSV 69 file | Gitには含まれない。DB2再構築を明示選択した場合だけ、別途承認した経路で移し、inventoryのpath・size・row count・SHA-256を全件検証する。編集禁止 |
+| 正規に取得 | `bootstrap/seed/`の人工CSV 3 file | GitHubからcloneする。migration/import/APIのsmoke専用。市場データ、研究、運用には使用禁止 |
+| 条件付き | `data/import/`のimmutable実市場CSV 69 file | public Gitには含めない。権利確認済みの正規bundleをアクセス制御済み経路で用意できる場合だけ、inventoryのpath・size・row count・SHA-256を全件検証する。編集禁止 |
 | 禁止 | macOS KeychainのSaxo credential / App Key entry | 移さない。新Mac上で人が初回設定・OAuthをやり直す |
 | 禁止 | access token、refresh token、PKCE verifier、AccountKey、ClientKey、口座識別子 | export、表示、copy、chat貼付、file保存をしない |
 | 禁止 | `.secrets/`、`.env` | 移さない。DB passwordは新Macで新規生成する |
@@ -140,42 +143,61 @@ docker compose -p saxo-market-data config
 docker compose -p saxo-market-data pull postgres
 docker compose -p saxo-market-data up -d postgres
 docker compose -p saxo-market-data ps
-.venv/bin/python -m market_db.migrate all
+.venv/bin/python -m market_db.migrate all --through 0018
 .venv/bin/python -m market_db.migrate validate
 ```
 
-`migrate all`はlocal clusterにrole、`saxo_market`、`saxo_research_v13`、`saxo_forward_v13`を作成し、checksum付きmigrationを適用する。`docker compose down -v`、volume削除、database drop、適用済みmigrationの編集は禁止する。
+`migrate all --through 0018`はlocal clusterにrole、`saxo_market`、`saxo_research_v13`、`saxo_forward_v13`を作成し、データ依存前までのchecksum付きmigrationを適用する。`0019`は11 ETF dataset/mappingを検証するため、CSV import後に適用する。`docker compose down -v`、volume削除、database drop、適用済みmigrationの編集は禁止する。
 
-この時点の標準状態はschema-onlyであり、cloneだけでは既存Macの市場データは入らない。
+この時点はcore schema-onlyであり、Read APIのfull contractはまだ完成していない。次節でbootstrap方式を一つだけ選ぶ。
 
 ## 7. データbootstrapの選択
 
-### 選択A: schema-only（既定・推奨）
+### 選択A: Git管理synthetic seed（既定・interface確認用）
 
-第6節で止める。Read APIとUIのinterface確認は可能だが、inventoryが空またはcoverage/freshnessが`NOT_EVALUATED`でも正常である。データ利用可能とは判定しない。schedulerを初回backfill代わりに起動しない。
+3 CSV / 55人工行 / 2,323 bytesだけを使用する。Saxo、Yahoo Finance、FREDその他の実市場データを含まない。
 
-### 選択B: immutable CSVからDB2を再構築
+```bash
+.venv/bin/python scripts/verify_bootstrap_seed.py
+.venv/bin/python -m market_db.bootstrap_seed verify
+.venv/bin/python -m market_db.bootstrap_seed import
+.venv/bin/python -m market_db.bootstrap_seed status
+.venv/bin/python -m market_db.migrate apply
+.venv/bin/python -m market_db.migrate validate
+```
 
-69 fileの検証済みimport bundleを別途承認して用意できる場合だけ実施する。Git管理の`manifests/import_file_inventory.csv`と完全一致しないbundleは使用しない。
+`bootstrap_seed import`は0018適用済み、0019未適用、主要data relationが空の場合だけ1 transactionで実行する。全値を`SYNTHETIC_BOOTSTRAP_ONLY`、`NOT_EVALUATED`、inactiveとして登録する。結果はCSV→raw/curated→Read APIの配線確認に限り、current data、total-return品質、official close、研究readinessを証明しない。
+
+このDBへ正規データを後から混在させず、schedulerを起動しない。正規運用へ進む場合は別の空clusterを選択Bの正規bundleから構築する。詳細と公開可否判定は[別Mac用CSV bootstrap監査](new_mac_csv_bootstrap_audit.md)を参照する。
+
+### 選択B: 権利確認済みimmutable実市場CSVからDB2を再構築
+
+69 file / 781,808 rows / 160,403,659 bytesの検証済みimport bundleを、public GitHub以外のアクセス制御済み経路で用意できる場合だけ実施する。Git管理の`manifests/import_file_inventory.csv`と完全一致しないbundleは使用しない。
 
 ```bash
 .venv/bin/python -m market_db.import_legacy verify
 .venv/bin/python -m market_db.import_legacy import
 .venv/bin/python -m market_db.import_legacy status
+.venv/bin/python -m market_db.migrate apply
+.venv/bin/python -m market_db.migrate validate
 .venv/bin/python -m market_db.research_snapshot create
 .venv/bin/python -m market_db.research_snapshot status
-.venv/bin/python -m market_db.migrate validate
 ```
 
 必須条件:
 
 - `verify`が69 file、row count、size、source/copied SHA-256の全件一致を返す。
+- Saxo/Yahoo/FRED由来CSVをGit add、Git LFS、release asset、public URLへ置かない。
 - importは1 file単位transactionで行い、途中失敗時にCSVや台帳を修正しない。
 - research snapshotのcutoff、content manifest、database default read-onlyを照合する。
 - `saxo_market`と`saxo_research_v13`のlineageが同じinventoryへ結び付く。
 - 既知WARN/FAIL/`NOT_EVALUATED`を削除・PASS化しない。
 
-### 選択C: Saxoから新規取得
+### 選択C: core schema-onlyで停止
+
+第6節で止める。これはmigration 0018までの開発・監査状態であり、full Read API contract完成や市場データ利用可能を意味しない。後で選択A/Bのどちらか一方を空DBへ投入する。schedulerを初回backfill代わりに起動しない。
+
+### 選択D: Saxoから新規取得
 
 新Mac構築の既定手順では実施しない。Saxo OAuthを新Macで設定し、既存baseline・watermark・calendar・scopeが整合することを確認した後の通常運用である。空DBを無条件full-refetchする手段ではない。DataVersion warning、instrument drift、quality gateを回避してはならない。
 
@@ -215,7 +237,7 @@ transaction_read_only=on
 statement_timeout=30s
 ```
 
-データを投入した場合だけ次を実行する。
+選択AまたはBでfull migrationまで完了した場合だけ次を実行する。
 
 ```bash
 .venv/bin/python -m market_db.inspect inventory
@@ -225,7 +247,7 @@ statement_timeout=30s
 .venv/bin/python -m market_db.inspect lineage
 ```
 
-`quality --fail-on-alert`のexit 2、`UNKNOWN`、`STALE`、`NOT_EVALUATED`は記録して停止し、正常へ読み替えない。Web UIは<http://127.0.0.1:8766/ui/overview>で参照できる。
+`quality --fail-on-alert`のexit 2、`UNKNOWN`、`STALE`、`NOT_EVALUATED`は記録して停止し、正常へ読み替えない。選択Aの人工行が`NOT_EVALUATED`/staleなのは意図した状態であり、正常な市場データへ読み替えない。Web UIは<http://127.0.0.1:8766/ui/overview>で参照できる。
 
 ## 10. Saxo認証とscheduler（明示的な任意工程）
 
@@ -341,6 +363,8 @@ repository service managerはcwd、command、PID/start fingerprint、healthが�
 ### Import / migration
 
 - import verify失敗時はCSV・inventoryを編集しない。
+- synthetic seedを既存DB、正規DB、scheduler対象DBへimportしない。
+- migration 0019を空DBへ先行適用しない。0018 → CSV import → 0019以降の順序を守る。
 - migration checksum mismatch時は適用済みSQLを変更しない。
 - 3 DBの一部だけが進んだ場合はRead API/schedulerを開始せず、migration結果とtransaction logを確認する。
 
@@ -352,6 +376,7 @@ repository service managerはcwd、command、PID/start fingerprint、healthが�
 - [ ] `.secrets/`を新Macで生成し、mode検証PASS
 - [ ] PostgreSQL 18.4 healthy、3 DB migration checksum PASS
 - [ ] データbootstrap方式と証拠を記録
+- [ ] synthetic seedの場合は`SYNTHETIC_BOOTSTRAP_ONLY`であり研究・運用へ接続していない
 - [ ] Read API health/role/read-only/timeout PASS
 - [ ] inventory/coverage/freshness/quality/lineageを状態どおり記録
 - [ ] 旧MacのKeychain/token/runtime/DB/log/backupを移していない

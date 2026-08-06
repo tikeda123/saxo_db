@@ -7,7 +7,8 @@ Saxo OpenAPIと移管済みCSVから取得した市場データを、再現可�
 ## 主な機能
 
 - PostgreSQL 18上でraw、curated、derived、quality、operationsを分離管理
-- 69個の移管CSVをimmutableな監査原本として登録・検証
+- localに配置した69個の移管CSVをimmutableな監査原本として登録・検証（public GitHubには非収録）
+- clean Mac向けのGit管理synthetic CSV seedでmigration/import/Read API配線をoffline確認
 - Saxo SIM OpenAPIからcanonical 13系列と研究候補FX 3系列の1Hデータを安全に増分取得
 - raw revisionを保持しながらcanonical 1Hを更新
 - 完成済み・品質PASSの1Hから4Hとリスク日足を生成
@@ -147,6 +148,24 @@ docker compose -p saxo-market-data ps
 
 PostgreSQLはhostの`127.0.0.1:54329`だけにbindされます。
 
+### 別MacのCSV bootstrap
+
+public repositoryへ既存69 CSV（160,403,659 bytes）の実市場データは追加していません。Saxo、Yahoo Finance、FRED由来値は再配布権を確認できず、Git LFSも権利問題を解消しないためです。正確な69 file一覧・size・row count・SHA-256は[`manifests/import_file_inventory.csv`](manifests/import_file_inventory.csv)、判定根拠は[別Mac用CSV bootstrap監査](docs/new_mac_csv_bootstrap_audit.md)を参照してください。
+
+clean Macでschema→CSV import→Read APIの技術経路を確認する場合は、外部データを含まないGit管理の人工seed 3 CSV / 55行だけを使用します。
+
+```bash
+.venv/bin/python scripts/verify_bootstrap_seed.py
+.venv/bin/python -m market_db.migrate all --through 0018
+.venv/bin/python -m market_db.bootstrap_seed import
+.venv/bin/python -m market_db.migrate apply
+.venv/bin/python -m market_db.migrate validate
+.venv/bin/python -m market_db.read_api_service start
+.venv/bin/python -m market_db.read_api_preflight --format json
+```
+
+このseedは`SYNTHETIC_BOOTSTRAP_ONLY`で、実価格、current data、total-return品質、official close、研究・運用readinessを表しません。既存DBや正規DBへ混在させず、schedulerを起動しません。正規69 CSVを利用する場合は、権利確認済みbundleをpublic GitHub以外のアクセス制御済み経路でignored `data/import/`へ置き、同じくmigration 0018 → import → 0019以降の順で構築します。全手順は[別Mac構築ランブック](docs/new_mac_setup_runbook.md)を参照してください。
+
 ### Read APIとWeb UI
 
 ```bash
@@ -271,6 +290,8 @@ total-returnは用途を分離します。固定期間研究contract `etf11_fixe
 ## 安全境界
 
 - `data/import/`の69 CSVはimmutable。上書き、整形、削除をしない。
+- `data/import/`の実市場CSVをGit add、Git LFS、release asset、public URLで配布しない。
+- `bootstrap/seed/`は人工smoke専用で、正規DB・研究・schedulerへ使わない。
 - 適用済みmigrationを変更せず、新しい番号のmigrationで修正する。
 - `docker compose down -v`、volume削除、DB dropは明示承認なしに行わない。
 - token、password、AccountKey、ClientKey、口座識別子を保存・表示しない。
@@ -288,7 +309,8 @@ tests/                    unit / database integration test
 docs/                     仕様、運用、実装結果、interface文書
 specs/                    機械可読な凍結仕様
 manifests/                成果物hashとruntime evidence
-data/import/              immutableな移管入力
+bootstrap/seed/           Git管理の人工CSV smoke seed
+data/import/              Git管理外のimmutable実市場入力
 data/acquisition/         Git管理外の取得artifact
 backups/postgres/         Git管理外のbackup
 exports/parquet/          Git管理外の外部受渡し用export
@@ -333,6 +355,7 @@ SAXO_DB_INTEGRATION=1 .venv/bin/python -m pytest
 ## 主要ドキュメント
 
 - [別Mac構築ランブック](docs/new_mac_setup_runbook.md)
+- [別Mac用CSV bootstrap監査](docs/new_mac_csv_bootstrap_audit.md)
 - [外部プロジェクト向けRead APIインターフェース](docs/read_api_interface.md)
 - [Strategy Analysis向け外部データ契約・引渡し](docs/strategy_external_data_contract_handoff_20260730.md)
 - [C2 SIM Read短命session・provider／運用gate決定手順](docs/c2_sim_read_session_and_decision_flow_20260731.md)
