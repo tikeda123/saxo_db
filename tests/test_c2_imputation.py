@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 from market_db.c2_imputation import (
+    C2_CONFIRMED_REVIEW_ID,
     persist_c2_imputation_plan,
     plan_c2_session_imputation,
     refresh_c2_imputation_overlay,
@@ -18,7 +19,7 @@ OPEN = datetime(2026, 7, 29, 13, 30, tzinfo=UTC)
 EXPECTED = tuple(OPEN + timedelta(hours=index) for index in range(7))
 
 
-def bar(time_utc: datetime, close: str = "100", *, data_version: int = 77) -> NormalizedBar:
+def bar(time_utc: datetime, close: str = "100", *, data_version: int = 29759068) -> NormalizedBar:
     value = Decimal(close)
     return NormalizedBar(
         time_utc=time_utc,
@@ -74,7 +75,7 @@ def test_tip_gld_shape_allows_two_session_open_gaps_with_explicit_warning():
     assert all(not row.execution_price_claim for row in plan.imputed_rows)
 
 
-def test_internal_gap_uses_previous_actual_not_previous_imputation_recursively():
+def test_unconfirmed_internal_gap_is_not_generalized_to_imputation():
     actual = [bar(value, str(100 + index)) for index, value in enumerate(EXPECTED) if index != 3]
     plan = plan_c2_session_imputation(
         instrument_key="gld",
@@ -84,11 +85,8 @@ def test_internal_gap_uses_previous_actual_not_previous_imputation_recursively()
         calendar_verified=True,
     )
 
-    assert plan.status == "PASS_WITH_IMPUTATION_WARNING"
-    assert len(plan.imputed_rows) == 1
-    assert plan.imputed_rows[0].source_time_utc == EXPECTED[2]
-    assert plan.imputed_rows[0].close == Decimal("102")
-    assert plan.imputed_rows[0].reason == "PROVIDER_INTERNAL_SESSION_ROWS_MISSING"
+    assert plan.status == "BLOCKED_UNAPPROVED_IMPUTATION_SCOPE"
+    assert plan.imputed_rows == ()
 
 
 def test_daily_close_missing_is_never_imputed():
@@ -117,7 +115,7 @@ def test_unbounded_and_unanchored_gaps_fail_closed():
         instrument_key="gld",
         session_date=SESSION_DATE,
         expected_times_utc=EXPECTED,
-        actual_bars=[bar(value) for value in EXPECTED[2:]],
+        actual_bars=[bar(value, data_version=29749768) for value in EXPECTED[2:]],
         calendar_verified=True,
     )
 
@@ -145,7 +143,7 @@ def test_calendar_version_and_actual_quality_must_be_proven():
     )
 
     assert calendar.status == "BLOCKED_CALENDAR_NOT_VERIFIED"
-    assert mixed_version.status == "BLOCKED_DATA_VERSION_IDENTITY"
+    assert mixed_version.status == "BLOCKED_UNAPPROVED_IMPUTATION_SCOPE"
 
 
 def test_persistence_is_append_only_and_parameterized():
@@ -175,7 +173,7 @@ def test_persistence_is_append_only_and_parameterized():
         cursor,
         instrument_id=9,
         session_calendar_id="XNYS_US_EQUITY",
-        review_id="review-1",
+        review_id=C2_CONFIRMED_REVIEW_ID,
         plan=plan,
         source_ingestion_run_ids={previous.time_utc: 123},
     )

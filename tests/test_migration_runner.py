@@ -15,7 +15,7 @@ from market_db.migrate import (
 
 def test_repository_migrations_are_declared_and_ordered():
     paths = list_migrations()
-    assert [migration_number(path) for path in paths] == [f"{number:04d}" for number in range(1, 39)]
+    assert [migration_number(path) for path in paths] == [f"{number:04d}" for number in range(1, 40)]
     assert all(migration_sha256(path) == hashlib.sha256(path.read_bytes()).hexdigest() for path in paths)
 
 
@@ -145,9 +145,24 @@ def test_c2_imputation_overlay_is_bounded_immutable_and_explicit():
     assert "TO saxo_ingest" in privilege_sql
     assert "GRANT SELECT ON derived.c2_market_bar_1h_imputation" not in privilege_sql
 
+    confirmed = next(path for path in list_migrations() if migration_number(path) == "0039")
+    confirmed_sql = confirmed.read_text(encoding="utf-8")
+    assert "derived.c2_confirmed_imputation_scope" in confirmed_sql
+    assert "2026-07-29 13:30:00+00" in confirmed_sql
+    assert "2026-07-29 14:30:00+00" in confirmed_sql
+    assert "2026-07-28 19:30:00+00" in confirmed_sql
+    assert "c2_confirmed_provider_gap_forward_fill" in confirmed_sql
+    assert "analytics.v_c2_confirmed_provider_gap_warning" in confirmed_sql
+    assert "FOREIGN KEY" in confirmed_sql
+    assert "OPEN" in confirmed_sql and "WARN" in confirmed_sql
+    assert "UPDATE curated.market_bar" not in confirmed_sql
+    assert "UPDATE raw.market_bar_revision" not in confirmed_sql
+    assert "DELETE FROM curated.market_bar" not in confirmed_sql
+    assert "DELETE FROM raw.market_bar_revision" not in confirmed_sql
+
 
 def test_unknown_migration_is_rejected(tmp_path):
-    (tmp_path / "0039_unknown.sql").write_text("SELECT 1;", encoding="utf-8")
+    (tmp_path / "0040_unknown.sql").write_text("SELECT 1;", encoding="utf-8")
     with pytest.raises(MigrationError, match="not declared"):
         list_migrations(tmp_path)
 

@@ -1,0 +1,89 @@
+{
+  "apply_id": "c2_gld_tip_live_confirmed_gap_20260807",
+  "applied_at_utc": "2026-08-07T09:52:05.265465Z",
+  "database": "saxo_market_live",
+  "migration": {
+    "filename": "0039_c2_gld_tip_confirmed_gap_scope.sql",
+    "sha256": "4e2ef9e76312ff573fb2222dde6bf08991d37a26aa6c59e93d1a3d8d8b01fad2",
+    "checksum_validation": "PASS"
+  },
+  "confirmed_scope": [
+    {
+      "instrument_key": "gld",
+      "missing_times_utc": ["2026-07-29T13:30:00Z", "2026-07-29T14:30:00Z"],
+      "source_time_utc": "2026-07-28T19:30:00Z",
+      "data_version": 29749768,
+      "imputed_rows": 2
+    },
+    {
+      "instrument_key": "tip",
+      "missing_times_utc": ["2026-07-29T13:30:00Z", "2026-07-29T14:30:00Z"],
+      "source_time_utc": "2026-07-28T19:30:00Z",
+      "data_version": 29759068,
+      "imputed_rows": 2
+    }
+  ],
+  "canonical_invariance": {
+    "raw.market_bar_revision": {
+      "before_rows": 18073,
+      "after_rows": 18073,
+      "before_ordered_digest_md5": "6762271ae557bb00c20092123ce7b253",
+      "after_ordered_digest_md5": "6762271ae557bb00c20092123ce7b253"
+    },
+    "curated.market_bar": {
+      "before_rows": 18000,
+      "after_rows": 18000,
+      "before_ordered_digest_md5": "fc24892452b7b9c955e0fea5472659d5",
+      "after_ordered_digest_md5": "fc24892452b7b9c955e0fea5472659d5"
+    },
+    "ops.ingestion_run": {
+      "before_rows": 16,
+      "after_rows": 16,
+      "before_ordered_digest_md5": "514d7eb98996421514592b9cadd227aa",
+      "after_ordered_digest_md5": "514d7eb98996421514592b9cadd227aa"
+    }
+  },
+  "quality_and_visibility": {
+    "quality_event_ids": [6, 7, 8, 9],
+    "quality_event_rule": "c2_confirmed_provider_gap_forward_fill",
+    "open_warn_rows": 4,
+    "current_blocker_rows": 0,
+    "coverage": {
+      "gld": {"missing_rows": 2, "coverage_status": "WARN"},
+      "tip": {"missing_rows": 2, "coverage_status": "WARN"}
+    },
+    "hourly_overlay": {
+      "gld": "AVAILABLE_WITH_IMPUTATION_WARNING",
+      "tip": "AVAILABLE_WITH_IMPUTATION_WARNING"
+    },
+    "daily_close_imputation_warning_count": 2
+  },
+  "lineage": {
+    "source_kind": "IMPUTED_PREVIOUS_VALID",
+    "imputation_method": "FORWARD_FILL_PREVIOUS_ACTUAL_CLOSE",
+    "review_id": "c2_gld_tip_live_confirmed_gap_20260807",
+    "source_ingestion_run_recorded": true,
+    "source_payload_sha256_recorded": true,
+    "source_artifact_relative_path_recorded": true,
+    "official_close_claim": false,
+    "total_return_claim": false,
+    "execution_price_claim": false
+  },
+  "operations": {
+    "external_api_requests": 0,
+    "saxo_write_requests": 0,
+    "scheduler_started_or_changed": false,
+    "orders_or_prechecks": 0,
+    "account_or_fund_operations": 0,
+    "containers_or_volumes_deleted": 0
+  },
+  "tests": {
+    "targeted": {"passed": 21, "failed": 0, "deselected": 40},
+    "full_suite": {"passed": 330, "skipped": 45, "failed": 11},
+    "full_suite_failures_outside_change_scope": [
+      "missing immutable legacy import inventory",
+      "pre-existing periodic implementation manifest drift",
+      "missing or hash-mismatched total-return contract evidence"
+    ]
+  }
+}

@@ -302,6 +302,11 @@ def test_c2_hourly_overlay_exposes_imputation_lineage_and_claim_boundaries():
         "source_payload_sha256": "a" * 64,
         "source_artifact_relative_path": "data/acquisition/runs/x/chart_0001.json",
         "imputation_policy_id": "c2_etf_bounded_previous_valid_v1",
+        "imputation_method": "FORWARD_FILL_PREVIOUS_ACTUAL_CLOSE",
+        "imputation_review_id": "c2_gld_tip_live_confirmed_gap_20260807",
+        "quality_warning_id": "C2_BOUNDED_IMPUTED_PREVIOUS_VALID",
+        "quality_event_id": 42,
+        "quality_event_status": "OPEN",
         "official_close_claim": False,
         "total_return_claim": False,
         "execution_price_claim": False,
@@ -316,6 +321,8 @@ def test_c2_hourly_overlay_exposes_imputation_lineage_and_claim_boundaries():
         "official_close": False, "total_return": False, "execution_price": False
     }
     assert payload["rows"][0]["source_time_utc"] < payload["rows"][0]["time_utc"]
+    assert payload["rows"][0]["quality_event_status"] == "OPEN"
+    assert payload["rows"][0]["imputation_review_id"] == "c2_gld_tip_live_confirmed_gap_20260807"
 
     app = create_app(FakeReader([rows]))
     response = app.test_client().get(

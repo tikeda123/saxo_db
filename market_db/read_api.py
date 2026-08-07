@@ -1058,16 +1058,22 @@ def c2_hourly_overlay_payload(
         raise ValueError("invalid C2 overlay request")
     rows = reader.query(
         """
-        SELECT instrument_key,time_utc,price_basis,open,high,low,close,volume,
-               is_complete,source_kind,quality_status,warning_ids,
-               imputation_reason,source_time_utc,consecutive_gap_index,
-               consecutive_gap_count,candidate_data_version,source_data_version,
-               source_ingestion_run_id,source_payload_sha256,
-               source_artifact_relative_path,imputation_policy_id,
-               official_close_claim,total_return_claim,execution_price_claim
-        FROM analytics.v_c2_market_bar_1h_overlay
-        WHERE instrument_key=%s AND time_utc >= %s AND time_utc < %s
-        ORDER BY time_utc
+        SELECT o.instrument_key,o.time_utc,o.price_basis,o.open,o.high,o.low,o.close,o.volume,
+               o.is_complete,o.source_kind,o.quality_status,o.warning_ids,
+               o.imputation_reason,o.source_time_utc,o.consecutive_gap_index,
+               o.consecutive_gap_count,o.candidate_data_version,o.source_data_version,
+               o.source_ingestion_run_id,o.source_payload_sha256,
+               o.source_artifact_relative_path,o.imputation_policy_id,
+               o.official_close_claim,o.total_return_claim,o.execution_price_claim,
+               w.imputation_method,w.review_id AS imputation_review_id,
+               w.warning_id AS quality_warning_id,w.quality_event_id,
+               w.quality_event_status
+        FROM analytics.v_c2_market_bar_1h_overlay o
+        LEFT JOIN analytics.v_c2_confirmed_provider_gap_warning w
+          ON w.instrument_key=o.instrument_key AND w.missing_time_utc=o.time_utc
+         AND o.source_kind='IMPUTED_PREVIOUS_VALID'
+        WHERE o.instrument_key=%s AND o.time_utc >= %s AND o.time_utc < %s
+        ORDER BY o.time_utc
         LIMIT %s
         """,
         (key, start, end, limit + 1),

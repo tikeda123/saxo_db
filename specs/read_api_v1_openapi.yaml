@@ -134,7 +134,9 @@ paths:
       description: >-
         Explicit C2 ETF11 actual-plus-imputed 1H overlay. IMputed rows use
         source_kind=IMPUTED_PREVIOUS_VALID and include reason, source timestamp,
-        consecutive gap count, DataVersion and lineage hash. They are never
+        consecutive gap count, DataVersion, lineage hash, review ID and the
+        still-open quality warning ID. Only the confirmed GLD/TIP slots at
+        2026-07-29T13:30Z and 14:30Z are eligible. They are never
         official close, total return or execution-price observations; canonical
         raw and curated bars are unchanged.
       parameters:

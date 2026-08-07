@@ -18,11 +18,42 @@ from .normalize_bars import NormalizedBar
 
 C2_IMPUTATION_POLICY_ID = "c2_etf_bounded_previous_valid_v1"
 C2_IMPUTATION_SOURCE = "IMPUTED_PREVIOUS_VALID"
+C2_CONFIRMED_REVIEW_ID = "c2_gld_tip_live_confirmed_gap_20260807"
 C2_ETF_KEYS = frozenset(
     {"spy", "iwm", "efa", "eem", "vnq", "shy", "ief", "tlt", "tip", "lqd", "gld"}
 )
 MAX_CONSECUTIVE_MISSING = 2
 MAX_MISSING_PER_SESSION = 2
+
+
+@dataclass(frozen=True)
+class C2ConfirmedImputationScope:
+    session_date: date
+    missing_times_utc: tuple[datetime, ...]
+    source_time_utc: datetime
+    data_version: int
+
+
+C2_CONFIRMED_IMPUTATION_SCOPE = {
+    "tip": C2ConfirmedImputationScope(
+        session_date=date(2026, 7, 29),
+        missing_times_utc=(
+            datetime(2026, 7, 29, 13, 30, tzinfo=timezone.utc),
+            datetime(2026, 7, 29, 14, 30, tzinfo=timezone.utc),
+        ),
+        source_time_utc=datetime(2026, 7, 28, 19, 30, tzinfo=timezone.utc),
+        data_version=29759068,
+    ),
+    "gld": C2ConfirmedImputationScope(
+        session_date=date(2026, 7, 29),
+        missing_times_utc=(
+            datetime(2026, 7, 29, 13, 30, tzinfo=timezone.utc),
+            datetime(2026, 7, 29, 14, 30, tzinfo=timezone.utc),
+        ),
+        source_time_utc=datetime(2026, 7, 28, 19, 30, tzinfo=timezone.utc),
+        data_version=29749768,
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -176,10 +207,33 @@ def plan_c2_session_imputation(
     if any(len(run) > MAX_CONSECUTIVE_MISSING for run in runs):
         return _blocked(key, session_date, "BLOCKED_CONSECUTIVE_MISSING_LIMIT", len(expected), len(by_time))
 
+    confirmed_scope = C2_CONFIRMED_IMPUTATION_SCOPE.get(key)
+    missing_times = tuple(expected[index] for index in missing_indexes)
+    if (
+        confirmed_scope is None
+        or session_date != confirmed_scope.session_date
+        or missing_times != confirmed_scope.missing_times_utc
+    ):
+        return _blocked(
+            key,
+            session_date,
+            "BLOCKED_UNAPPROVED_IMPUTATION_SCOPE",
+            len(expected),
+            len(by_time),
+        )
+
     candidate_versions = {bar.data_version for bar in by_time.values()}
     if None in candidate_versions or len(candidate_versions) != 1:
         return _blocked(key, session_date, "BLOCKED_DATA_VERSION_IDENTITY", len(expected), len(by_time))
     candidate_version = int(next(iter(candidate_versions)))
+    if candidate_version != confirmed_scope.data_version:
+        return _blocked(
+            key,
+            session_date,
+            "BLOCKED_UNAPPROVED_IMPUTATION_DATA_VERSION",
+            len(expected),
+            len(by_time),
+        )
 
     imputed: list[C2ImputedBar] = []
     for run in runs:
@@ -219,6 +273,14 @@ def plan_c2_session_imputation(
                 return _blocked(key, session_date, "BLOCKED_LEFT_ACTUAL_ANCHOR_MISSING", len(expected), len(by_time))
         if left_anchor.data_version != candidate_version:
             return _blocked(key, session_date, "BLOCKED_DATA_VERSION_IDENTITY", len(expected), len(by_time))
+        if left_anchor.time_utc.astimezone(timezone.utc) != confirmed_scope.source_time_utc:
+            return _blocked(
+                key,
+                session_date,
+                "BLOCKED_UNAPPROVED_IMPUTATION_SOURCE",
+                len(expected),
+                len(by_time),
+            )
         if not _source_provenance_valid(left_anchor):
             return _blocked(key, session_date, "BLOCKED_SOURCE_LINEAGE_MISSING", len(expected), len(by_time))
 
@@ -271,6 +333,11 @@ def persist_c2_imputation_plan(
 
     if plan.status != "PASS_WITH_IMPUTATION_WARNING":
         return 0
+    if review_id != C2_CONFIRMED_REVIEW_ID:
+        raise ValueError("BLOCKED_UNAPPROVED_IMPUTATION_REVIEW")
+    confirmed_scope = C2_CONFIRMED_IMPUTATION_SCOPE.get(plan.instrument_key)
+    if confirmed_scope is None or tuple(row.time_utc for row in plan.imputed_rows) != confirmed_scope.missing_times_utc:
+        raise ValueError("BLOCKED_UNAPPROVED_IMPUTATION_SCOPE")
     inserted = 0
     for row in plan.imputed_rows:
         source_run_id = source_ingestion_run_ids.get(row.source_time_utc)
@@ -474,7 +541,7 @@ def refresh_c2_imputation_overlay(
                 cursor,
                 instrument_id=instrument_id,
                 session_calendar_id=str(calendar_id),
-                review_id=f"scheduled_c2_bounded_imputation_{selected_date.isoformat()}",
+                review_id=C2_CONFIRMED_REVIEW_ID,
                 plan=plan,
                 source_ingestion_run_ids=source_runs,
             )
