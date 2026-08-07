@@ -26,6 +26,9 @@ BALANCES_ME_PATH = "/port/v1/balances/me"
 SESSION_CAPABILITIES_PATH = "/root/v1/sessions/capabilities"
 HISTORICAL_TRANSACTIONS_PATH = "/hist/v1/transactions"
 INFO_PRICES_LIST_PATH = "/trade/v1/infoprices/list"
+DEFAULT_ENDPOINT_PROFILE = "legacy_read"
+MARKET_DATA_ONLY_ENDPOINT_PROFILE = "market_data_only"
+ENDPOINT_PROFILES = frozenset({DEFAULT_ENDPOINT_PROFILE, MARKET_DATA_ONLY_ENDPOINT_PROFILE})
 
 
 @dataclass(frozen=True)
@@ -108,6 +111,30 @@ def _allowed_path(path: str) -> bool:
     )
 
 
+def _market_data_path(path: str) -> bool:
+    return path == CHART_PATH or bool(
+        _DETAIL_PATH.fullmatch(path) or _SCHEDULE_PATH.fullmatch(path)
+    )
+
+
+def endpoint_id(path: str) -> str:
+    if path == CHART_PATH:
+        return "chart"
+    if _DETAIL_PATH.fullmatch(path):
+        return "instrument_detail"
+    if _SCHEDULE_PATH.fullmatch(path):
+        return "trading_schedule"
+    return {
+        SMOKE_PATH: "users_me",
+        ACCOUNTS_ME_PATH: "accounts_me",
+        BALANCES_ME_PATH: "balances_me",
+        SESSION_CAPABILITIES_PATH: "session_capabilities",
+        HISTORICAL_TRANSACTIONS_PATH: "historical_transactions",
+        INFO_PRICES_LIST_PATH: "info_prices",
+        "/ref/v1/instruments": "instrument_search",
+    }.get(path, "unknown")
+
+
 class SaxoClient:
     def __init__(
         self,
@@ -117,18 +144,23 @@ class SaxoClient:
         transport: Transport | None = None,
         sleep: Callable[[float], None] = time.sleep,
         timeout: float = 30.0,
+        endpoint_profile: str = DEFAULT_ENDPOINT_PROFILE,
     ):
         if base_url != SIM_BASE_URL:
             raise ValueError("only the Saxo SIM base URL is allowed")
         if not access_token:
             raise ValueError("SAXO_ACCESS_TOKEN is required")
+        if endpoint_profile not in ENDPOINT_PROFILES:
+            raise ValueError("unknown Saxo endpoint profile")
         self._access_token = access_token
         self.base_url = base_url
         self._transport = transport or UrllibTransport()
         self._sleep = sleep
         self._timeout = timeout
+        self.endpoint_profile = endpoint_profile
         self.request_count = 0
         self.write_request_count = 0
+        self.endpoint_counts: dict[str, int] = {}
         self.rate_limit_summary: dict[str, str] = {}
 
     @classmethod
@@ -139,7 +171,12 @@ class SaxoClient:
         return f"SaxoClient(base_url={self.base_url!r}, access_token=<redacted>)"
 
     def _get_json(self, path: str, params: Mapping[str, Any] | None = None) -> dict[str, Any]:
-        if not _allowed_path(path):
+        allowed = (
+            _market_data_path(path)
+            if self.endpoint_profile == MARKET_DATA_ONLY_ENDPOINT_PROFILE
+            else _allowed_path(path)
+        )
+        if not allowed:
             raise ValueError("Saxo endpoint is not allow-listed")
         query = urllib.parse.urlencode(params or {})
         url = self.base_url + path + (f"?{query}" if query else "")
@@ -161,6 +198,8 @@ class SaxoClient:
                     continue
                 raise SaxoAPIError("FAILED_NETWORK") from None
             self.request_count += 1
+            selected_endpoint = endpoint_id(path)
+            self.endpoint_counts[selected_endpoint] = self.endpoint_counts.get(selected_endpoint, 0) + 1
             self.rate_limit_summary.update(safe_rate_headers(response.headers))
             if response.status == 429 and attempt < 3:
                 reset = next(

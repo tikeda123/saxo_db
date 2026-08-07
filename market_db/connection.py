@@ -11,7 +11,11 @@ from typing import Any
 import psycopg
 
 
-MARKET_DB = "saxo_market"
+DEFAULT_MARKET_DB = "saxo_market"
+LIVE_MARKET_DB = "saxo_market_live"
+MARKET_DB = os.environ.get("SAXO_MARKET_DB", DEFAULT_MARKET_DB).strip()
+if MARKET_DB not in {DEFAULT_MARKET_DB, LIVE_MARKET_DB}:
+    raise RuntimeError("SAXO_MARKET_DB must select an allow-listed local database")
 RESEARCH_DB = "saxo_research_v13"
 FORWARD_DB = "saxo_forward_v13"
 ADMIN_DB = "postgres"

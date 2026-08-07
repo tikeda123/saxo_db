@@ -1482,6 +1482,7 @@ def _write_run_manifest(
             "successful_series": successful_series,
             "request_count": 0 if client is None else client.request_count,
             "write_request_count": 0 if client is None else client.write_request_count,
+            "endpoint_counts": {} if client is None else dict(sorted(client.endpoint_counts.items())),
             "rate_limit_summary": {} if client is None else client.rate_limit_summary,
             "artifacts": [artifact.__dict__ for artifact in all_artifacts],
             "database_result": result,
@@ -1502,6 +1503,7 @@ def run_incremental(
     client_factory: Callable[[], SaxoClient] | None = None,
     instrument_keys: Iterable[str] | None = None,
     trigger: str = "manual_db3",
+    perform_smoke_test: bool = True,
 ) -> dict[str, Any]:
     registry = select_instruments(instrument_keys)
     dataset_id, spec_path, dataset_name, eligibility = _dataset_contract(registry)
@@ -1523,7 +1525,8 @@ def run_incremental(
         selected_client = selected_client or (
             client_factory() if client_factory is not None else SaxoClient.from_environment()
         )
-        smoke_result = selected_client.smoke_test()
+        if perform_smoke_test:
+            smoke_result = selected_client.smoke_test()
         states = _load_states()
         missing = tuple(
             item for item in registry if (item.uic, item.asset_type) not in states
