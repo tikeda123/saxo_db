@@ -24,8 +24,10 @@ from .read_api_preflight import (
     ProcessInfo,
     SystemReadinessProbe,
     check_readiness,
+    command_identity_sha256,
     is_expected_process,
     managed_process_matches,
+    normalize_process_start_fingerprint,
     readiness_exit_code,
     utc_now,
 )
@@ -134,17 +136,40 @@ def postgres_healthy() -> bool:
 
 def _process_state(info: ProcessInfo) -> dict[str, Any]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "owner": "saxo_db.read_api_service",
         "pid": info.pid,
         "port": DEFAULT_PORT,
         "host": LOOPBACK_HOST,
         "cwd": info.cwd,
         "start_fingerprint": info.start_fingerprint,
-        "command_sha256": info.command_sha256,
+        "command_identity_sha256": command_identity_sha256(info.command),
         "started_at_utc": utc_now(),
         "command_id": "market_db.read_api",
     }
+
+
+def _migrate_matched_identity(
+    state: dict[str, Any], info: ProcessInfo
+) -> dict[str, Any]:
+    """Rewrite a fully matched legacy state using semantic command identity."""
+
+    canonical = normalize_process_start_fingerprint(info.start_fingerprint)
+    legacy = state.get("schema_version") == 1
+    if canonical is None or (
+        not legacy and state.get("start_fingerprint") == canonical
+    ):
+        return state
+    migrated = dict(state)
+    if legacy:
+        migrated["schema_version"] = 2
+        migrated["owner"] = "saxo_db.read_api_service"
+        migrated.pop("command_sha256", None)
+        migrated["command_identity_sha256"] = command_identity_sha256(info.command)
+    migrated["start_fingerprint"] = canonical
+    migrated["identity_migrated_at_utc"] = utc_now()
+    _write_state(migrated)
+    return migrated
 
 
 def _result(operation: str, status: str, **values: Any) -> dict[str, Any]:
@@ -195,6 +220,16 @@ def _terminate_owned(
 
 def start_service() -> dict[str, Any]:
     probe = SystemReadinessProbe()
+    previous_state = _load_state()
+    if previous_state is not None:
+        previous_pid = previous_state.get("pid")
+        previous_info = (
+            probe.process_info(previous_pid)
+            if isinstance(previous_pid, int) and previous_pid > 0
+            else None
+        )
+        if managed_process_matches(previous_state, previous_info):
+            _migrate_matched_identity(previous_state, previous_info)
     readiness = check_readiness(probe)
     if readiness["status"] == PASS:
         return _result(
@@ -277,7 +312,14 @@ def start_service() -> dict[str, Any]:
 
 
 def status_service() -> dict[str, Any]:
-    return check_readiness(SystemReadinessProbe())
+    probe = SystemReadinessProbe()
+    state = _load_state()
+    if state is not None:
+        pid = state.get("pid")
+        info = probe.process_info(pid) if isinstance(pid, int) and pid > 0 else None
+        if managed_process_matches(state, info):
+            _migrate_matched_identity(state, info)
+    return check_readiness(probe)
 
 
 def stop_service() -> dict[str, Any]:

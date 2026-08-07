@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shlex
@@ -110,29 +111,94 @@ def _safe_child_environment() -> dict[str, str]:
     return selected
 
 
+def _allowed_python_executables() -> frozenset[str]:
+    """Return the launch and macOS framework paths for this Python runtime."""
+
+    candidates = {str(Path(sys.executable))}
+    base_executable = getattr(sys, "_base_executable", None)
+    if isinstance(base_executable, str) and base_executable:
+        candidates.add(base_executable)
+    allowed: set[str] = set()
+    for value in candidates:
+        selected = Path(value)
+        allowed.add(str(selected))
+        try:
+            resolved = selected.resolve(strict=True)
+        except OSError:
+            continue
+        allowed.add(str(resolved))
+        if resolved.parent.name == "bin" and resolved.name.lower().startswith("python"):
+            framework_python = (
+                resolved.parent.parent
+                / "Resources/Python.app/Contents/MacOS/Python"
+            )
+            if framework_python.is_file():
+                allowed.add(str(framework_python.resolve()))
+    return frozenset(allowed)
+
+
+def _command_tokens(command: str) -> list[str] | None:
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return None
+    return tokens if tokens else None
+
+
+def _expected_command_tail(*, callback_port: int, scope_profile: str) -> list[str]:
+    return [
+        "-m", "market_db.periodic_update", "serve",
+        "--callback-port", str(callback_port),
+        "--scope-profile", scope_profile,
+    ]
+
+
+def command_identity_sha256(command: str) -> str | None:
+    """Hash the fixed scheduler invocation independently of Python argv[0]."""
+
+    tokens = _command_tokens(command)
+    if tokens is None or len(tokens) < 2:
+        return None
+    payload = json.dumps(tokens[1:], ensure_ascii=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _legacy_command_sha256_matches(
+    state: dict[str, Any], info: ProcessInfo, *, callback_port: int, scope_profile: str
+) -> bool:
+    """Accept a v2 hash only for an allowed launcher and the exact fixed tail."""
+
+    stored = state.get("command_sha256")
+    if not isinstance(stored, str):
+        return False
+    if stored == info.command_sha256:
+        return True
+    tail = _expected_command_tail(
+        callback_port=callback_port, scope_profile=scope_profile
+    )
+    return any(
+        hashlib.sha256(" ".join([launcher, *tail]).encode("utf-8")).hexdigest()
+        == stored
+        for launcher in _allowed_python_executables()
+    )
+
+
 def is_expected_process(
     info: ProcessInfo | None, *, callback_port: int, scope_profile: str
 ) -> bool:
     if info is None or info.cwd != str(project_root().resolve()):
         return False
-    try:
-        tokens = shlex.split(info.command)
-    except ValueError:
+    tokens = _command_tokens(info.command)
+    if tokens is None or len(tokens) != 8:
         return False
-    module_match = any(
-        tokens[index:index + 2] == ["-m", "market_db.periodic_update"]
-        for index in range(max(0, len(tokens) - 1))
+    executable = str(Path(tokens[0]).resolve())
+    allowed = {str(Path(item).resolve()) for item in _allowed_python_executables()}
+    return (
+        executable in allowed
+        and tokens[1:] == _expected_command_tail(
+            callback_port=callback_port, scope_profile=scope_profile
+        )
     )
-    serve_match = "serve" in tokens
-    port_match = any(
-        tokens[index:index + 2] == ["--callback-port", str(callback_port)]
-        for index in range(max(0, len(tokens) - 1))
-    )
-    scope_match = any(
-        tokens[index:index + 2] == ["--scope-profile", scope_profile]
-        for index in range(max(0, len(tokens) - 1))
-    )
-    return module_match and serve_match and port_match and scope_match
 
 
 def managed_process_matches(state: dict[str, Any] | None, info: ProcessInfo | None) -> bool:
@@ -140,33 +206,49 @@ def managed_process_matches(state: dict[str, Any] | None, info: ProcessInfo | No
         return False
     port = state.get("callback_port")
     scope_profile = state.get("scope_profile")
-    return (
-        state.get("schema_version") == 2
-        and state.get("owner") == "saxo_db.periodic_update_service"
+    common_match = (
+        state.get("owner") == "saxo_db.periodic_update_service"
         and state.get("pid") == info.pid
         and state.get("cwd") == info.cwd
         and process_start_fingerprints_match(
             state.get("start_fingerprint"), info.start_fingerprint
         )
-        and state.get("command_sha256") == info.command_sha256
         and isinstance(port, int)
         and isinstance(scope_profile, str)
         and is_expected_process(
             info, callback_port=port, scope_profile=scope_profile
         )
     )
+    if not common_match:
+        return False
+    schema_version = state.get("schema_version")
+    if schema_version == 3:
+        return (
+            state.get("command_identity_sha256")
+            == command_identity_sha256(info.command)
+        )
+    if schema_version == 2:
+        return _legacy_command_sha256_matches(
+            state, info, callback_port=port, scope_profile=scope_profile
+        )
+    return False
 
 
-def _migrate_matched_start_fingerprint(
+def _migrate_matched_identity(
     state: dict[str, Any], info: ProcessInfo
 ) -> dict[str, Any]:
-    """Rewrite only a fully matched legacy locale-dependent fingerprint."""
+    """Atomically migrate only an already fully matched managed identity."""
 
     canonical = normalize_process_start_fingerprint(info.start_fingerprint)
     stored = state.get("start_fingerprint")
-    if canonical is None or stored == canonical:
+    legacy = state.get("schema_version") == 2
+    if canonical is None or (not legacy and stored == canonical):
         return state
     migrated = dict(state)
+    if legacy:
+        migrated["schema_version"] = 3
+        migrated.pop("command_sha256", None)
+        migrated["command_identity_sha256"] = command_identity_sha256(info.command)
     migrated["start_fingerprint"] = canonical
     migrated["identity_migrated_at_utc"] = _utc_now()
     _write_service_state(migrated)
@@ -242,7 +324,7 @@ def start_service(
         pid = previous.get("pid")
         info = probe.process_info(pid) if isinstance(pid, int) else None
         if managed_process_matches(previous, info):
-            previous = _migrate_matched_start_fingerprint(previous, info)
+            previous = _migrate_matched_identity(previous, info)
             if previous.get("scope_profile") != scope_profile:
                 return _result(
                     "start", "BLOCKED_SCOPE_MISMATCH", idempotent=False,
@@ -292,7 +374,7 @@ def start_service(
         process.terminate()
         return _result("start", "FAILED_SERVICE_IDENTITY", idempotent=False)
     service_state = {
-        "schema_version": 2,
+        "schema_version": 3,
         "owner": "saxo_db.periodic_update_service",
         "pid": info.pid,
         "cwd": info.cwd,
@@ -300,7 +382,7 @@ def start_service(
         "scope_profile": scope_profile,
         "scheduler_scope": scope.public_dict(),
         "start_fingerprint": info.start_fingerprint,
-        "command_sha256": info.command_sha256,
+        "command_identity_sha256": command_identity_sha256(info.command),
         "started_at_utc": _utc_now(),
         "app_key_fingerprint": auth.get("app_key_fingerprint"),
     }
@@ -340,7 +422,7 @@ def status_service() -> dict[str, Any]:
             "status", "BLOCKED_STALE_PID", managed=False,
             state_removed=False, scheduler=load_scheduler_state(),
         )
-    state = _migrate_matched_start_fingerprint(state, info)
+    state = _migrate_matched_identity(state, info)
     return _result(
         "status", "PASS", managed=True, pid=pid,
         scheduler=load_scheduler_state(),

@@ -9,6 +9,19 @@
 
 R1、R2、R3、R4のコード・DB・Read API修正を実装した。R5はproviderを推測採用せず、provider-neutralな検査contractとprovider障害分類まで実装し、`BLOCKED_SOURCE_PROVIDER_NOT_CONFIGURED`を維持した。したがって、1Hデータ経路は運用可能だが、current total-returnと3 XNYS取引日SLAは未完了である。
 
+### 2026-08-07 lifecycle identity 追補
+
+macOS framework Python は起動後、`ps`上の実行ファイル表記をvenv launcherから`Python.app`実体へ変更し得る。PID、repo cwd、開始fingerprint、固定module・verb・port・scopeが一致していても、実行ファイル表記を含む完全command SHAだけが変わるため、schedulerとRead APIのstateは意味的command identityへ移行した。許可Python実行系と固定引数は別途厳格照合し、PID再利用、cwd・開始時刻・引数・scope不一致は引き続きfail-closedとする。旧stateは全identity一致時に限り`status`が原子的に移行し、手編集しない。
+
+実データ用の確認ではtargetを明示する。
+
+```bash
+.venv/bin/python -m market_db.periodic_update_service status
+SAXO_MARKET_DB=saxo_market_live .venv/bin/python -m market_db.read_api_preflight --format json
+```
+
+停止前には新しいmanager processからOAuthが`AUTH_READY`になることを必ず確認する。`AUTH_CONFIG_MISSING`なら稼働中schedulerを停止せず、検証済みstate移行だけで管理状態を復旧する。
+
 ## 2. R1〜R5判定
 
 | ID | 判定 | 証跡 |

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from market_db.connection import project_root
+from market_db.connection import MARKET_DB, project_root
 from market_db.read_api_preflight import (
     ALLOWED_REQUEST_PATHS,
     BLOCKED_API_CONTRACT_MISMATCH,
@@ -16,12 +16,17 @@ from market_db.read_api_preflight import (
     FAILED_PREFLIGHT_INTERNAL,
     PASS,
     ProcessInfo,
+    command_identity_sha256,
     check_readiness,
     is_expected_process,
     managed_process_matches,
     readiness_exit_code,
 )
-from market_db.read_api_service import _safe_child_environment, _terminate_owned
+from market_db.read_api_service import (
+    _migrate_matched_identity,
+    _safe_child_environment,
+    _terminate_owned,
+)
 
 
 class FakeProbe:
@@ -30,7 +35,7 @@ class FakeProbe:
         self.requests: list[str] = []
         self.info = ProcessInfo(
             321,
-            "/repo/.venv/bin/python -m market_db.read_api --port 8766",
+            f"{project_root()}/.venv/bin/python -m market_db.read_api --port 8766",
             str(project_root().resolve()),
             "Tue Jul 21 00:00:00 2026",
         )
@@ -72,7 +77,7 @@ class FakeProbe:
             return (503 if status == "FAIL" else 200), {
                 "status": status,
                 "database": {
-                    "database_name": "saxo_market", "role_name": role,
+                    "database_name": MARKET_DB, "role_name": role,
                     "transaction_read_only": read_only, "statement_timeout": "30s",
                 },
             }
@@ -124,6 +129,7 @@ def test_process_identity_requires_repo_cwd_module_and_fixed_port():
     assert not is_expected_process(ProcessInfo(valid.pid, valid.command, "/tmp", valid.start_fingerprint))
     assert not is_expected_process(ProcessInfo(valid.pid, valid.command.replace("8766", "8767"), valid.cwd, valid.start_fingerprint))
     assert not is_expected_process(ProcessInfo(valid.pid, valid.command.replace("market_db.read_api", "http.server"), valid.cwd, valid.start_fingerprint))
+    assert not is_expected_process(ProcessInfo(valid.pid, valid.command.replace(str(project_root() / ".venv/bin/python"), "/bin/sh"), valid.cwd, valid.start_fingerprint))
 
 
 def test_managed_state_rejects_pid_reuse_and_stale_fingerprint():
@@ -142,6 +148,24 @@ def test_stale_state_never_signals_unmatched_process(monkeypatch):
     monkeypatch.setattr("market_db.read_api_service.os.kill", lambda pid, sig: signals.append((pid, sig)))
     assert _terminate_owned(state, probe, 0.01) is False
     assert signals == []
+
+
+def test_read_api_legacy_identity_migrates_to_semantic_hash(monkeypatch):
+    probe = FakeProbe({"listener": "expected"})
+    state = probe.managed_state()
+    written = []
+    monkeypatch.setattr("market_db.read_api_service._write_state", written.append)
+
+    migrated = _migrate_matched_identity(state, probe.info)
+
+    assert migrated["schema_version"] == 2
+    assert migrated["owner"] == "saxo_db.read_api_service"
+    assert "command_sha256" not in migrated
+    assert migrated["command_identity_sha256"] == command_identity_sha256(
+        probe.info.command
+    )
+    assert written == [migrated]
+    assert managed_process_matches(migrated, probe.info)
 
 
 def test_child_environment_removes_all_market_credentials(monkeypatch):

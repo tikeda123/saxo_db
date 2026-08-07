@@ -9,6 +9,7 @@ import os
 import re
 import shlex
 import subprocess
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -243,15 +244,63 @@ def is_expected_process(info: ProcessInfo | None, *, port: int = DEFAULT_PORT) -
         tokens = shlex.split(info.command)
     except ValueError:
         return False
-    module_match = any(
-        tokens[index:index + 2] == ["-m", EXPECTED_MODULE]
-        for index in range(max(0, len(tokens) - 1))
+    if len(tokens) != 5:
+        return False
+    executable = str(Path(tokens[0]).resolve())
+    allowed = {str(Path(item).resolve()) for item in allowed_python_executables()}
+    return executable in allowed and tokens[1:] == [
+        "-m", EXPECTED_MODULE, "--port", str(port)
+    ]
+
+
+def allowed_python_executables() -> frozenset[str]:
+    """Return this runtime's venv, base, and macOS framework launch paths."""
+
+    candidates = {str(Path(sys.executable))}
+    base_executable = getattr(sys, "_base_executable", None)
+    if isinstance(base_executable, str) and base_executable:
+        candidates.add(base_executable)
+    allowed: set[str] = set()
+    for value in candidates:
+        selected = Path(value)
+        allowed.add(str(selected))
+        try:
+            resolved = selected.resolve(strict=True)
+        except OSError:
+            continue
+        allowed.add(str(resolved))
+        if resolved.parent.name == "bin" and resolved.name.lower().startswith("python"):
+            framework_python = (
+                resolved.parent.parent
+                / "Resources/Python.app/Contents/MacOS/Python"
+            )
+            if framework_python.is_file():
+                allowed.add(str(framework_python.resolve()))
+    return frozenset(allowed)
+
+
+def command_identity_sha256(command: str) -> str | None:
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return None
+    if len(tokens) < 2:
+        return None
+    payload = json.dumps(tokens[1:], ensure_ascii=True, separators=(",", ":"))
+    return sha256_bytes(payload.encode("utf-8"))
+
+
+def _legacy_command_sha256_matches(state: dict[str, Any], info: ProcessInfo) -> bool:
+    stored = state.get("command_sha256")
+    if not isinstance(stored, str):
+        return False
+    if stored == info.command_sha256:
+        return True
+    tail = ["-m", EXPECTED_MODULE, "--port", str(DEFAULT_PORT)]
+    return any(
+        sha256_bytes(" ".join([launcher, *tail]).encode("utf-8")) == stored
+        for launcher in allowed_python_executables()
     )
-    port_match = any(
-        tokens[index:index + 2] == ["--port", str(port)]
-        for index in range(max(0, len(tokens) - 1))
-    )
-    return module_match and port_match
 
 
 def managed_process_matches(
@@ -259,17 +308,25 @@ def managed_process_matches(
 ) -> bool:
     if state is None or info is None:
         return False
-    return (
-        state.get("schema_version") == 1
+    common_match = (
+        state.get("schema_version") in {1, 2}
         and state.get("pid") == info.pid
         and state.get("port") == DEFAULT_PORT
         and state.get("cwd") == info.cwd
         and process_start_fingerprints_match(
             state.get("start_fingerprint"), info.start_fingerprint
         )
-        and state.get("command_sha256") == info.command_sha256
         and is_expected_process(info)
     )
+    if not common_match:
+        return False
+    if state.get("schema_version") == 2:
+        return (
+            state.get("owner") == "saxo_db.read_api_service"
+            and state.get("command_identity_sha256")
+            == command_identity_sha256(info.command)
+        )
+    return _legacy_command_sha256_matches(state, info)
 
 
 def empty_result(status: str) -> dict[str, Any]:

@@ -4,7 +4,9 @@ from market_db.connection import project_root
 from market_db.periodic_update import ACTIVE_SCOPE_PROFILE, CANDIDATE_READY_SCOPE_PROFILE
 import market_db.periodic_update_service as service_module
 from market_db.periodic_update_service import (
+    _migrate_matched_identity,
     _safe_child_environment,
+    command_identity_sha256,
     is_expected_process,
     managed_process_matches,
     start_service,
@@ -47,6 +49,11 @@ def test_periodic_service_identity_requires_repo_module_serve_and_port():
     )
     assert not is_expected_process(
         valid, callback_port=8764, scope_profile="all_managed_series_v1"
+    )
+    assert not is_expected_process(
+        process_info(valid.command.replace(str(project_root() / ".venv/bin/python"), "/bin/sh")),
+        callback_port=8764,
+        scope_profile=ACTIVE_SCOPE_PROFILE,
     )
 
 
@@ -107,6 +114,64 @@ def test_periodic_process_identity_rejects_cwd_command_and_start_mismatch():
     assert not managed_process_matches(
         {**base, "start_fingerprint": "Fri Jul 24 12:00:01 2026"}, info
     )
+
+
+def test_legacy_identity_accepts_verified_macos_python_argv0_rewrite_and_migrates(
+    monkeypatch,
+):
+    launch_executable = str(project_root() / ".venv/bin/python")
+    observed_executable = "/framework/Resources/Python.app/Contents/MacOS/Python"
+    tail = (
+        "-m market_db.periodic_update serve --callback-port 8764 "
+        f"--scope-profile {ACTIVE_SCOPE_PROFILE}"
+    )
+    launched = process_info(f"{launch_executable} {tail}")
+    observed = process_info(f"{observed_executable} {tail}")
+    state = {
+        "schema_version": 2,
+        "owner": "saxo_db.periodic_update_service",
+        "pid": observed.pid,
+        "cwd": observed.cwd,
+        "callback_port": 8764,
+        "scope_profile": ACTIVE_SCOPE_PROFILE,
+        "start_fingerprint": observed.start_fingerprint,
+        "command_sha256": launched.command_sha256,
+    }
+    monkeypatch.setattr(
+        service_module,
+        "_allowed_python_executables",
+        lambda: frozenset({launch_executable, observed_executable}),
+    )
+    written = []
+    monkeypatch.setattr(service_module, "_write_service_state", written.append)
+
+    assert managed_process_matches(state, observed)
+    migrated = _migrate_matched_identity(state, observed)
+
+    assert migrated["schema_version"] == 3
+    assert "command_sha256" not in migrated
+    assert migrated["command_identity_sha256"] == command_identity_sha256(
+        observed.command
+    )
+    assert written == [migrated]
+    assert managed_process_matches(migrated, observed)
+
+
+def test_semantic_identity_still_rejects_command_argument_change():
+    info = process_info()
+    state = {
+        "schema_version": 3,
+        "owner": "saxo_db.periodic_update_service",
+        "pid": info.pid,
+        "cwd": info.cwd,
+        "callback_port": 8764,
+        "scope_profile": ACTIVE_SCOPE_PROFILE,
+        "start_fingerprint": info.start_fingerprint,
+        "command_identity_sha256": command_identity_sha256(info.command),
+    }
+    assert managed_process_matches(state, info)
+    changed = process_info(info.command.replace("8764", "8765"))
+    assert not managed_process_matches(state, changed)
 
 
 def test_periodic_child_environment_removes_market_credentials_but_keeps_oauth_app_key(monkeypatch):
